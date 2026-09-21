@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 
 	"bootimus/internal/metrics"
@@ -22,6 +23,7 @@ const (
 
 type Config struct {
 	ServerIP        net.IP
+	ServerHTTPPort  int
 	Interface       string
 	BootfileBIOS    string
 	BootfileUEFI    string
@@ -138,8 +140,16 @@ func (s *Server) loop(conn *net.UDPConn, bootp bool) {
 }
 
 func (s *Server) handle(conn *net.UDPConn, src *net.UDPAddr, req *dhcpv4.DHCPv4, bootp bool) {
+	optClassIdentifier := ""
+	isHTTPClient := false
 	vci := req.ClassIdentifier()
-	if len(vci) < 9 || vci[:9] != "PXEClient" {
+	if strings.HasPrefix(vci, "PXEClient") {
+		optClassIdentifier = "PXEClient"
+	} else if strings.HasPrefix(vci, "HTTPClient") {
+		optClassIdentifier = "HTTPClient"
+		isHTTPClient = true
+	}
+	if optClassIdentifier == "" {
 		return
 	}
 
@@ -158,9 +168,14 @@ func (s *Server) handle(conn *net.UDPConn, src *net.UDPAddr, req *dhcpv4.DHCPv4,
 		dhcpv4.WithMessageType(respType),
 		dhcpv4.WithServerIP(s.cfg.ServerIP),
 		dhcpv4.WithOption(dhcpv4.OptServerIdentifier(s.cfg.ServerIP)),
-		dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
-		dhcpv4.WithOption(dhcpv4.OptTFTPServerName(s.cfg.ServerIP.String())),
-		dhcpv4.WithOption(dhcpv4.OptGeneric(dhcpv4.OptionVendorSpecificInformation, pxeVendorOptions())),
+		dhcpv4.WithOption(dhcpv4.OptClassIdentifier(optClassIdentifier)),
+	}
+	if isHTTPClient {
+		bootfile = fmt.Sprintf("http://%s:%d/%s", s.cfg.ServerIP, s.cfg.ServerHTTPPort, bootfile)
+	} else {
+		modifiers = append(modifiers,
+			dhcpv4.WithOption(dhcpv4.OptTFTPServerName(s.cfg.ServerIP.String())),
+			dhcpv4.WithOption(dhcpv4.OptGeneric(dhcpv4.OptionVendorSpecificInformation, pxeVendorOptions())))
 	}
 	if !s.cfg.NoBootfileption {
 		modifiers = append(modifiers, dhcpv4.WithOption(dhcpv4.OptBootFileName(bootfile)))
@@ -217,9 +232,9 @@ func (s *Server) effectiveBootfiles() (bios, uefi, arm64 string) {
 func (s *Server) bootfileFor(req *dhcpv4.DHCPv4) string {
 	bios, uefi, arm64 := s.effectiveBootfiles()
 	switch clientArch(req) {
-	case iana.EFI_IA32, iana.EFI_X86_64, iana.EFI_BC:
+	case iana.EFI_IA32, iana.EFI_X86_64, iana.EFI_X86_64_HTTP, iana.EFI_BC, iana.EFI_BC_HTTP:
 		return uefi
-	case iana.EFI_ARM64:
+	case iana.EFI_ARM64, iana.EFI_ARM64_HTTP:
 		return arm64
 	default:
 		return bios
