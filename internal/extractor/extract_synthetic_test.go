@@ -225,3 +225,21 @@ func TestExtractFedoraLayout(t *testing.T) {
 		t.Errorf("extracted kernel content = %q, want fedora kernel", got)
 	}
 }
+
+func TestExtractSystemRescueLayout(t *testing.T) {
+	files := map[string]string{
+		"/sysresccd/boot/x86_64/vmlinuz":       "sysresccd-kernel",
+		"/sysresccd/boot/x86_64/sysresccd.img": "sysresccd-initrd",
+		"/sysresccd/boot/intel_ucode.img":      "intel-microcode",
+		"/sysresccd/boot/amd_ucode.img":        "amd-microcode",
+	}
+
+	bootFiles, _ := extractTestISO(t, "systemrescue-13.02-amd64.iso", files)
+
+	if bootFiles.Distro != "systemrescue" {
+		t.Errorf("distro = %q, want systemrescue", bootFiles.Distro)
+	}
+	if got := readFileString(t, bootFiles.Initrd); got != "sysresccd-initrd" {
+		t.Errorf("extracted initrd content = %q, want the sysresccd initramfs", got)
+	}
+}
