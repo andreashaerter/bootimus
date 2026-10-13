@@ -512,6 +512,21 @@ func (h *Handler) UpdateClient(w http.ResponseWriter, r *http.Request) {
 	if aif, ok := updates["auto_install_file"].(string); ok {
 		client.AutoInstallFile = aif
 	}
+	if host, ok := updates["ipmi_host"].(string); ok {
+		client.IPMIHost = host
+	}
+	if port, ok := updates["ipmi_port"].(float64); ok {
+		client.IPMIPort = int(port)
+	}
+	if user, ok := updates["ipmi_username"].(string); ok {
+		client.IPMIUsername = user
+	}
+	if pass, ok := updates["ipmi_password"].(string); ok {
+		client.IPMIPassword = pass
+	}
+	if insecure, ok := updates["ipmi_insecure"].(bool); ok {
+		client.IPMIInsecure = insecure
+	}
 	if groupID, ok := updates["client_group_id"]; ok {
 		if groupID == nil {
 			client.ClientGroupID = nil
