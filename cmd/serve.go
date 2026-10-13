@@ -187,7 +187,7 @@ func runServe(cmd *cobra.Command, args []string) {
 		log.Printf("Warning: Failed to seed distro profiles: %v", err)
 	}
 	if profileMgr.DisableRemoteCheck {
-		log.Println("Remote distro profile updates disabled")
+		log.Println("Remote distro profile and tool catalogue updates disabled")
 	}
 
 	cfg := &server.Config{

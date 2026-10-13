@@ -53,7 +53,7 @@ proxy_dhcp:
 ### 要求和注意事项
 
 - **绑定 UDP/67 和 UDP/4011。** UDP/67 需要 `CAP_NET_BIND_SERVICE` 或 root 权限;UDP/4011 是 PXE boot-server 发现端口,某些 UEFI ROM(尤其是 AMI/Supermicro)会在最初的 offer 之后从这个端口继续。Docker 中,默认镜像已经以 root 运行,所以无需额外 capability;仅在 rootless 设置中才需要 `--cap-add NET_BIND_SERVICE`。
-- **同一广播域。** proxyDHCP 依赖于看到客户端 DHCP 广播。它在扁平局域网或单个 VLAN 上工作。如果你的网络使用 DHCP 中继(`ip helper-address`)跨 VLAN 转发 DHCP,中继会转发到你的主 DHCP 但不转发到 Bootimus — 把 Bootimus 加为额外的中继目标,或把目标保持在与 Bootimus 同一个 VLAN。
+- **同一广播域。** proxyDHCP 依赖于看到客户端 DHCP 广播。它在扁平局域网或单个 VLAN 上工作。如果你的网络使用 DHCP 中继(`ip helper-address`)跨 VLAN 转发 DHCP,中继会转发到你的主 DHCP 但不转发到 Bootimus — 把 Bootimus 加为额外的中继目标,或把目标保持在与 Bootimus 同一个 VLAN。Bootimus 会按 RFC 2131 的要求,以单播方式把对中继请求的回复发送到中继地址(`giaddr`),由中继转交给客户端。
 - **Docker 网络。** 使用 `macvlan`、`ipvlan` 或 `network_mode: host`,这样容器才是广播域里的一等参与者。默认桥接网络不行 — 广播会被困在 `docker0` 里。
 - **同一局域网上的两个 proxyDHCP 服务器是合法的,但调试是噩梦。** 如果你启用了 Bootimus 内置的 proxyDHCP,请在同一网络上禁用任何现有的、为 PXE 通告的 dnsmasq proxyDHCP。
 

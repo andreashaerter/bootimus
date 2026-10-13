@@ -380,10 +380,10 @@ func (mb *MenuBuilder) buildKernelBootSection(img *models.Image, encodedFilename
 		initrdName := ""
 		if img.InitrdOverride != "" {
 			initrdPath = encodePathSegments(img.InitrdOverride)
-			initrdName = " initrd"
+			initrdName = "--name initrd "
 		}
 		sb.WriteString(fmt.Sprintf("kernel %s/boot/%s/%s%s%s\n", baseURL, cacheDir, kernelPath, autoInstallParam, bootParams))
-		sb.WriteString(fmt.Sprintf("initrd %s/boot/%s/%s%s\n", baseURL, cacheDir, initrdPath, initrdName))
+		sb.WriteString(fmt.Sprintf("initrd %s%s/boot/%s/%s\n", initrdName, baseURL, cacheDir, initrdPath))
 		if img.ShimPath != "" {
 			sb.WriteString(fmt.Sprintf("iseq ${platform} efi && shim %s/boot/%s/%s ||\n", baseURL, cacheDir, encodePathSegments(img.ShimPath)))
 		}
@@ -435,6 +435,15 @@ func wimbootArgs(params string) string {
 		}
 	}
 	return strings.Join(kept, " ")
+}
+
+func hasInitrdParam(params string) bool {
+	for _, f := range strings.Fields(params) {
+		if strings.HasPrefix(f, "initrd=") {
+			return true
+		}
+	}
+	return false
 }
 
 func (mb *MenuBuilder) resolveBootParams(img *models.Image, baseURL, encodedFilename, cacheDir string) string {
@@ -495,9 +504,13 @@ func (mb *MenuBuilder) buildFooter() string {
 			sb.WriteString(fmt.Sprintf("initrd %s\n", t.KernelURL))
 			sb.WriteString("chain memdisk raw || goto failed\n\n")
 		default:
-			sb.WriteString(fmt.Sprintf("kernel %s %s\n", t.KernelURL, t.BootParams))
+			params := t.BootParams
+			if t.InitrdURL != "" && !hasInitrdParam(params) {
+				params = strings.TrimSpace("initrd=initrd " + params)
+			}
+			sb.WriteString(fmt.Sprintf("kernel %s %s\n", t.KernelURL, params))
 			if t.InitrdURL != "" {
-				sb.WriteString(fmt.Sprintf("initrd %s\n", t.InitrdURL))
+				sb.WriteString(fmt.Sprintf("initrd --name initrd %s\n", t.InitrdURL))
 			}
 			sb.WriteString("boot || goto failed\n\n")
 		}

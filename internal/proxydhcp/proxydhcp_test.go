@@ -225,3 +225,23 @@ func TestPXEClientKeepsPXEClassAndTFTPServer(t *testing.T) {
 		t.Errorf("TFTP server name = %q, want 192.168.203.111", got)
 	}
 }
+
+func TestReplyAddr(t *testing.T) {
+	src := &net.UDPAddr{IP: net.ParseIP("10.0.5.20"), Port: 68}
+	relay := net.ParseIP("10.0.5.1").To4()
+
+	direct := discover(t, "aa:bb:cc:dd:ee:ff", "PXEClient:Arch:00007")
+	if got := replyAddr(src, direct, true); !got.IP.Equal(net.IPv4bcast) || got.Port != 68 {
+		t.Errorf("direct broadcast reply went to %v, want 255.255.255.255:68", got)
+	}
+
+	relayed := discover(t, "aa:bb:cc:dd:ee:ff", "PXEClient:Arch:00007")
+	relayed.GatewayIPAddr = relay
+	if got := replyAddr(src, relayed, true); !got.IP.Equal(relay) || got.Port != 67 {
+		t.Errorf("relayed reply went to %v, want %v:67", got, relay)
+	}
+
+	if got := replyAddr(src, relayed, false); got != src {
+		t.Errorf("port 4011 reply went to %v, want the requester %v", got, src)
+	}
+}

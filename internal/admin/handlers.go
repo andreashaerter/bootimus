@@ -63,6 +63,8 @@ type Handler struct {
 	autoInstallLib     *autoinstall.Library
 	extractionMu       sync.RWMutex
 	extractionStates   map[string]*extractionState
+	bootWimLocksMu     sync.Mutex
+	bootWimLocks       map[string]*sync.Mutex
 	SchedulerReload    func() error
 	SchedulerRunNow    func(id uint) error
 	WebhookNotifier    *webhook.Notifier
@@ -198,10 +200,27 @@ func (h *Handler) extractedBootWimPath(isoFilename string) string {
 	return findExtractedBootWim(filepath.Join(h.isoDir, isoBase, "iso"))
 }
 
+func (h *Handler) bootWimLock(isoFilename string) *sync.Mutex {
+	h.bootWimLocksMu.Lock()
+	defer h.bootWimLocksMu.Unlock()
+	if h.bootWimLocks == nil {
+		h.bootWimLocks = make(map[string]*sync.Mutex)
+	}
+	mu, ok := h.bootWimLocks[isoFilename]
+	if !ok {
+		mu = &sync.Mutex{}
+		h.bootWimLocks[isoFilename] = mu
+	}
+	return mu
+}
+
 func (h *Handler) discardStaleBootWimBackup(isoFilename string) {
 	if bootWimPath := h.extractedBootWimPath(isoFilename); bootWimPath != "" {
 		if err := os.Remove(bootWimPath + ".orig"); err == nil {
 			log.Printf("Windows SMB: discarded stale boot.wim backup for %s", isoFilename)
+		}
+		if err := os.Remove(bootWimPath + ".backup"); err == nil {
+			log.Printf("Windows SMB: discarded stale legacy boot.wim driver backup for %s", isoFilename)
 		}
 	}
 }
@@ -511,6 +530,21 @@ func (h *Handler) UpdateClient(w http.ResponseWriter, r *http.Request) {
 	}
 	if aif, ok := updates["auto_install_file"].(string); ok {
 		client.AutoInstallFile = aif
+	}
+	if host, ok := updates["ipmi_host"].(string); ok {
+		client.IPMIHost = host
+	}
+	if port, ok := updates["ipmi_port"].(float64); ok {
+		client.IPMIPort = int(port)
+	}
+	if user, ok := updates["ipmi_username"].(string); ok {
+		client.IPMIUsername = user
+	}
+	if pass, ok := updates["ipmi_password"].(string); ok {
+		client.IPMIPassword = pass
+	}
+	if insecure, ok := updates["ipmi_insecure"].(bool); ok {
+		client.IPMIInsecure = insecure
 	}
 	if groupID, ok := updates["client_group_id"]; ok {
 		if groupID == nil {
@@ -1422,11 +1456,14 @@ func (h *Handler) ExtractImage(w http.ResponseWriter, r *http.Request) {
 	image.InstallWimPath = bootFiles.InstallWim
 
 	if bootFiles.Distro == "windows" {
+		mu := h.bootWimLock(filename)
+		mu.Lock()
 		h.discardStaleBootWimBackup(filename)
 		image.SMBInstallEnabled = h.patchWindowsBootWim(filename)
 		if image.SMBInstallEnabled {
 			image.SMBPatchFingerprint = h.computeSMBPatchFingerprint(image)
 		}
+		mu.Unlock()
 	}
 
 	log.Printf("Setting boot_method to 'kernel' for image ID=%d, filename=%s", image.ID, image.Filename)
@@ -1511,7 +1548,10 @@ func (h *Handler) PatchImageSMB(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	mu := h.bootWimLock(filename)
+	mu.Lock()
 	ok := h.patchWindowsBootWim(filename)
+	mu.Unlock()
 	image.SMBInstallEnabled = ok
 	if ok {
 		image.SMBPatchFingerprint = h.computeSMBPatchFingerprint(image)
@@ -1550,6 +1590,10 @@ func (h *Handler) UnpatchImageSMB(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	mu := h.bootWimLock(filename)
+	mu.Lock()
+	defer mu.Unlock()
+
 	bootWimPath := h.extractedBootWimPath(filename)
 	if bootWimPath == "" {
 		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "No extracted boot.wim found for this image"})
@@ -1566,10 +1610,16 @@ func (h *Handler) UnpatchImageSMB(w http.ResponseWriter, r *http.Request) {
 		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: fmt.Sprintf("Failed to restore original boot.wim: %v", err)})
 		return
 	}
+	os.Remove(bootWimPath + ".backup")
 	log.Printf("Windows SMB: restored pristine boot.wim for %s", filename)
 
+	isoBase := strings.TrimSuffix(filename, filepath.Ext(filename))
+	sharePath := filepath.Join(h.isoDir, isoBase, "iso")
+	if err := os.Remove(filepath.Join(sharePath, "AutoUnattend.xml")); err == nil {
+		log.Printf("Windows SMB: removed staged AutoUnattend.xml for %s", filename)
+	}
+
 	if h.smbManager != nil {
-		isoBase := strings.TrimSuffix(filename, filepath.Ext(filename))
 		shareName := smb.SanitiseShareName(isoBase)
 		if h.smbManager.HasShare(shareName) {
 			h.smbManager.RemoveShare(shareName)
@@ -1586,7 +1636,17 @@ func (h *Handler) UnpatchImageSMB(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.sendJSON(w, http.StatusOK, Response{Success: true, Message: "Original boot.wim restored", Data: image})
+	message := "Original boot.wim restored"
+	if packs, err := h.storage.ListDriverPacksByImage(image.ID); err == nil && len(packs) > 0 {
+		message = "Original boot.wim restored; re-applying driver packs in the background"
+		go func(imageID uint) {
+			if err := h.RebuildBootWim(imageID); err != nil {
+				log.Printf("Windows SMB: failed to re-apply driver packs after unpatch of %s: %v", filename, err)
+			}
+		}(image.ID)
+	}
+
+	h.sendJSON(w, http.StatusOK, Response{Success: true, Message: message, Data: image})
 }
 
 func (h *Handler) RedetectImage(w http.ResponseWriter, r *http.Request) {
@@ -2985,6 +3045,23 @@ func formatBytes(bytes int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
+func isoDownloadFilename(rawURL, requested string) (string, error) {
+	if requested == "" {
+		filename := filepath.Base(rawURL)
+		if !strings.HasSuffix(strings.ToLower(filename), ".iso") {
+			return "", fmt.Errorf("URL must point to an .iso file")
+		}
+		return filename, nil
+	}
+	if requested == "." || requested == ".." || strings.ContainsAny(requested, `/\`) {
+		return "", fmt.Errorf("filename must be a plain file name without directories")
+	}
+	if !strings.HasSuffix(strings.ToLower(requested), ".iso") {
+		return "", fmt.Errorf("filename must end in .iso")
+	}
+	return requested, nil
+}
+
 func (h *Handler) DownloadISO(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		URL         string `json:"url"`
@@ -3002,14 +3079,9 @@ func (h *Handler) DownloadISO(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var filename string
-	if req.Filename != "" {
-		filename = req.Filename
-	} else {
-		filename = filepath.Base(req.URL)
-	}
-	if !strings.HasSuffix(strings.ToLower(filename), ".iso") {
-		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "URL must point to an .iso file"})
+	filename, err := isoDownloadFilename(req.URL, req.Filename)
+	if err != nil {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: err.Error()})
 		return
 	}
 

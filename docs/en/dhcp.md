@@ -53,7 +53,7 @@ Off by default so existing installs that already run dnsmasq/ISC-DHCP/etc. aren'
 ### Requirements and caveats
 
 - **Binds UDP/67 and UDP/4011.** UDP/67 requires `CAP_NET_BIND_SERVICE` or root; UDP/4011 is the PXE boot-server discovery port that some UEFI ROMs (notably AMI/Supermicro) follow up on after the initial offer. In Docker, the default image already runs as root so no extra capability needed; add `--cap-add NET_BIND_SERVICE` only for rootless setups.
-- **Same broadcast domain.** proxyDHCP relies on seeing client DHCP broadcasts. It works on a flat LAN or a single VLAN. If your network uses a DHCP relay (`ip helper-address`) to forward DHCP across VLANs, the relay forwards to your main DHCP but not to Bootimus — add Bootimus as an additional relay target, or keep targets on the same VLAN as Bootimus.
+- **Same broadcast domain.** proxyDHCP relies on seeing client DHCP broadcasts. It works on a flat LAN or a single VLAN. If your network uses a DHCP relay (`ip helper-address`) to forward DHCP across VLANs, the relay forwards to your main DHCP but not to Bootimus — add Bootimus as an additional relay target, or keep targets on the same VLAN as Bootimus. Bootimus replies to relayed requests by unicasting to the relay address (`giaddr`), as RFC 2131 requires, so the relay can pass them back to the client.
 - **Docker networking.** Use `macvlan`, `ipvlan`, or `network_mode: host` so the container is a first-class participant on the broadcast domain. A default bridge network will not work — broadcasts get trapped inside `docker0`.
 - **Two proxyDHCP servers on the same LAN is legal, but debugging is a nightmare.** If you enable Bootimus's built-in proxyDHCP, disable any existing dnsmasq proxyDHCP advertising PXE on the same network.
 
