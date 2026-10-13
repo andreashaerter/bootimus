@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"bootimus/bootloaders"
 	"bootimus/raspberrypi"
@@ -799,11 +800,24 @@ func tftpRemote(rf io.ReaderFrom) string {
 	return "?"
 }
 
+func sanitiseTFTPFilename(name string) string {
+	if i := strings.IndexFunc(name, func(r rune) bool {
+		return r == utf8.RuneError || r < 0x20 || r == 0x7f
+	}); i >= 0 {
+		name = name[:i]
+	}
+	return name
+}
+
 func (s *Server) startTFTPServer() error {
 	log.Printf("Starting TFTP server on port %d...", s.config.TFTPPort)
 
 	server := tftp.NewServer(
 		func(filename string, rf io.ReaderFrom) error {
+			if clean := sanitiseTFTPFilename(filename); clean != filename {
+				log.Printf("TFTP: Truncated malformed filename %q to %q", filename, clean)
+				filename = clean
+			}
 			cleanPath := filepath.Clean(filename)
 			if filepath.IsAbs(cleanPath) {
 				cleanPath = filepath.Base(cleanPath)
