@@ -2512,14 +2512,21 @@ func (h *Handler) DownloadTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	def := tools.GetDefinition(name)
-	if def == nil {
+	tool, err := h.storage.GetBootTool(name)
+	if err != nil || tool == nil {
+		h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "Unknown tool"})
+		return
+	}
+	displayName := tool.DisplayName
+	if def := tools.GetDefinition(name); def != nil {
+		displayName = def.DisplayName
+	} else if !tool.Custom {
 		h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "Unknown tool"})
 		return
 	}
 
 	if h.toolsManager.InProgress(name) {
-		h.sendJSON(w, http.StatusConflict, Response{Success: false, Error: fmt.Sprintf("%s is already downloading", def.DisplayName)})
+		h.sendJSON(w, http.StatusConflict, Response{Success: false, Error: fmt.Sprintf("%s is already downloading", displayName)})
 		return
 	}
 
@@ -2529,7 +2536,7 @@ func (h *Handler) DownloadTool(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	h.sendJSON(w, http.StatusOK, Response{Success: true, Message: fmt.Sprintf("Downloading %s...", def.DisplayName)})
+	h.sendJSON(w, http.StatusOK, Response{Success: true, Message: fmt.Sprintf("Downloading %s...", displayName)})
 }
 
 func (h *Handler) DeleteTool(w http.ResponseWriter, r *http.Request) {
