@@ -86,6 +86,8 @@ chmod +x bootimus-amd64
 # Admin panel: http://localhost:8081
 ```
 
+Install `bsdtar` (`libarchive-tools` on Debian/Ubuntu, `libarchive` on Arch and Fedora) alongside the binary. Bootimus uses it to extract ISOs with their full Rock Ridge and Joliet file names; without it, extraction falls back to a built-in reader that can shorten long names on some ISOs, which breaks RPM repositories. The Docker image already includes it.
+
 ### Docker Compose
 
 ```bash

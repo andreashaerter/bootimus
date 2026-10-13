@@ -23,6 +23,7 @@ type DirEntry struct {
 
 type ISO9660Reader struct {
 	img     *iso9660.Image
+	isoPath string
 	extract *Extractor
 }
 
@@ -35,7 +36,7 @@ func (r *ISO9660Reader) ExtractFile(isoPath, destPath string) error {
 }
 
 func (r *ISO9660Reader) ExtractAll(destDir string) error {
-	return r.extract.extractISOContents(r.img, destDir)
+	return r.extract.extractISOContents(r.img, r.isoPath, destDir)
 }
 
 func (r *ISO9660Reader) ReadFileContent(path string) string {
