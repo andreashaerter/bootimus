@@ -119,6 +119,31 @@ func TestBuildKernelBootSectionStripsBareNocloudParam(t *testing.T) {
 	}
 }
 
+func TestBuildKernelBootSectionShimChain(t *testing.T) {
+	img := &models.Image{
+		ID:         7,
+		Filename:   "fedora.iso",
+		Enabled:    true,
+		BootMethod: "kernel",
+		Distro:     "fedora",
+		BootParams: "ip=dhcp",
+		ShimPath:   "iso/EFI/BOOT/BOOTX64.EFI",
+	}
+	mb := testMenuBuilder(nil)
+
+	out := mb.buildKernelBootSection(img, "fedora.iso", "fedora")
+	want := "iseq ${platform} efi && shim http://10.0.0.1:8080/boot/fedora/iso/EFI/BOOT/BOOTX64.EFI ||\nboot || goto failed\n"
+	if !strings.Contains(out, want) {
+		t.Errorf("expected shim chain line before boot, got:\n%s", out)
+	}
+
+	img.ShimPath = ""
+	out = mb.buildKernelBootSection(img, "fedora.iso", "fedora")
+	if strings.Contains(out, "shim ") {
+		t.Errorf("expected no shim line without a detected shim, got:\n%s", out)
+	}
+}
+
 func TestResolveBootParamsPlaceholders(t *testing.T) {
 	img := &models.Image{
 		BootParams: "url={{BASE_URL}} host={{SERVER_ADDR}} file={{IMAGE_FILENAME}} legacy={{FILENAME}} cache={{CACHE_DIR}} mac={{MAC}}",
@@ -152,6 +177,23 @@ func TestBuildWindowsBootSectionDropsPathTokens(t *testing.T) {
 	}
 	if !strings.Contains(out, "initrd http://10.0.0.1:8080/boot/Win11_25H2/iso/sources/boot.wim boot.wim") {
 		t.Errorf("expected boot.wim initrd line, got:\n%s", out)
+	}
+}
+
+func TestBuildWindowsBootSectionDropsLinuxParams(t *testing.T) {
+	mb := testMenuBuilder(nil)
+	img := &models.Image{
+		ID:         9,
+		Filename:   "Win11_25H2.iso",
+		Enabled:    true,
+		BootMethod: "kernel",
+		Distro:     "windows",
+		BootParams: "iso-url={{BASE_URL}}/isos/{{FILENAME}} ip=dhcp gui index=2 pause=quiet",
+	}
+
+	out := mb.buildKernelBootSection(img, "Win11_25H2.iso", "Win11_25H2")
+	if !strings.Contains(out, "kernel http://10.0.0.1:8080/wimboot gui index=2 pause=quiet\n") {
+		t.Errorf("expected only wimboot arguments on the kernel line, got:\n%s", out)
 	}
 }
 

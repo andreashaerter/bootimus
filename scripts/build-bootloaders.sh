@@ -1,13 +1,18 @@
 #!/bin/bash
 set -euo pipefail
 
-BOOTLOADERS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bootloaders" && pwd)"
+SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BOOTLOADERS_ROOT="$(cd "$SCRIPTS_DIR/../bootloaders" && pwd)"
 BOOTLOADERS_DIR="$BOOTLOADERS_ROOT/default"
 mkdir -p "$BOOTLOADERS_DIR"
 # iPXE v1.21.1 — pinned to avoid the keyboard-input regression in v2.0.0 menus.
 IPXE_COMMIT="988d2c13cdf0f0b4140685af35ced70ac5b3283c"
 
-docker build -t ipxe-builder -f - "$BOOTLOADERS_DIR" <<DOCKERFILE
+BUILD_CTX="$(mktemp -d)"
+trap 'rm -rf "$BUILD_CTX"' EXIT
+cp "$BOOTLOADERS_DIR/embed.ipxe" "$SCRIPTS_DIR/ipxe-http-range.patch" "$BUILD_CTX/"
+
+docker build -t ipxe-builder -f - "$BUILD_CTX" <<DOCKERFILE
 FROM debian:bookworm
 RUN apt-get update && apt-get install -y git make gcc libc6-dev liblzma-dev \
     gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu libc6-dev-arm64-cross ca-certificates \
@@ -15,12 +20,12 @@ RUN apt-get update && apt-get install -y git make gcc libc6-dev liblzma-dev \
 RUN git clone https://github.com/ipxe/ipxe.git /build/ipxe && \
     cd /build/ipxe && git checkout ${IPXE_COMMIT}
 COPY embed.ipxe /build/ipxe/src/embed.ipxe
+COPY ipxe-http-range.patch /build/ipxe-http-range.patch
+# http_format_range prints size_t offsets with %zd, which goes negative past
+# 2GB on 32-bit builds (undionly.kpxe), and iPXE's printf has no %u, so the
+# offsets are formatted by hand. See bootimus issues #56 and #140.
+RUN cd /build/ipxe && git apply /build/ipxe-http-range.patch
 WORKDIR /build/ipxe/src
-# http_format_range prints size_t fields with %zd (signed), causing 32-bit
-# builds (undionly.kpxe) to emit negative byte ranges for offsets past 2GB.
-# See bootimus issue #56. Fix is a one-character change pending upstream.
-RUN sed -i 's/"bytes=%zd-%zd"/"bytes=%zu-%zu"/' net/tcp/httpcore.c && \
-    grep -q '"bytes=%zu-%zu"' net/tcp/httpcore.c
 # NO_WERROR=1 silences array-bounds -Werror hits from newer GCC (bookworm) on
 # older iPXE sources. Safe: they're warnings, not correctness bugs.
 RUN make NO_WERROR=1 bin/undionly.kpxe EMBED=embed.ipxe

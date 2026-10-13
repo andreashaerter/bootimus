@@ -16,7 +16,7 @@ isset ${boot-server} || set boot-server ${next-server}
 
 isset ${boot-server} || goto manual
 echo Bootimus server: ${boot-server}
-chain http://${boot-server}/menu.ipxe?mac=${net0/mac} || chain tftp://${boot-server}/autoexec.ipxe || goto manual
+chain tftp://${boot-server}/autoexec.ipxe || chain http://${boot-server}/menu.ipxe?mac=${net0/mac} || chain http://${boot-server}:8080/menu.ipxe?mac=${net0/mac} || goto manual
 
 :netfail
 echo
@@ -31,7 +31,7 @@ echo
 echo === Bootimus server not auto-discovered ===
 echo
 echo Enter server (IP or host[:port]), blank for iPXE shell:
-read --timeout 0 server
+read server
 isset ${server} || goto fallback_shell
 chain http://${server}/menu.ipxe?mac=${net0/mac} || chain http://${server}:8080/menu.ipxe?mac=${net0/mac} || goto manual
 
