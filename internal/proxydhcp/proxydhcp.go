@@ -150,11 +150,7 @@ func (s *Server) handle(conn *net.UDPConn, src *net.UDPAddr, req *dhcpv4.DHCPv4,
 		return
 	}
 
-	dst := &net.UDPAddr{IP: net.IPv4bcast, Port: 68}
-	if !bootp {
-		dst = src
-	}
-
+	dst := replyAddr(src, req, bootp)
 	if _, err := conn.WriteToUDP(resp.ToBytes(), dst); err != nil {
 		log.Printf("proxyDHCP: send reply: %v", err)
 		return
@@ -162,6 +158,16 @@ func (s *Server) handle(conn *net.UDPConn, src *net.UDPAddr, req *dhcpv4.DHCPv4,
 	metrics.ProxyDHCPOffers.WithLabelValues(strconv.Itoa(int(clientArch(req)))).Inc()
 	log.Printf("proxyDHCP: %s -> %s arch=%d bootfile=%s",
 		req.MessageType(), req.ClientHWAddr, clientArch(req), bootfile)
+}
+
+func replyAddr(src *net.UDPAddr, req *dhcpv4.DHCPv4, bootp bool) *net.UDPAddr {
+	if !bootp {
+		return src
+	}
+	if gw := req.GatewayIPAddr; gw != nil && !gw.IsUnspecified() {
+		return &net.UDPAddr{IP: gw, Port: 67}
+	}
+	return &net.UDPAddr{IP: net.IPv4bcast, Port: 68}
 }
 
 func (s *Server) buildReply(req *dhcpv4.DHCPv4) (*dhcpv4.DHCPv4, string, bool) {
