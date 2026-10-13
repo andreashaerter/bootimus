@@ -2985,6 +2985,23 @@ func formatBytes(bytes int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
+func isoDownloadFilename(rawURL, requested string) (string, error) {
+	if requested == "" {
+		filename := filepath.Base(rawURL)
+		if !strings.HasSuffix(strings.ToLower(filename), ".iso") {
+			return "", fmt.Errorf("URL must point to an .iso file")
+		}
+		return filename, nil
+	}
+	if requested == "." || requested == ".." || strings.ContainsAny(requested, `/\`) {
+		return "", fmt.Errorf("filename must be a plain file name without directories")
+	}
+	if !strings.HasSuffix(strings.ToLower(requested), ".iso") {
+		return "", fmt.Errorf("filename must end in .iso")
+	}
+	return requested, nil
+}
+
 func (h *Handler) DownloadISO(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		URL         string `json:"url"`
@@ -3002,14 +3019,9 @@ func (h *Handler) DownloadISO(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var filename string
-	if req.Filename != "" {
-		filename = req.Filename
-	} else {
-		filename = filepath.Base(req.URL)
-	}
-	if !strings.HasSuffix(strings.ToLower(filename), ".iso") {
-		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "URL must point to an .iso file"})
+	filename, err := isoDownloadFilename(req.URL, req.Filename)
+	if err != nil {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: err.Error()})
 		return
 	}
 
