@@ -150,10 +150,10 @@ autoinstall:
     - curtin in-target -- systemctl enable --now serial-getty@ttyS0.service
 ```
 
-启动参数(相关镜像默认已为 Ubuntu 设置好这些参数):
+只要附加了无人值守安装文件,Bootimus 就会自动添加该启动参数,无需在镜像的启动参数中手动添加。生成的参数如下:
 
 ```
-autoinstall ds=nocloud-net;s=http://{{SERVER_ADDR}}:8080/autoinstall/{{IMAGE_FILENAME}}/
+autoinstall ds=nocloud-net;s=http://<server>:8080/autoinstall/<image-filename>/mac/<mac>/
 ```
 
 ### Debian (preseed)
@@ -268,10 +268,12 @@ curl -u admin:pw -X PUT http://localhost:8081/api/clients/b4:2e:99:01:5f:a3 \
 客户端在启动时访问的无人值守安装端点:
 
 ```
-GET /autoinstall/<image-filename>/?mac=<mac>
+GET /autoinstall/<image-filename>?mac=<mac>             # preseed, kickstart
+GET /autoinstall/<image-filename>/mac/<mac>/user-data   # Ubuntu autoinstall
+GET /autoinstall/<image-filename>/mac/<mac>/meta-data   # Ubuntu autoinstall
 ```
 
-`mac` 查询参数由引导菜单自动追加,以便按客户端覆盖能正确解析。
+引导菜单会用客户端的 MAC 地址构造这些 URL,以便按客户端覆盖能正确解析;对于 Ubuntu,cloud-init 会自行追加 `user-data` 和 `meta-data`。不带 MAC 地址或其他形式的请求(例如 `/autoinstall/<image-filename>/user-data`)会返回 404。
 
 ## 故障排查
 
@@ -281,7 +283,7 @@ GET /autoinstall/<image-filename>/?mac=<mac>
 
 ### 占位符按字面输出
 
-`{{HOSTNAME}}` 在已安装系统中显示为字面字符串,意味着文件在替换运行之前就被分发了 — 通常是因为客户端仅通过 IP 启动而请求未携带 `mac` 查询参数。确认引导菜单生成的 URL 形如 `/autoinstall/<iso>/?mac=<mac>`。
+`{{HOSTNAME}}` 在已安装系统中显示为字面字符串,意味着文件在替换运行之前就被分发了 — 通常是因为客户端仅通过 IP 启动而请求未携带 `mac` 查询参数。确认引导菜单生成的 URL 形如 `/autoinstall/<iso>?mac=<mac>` 或 `/autoinstall/<iso>/mac/<mac>/`。
 
 ### 分发了错误的文件
 

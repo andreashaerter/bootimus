@@ -150,10 +150,10 @@ autoinstall:
     - curtin in-target -- systemctl enable --now serial-getty@ttyS0.service
 ```
 
-Parámetros de arranque (la imagen relevante ya los tiene por defecto para Ubuntu):
+Bootimus añade el parámetro de arranque por sí mismo cuando hay un archivo de auto-instalación asociado, así que no hay que añadir nada a los parámetros de arranque de la imagen. El parámetro generado tiene este aspecto:
 
 ```
-autoinstall ds=nocloud-net;s=http://{{SERVER_ADDR}}:8080/autoinstall/{{IMAGE_FILENAME}}/
+autoinstall ds=nocloud-net;s=http://<server>:8080/autoinstall/<image-filename>/mac/<mac>/
 ```
 
 ### Debian (preseed)
@@ -268,10 +268,12 @@ curl -u admin:pw -X PUT http://localhost:8081/api/clients/b4:2e:99:01:5f:a3 \
 El endpoint de auto-instalación que los clientes consultan al arrancar:
 
 ```
-GET /autoinstall/<image-filename>/?mac=<mac>
+GET /autoinstall/<image-filename>?mac=<mac>             # preseed, kickstart
+GET /autoinstall/<image-filename>/mac/<mac>/user-data   # Ubuntu autoinstall
+GET /autoinstall/<image-filename>/mac/<mac>/meta-data   # Ubuntu autoinstall
 ```
 
-El query param `mac` se añade automáticamente por el menú de arranque para que los overrides por cliente se resuelvan correctamente.
+El menú de arranque construye estas URLs con la dirección MAC del cliente para que los overrides por cliente se resuelvan correctamente; en Ubuntu, cloud-init añade `user-data` y `meta-data` por su cuenta. Las peticiones sin dirección MAC, o con otra forma como `/autoinstall/<image-filename>/user-data`, devuelven 404.
 
 ## Solución de problemas
 
@@ -281,7 +283,7 @@ El query param `mac` se añade automáticamente por el menú de arranque para qu
 
 ### Placeholders renderizados literalmente
 
-`{{HOSTNAME}}` apareciendo como la string literal en el sistema instalado significa que el archivo se sirvió antes de que se ejecutara la sustitución — normalmente porque el cliente arrancó solo por IP y la petición no incluyó un query param `mac`. Confirma que el menú de arranque está generando URLs del estilo `/autoinstall/<iso>/?mac=<mac>`.
+`{{HOSTNAME}}` apareciendo como la string literal en el sistema instalado significa que el archivo se sirvió antes de que se ejecutara la sustitución — normalmente porque el cliente arrancó solo por IP y la petición no incluyó un query param `mac`. Confirma que el menú de arranque está generando URLs del estilo `/autoinstall/<iso>?mac=<mac>` o `/autoinstall/<iso>/mac/<mac>/`.
 
 ### Archivo equivocado servido
 

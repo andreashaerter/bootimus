@@ -150,10 +150,10 @@ autoinstall:
     - curtin in-target -- systemctl enable --now serial-getty@ttyS0.service
 ```
 
-Параметры загрузки (у соответствующего образа они уже стоят по умолчанию для Ubuntu):
+Bootimus сам добавляет параметр загрузки, когда к образу привязан файл автоустановки, поэтому в параметры загрузки образа ничего добавлять не нужно. Сгенерированный параметр выглядит так:
 
 ```
-autoinstall ds=nocloud-net;s=http://{{SERVER_ADDR}}:8080/autoinstall/{{IMAGE_FILENAME}}/
+autoinstall ds=nocloud-net;s=http://<server>:8080/autoinstall/<image-filename>/mac/<mac>/
 ```
 
 ### Debian (preseed)
@@ -268,10 +268,12 @@ curl -u admin:pw -X PUT http://localhost:8081/api/clients/b4:2e:99:01:5f:a3 \
 Эндпоинт автоустановки, на который ходят клиенты при загрузке:
 
 ```
-GET /autoinstall/<image-filename>/?mac=<mac>
+GET /autoinstall/<image-filename>?mac=<mac>             # preseed, kickstart
+GET /autoinstall/<image-filename>/mac/<mac>/user-data   # Ubuntu autoinstall
+GET /autoinstall/<image-filename>/mac/<mac>/meta-data   # Ubuntu autoinstall
 ```
 
-Параметр `mac` добавляется загрузочным меню автоматически — чтобы переопределения для конкретного клиента разрешались правильно.
+Загрузочное меню формирует эти URL с MAC-адресом клиента, чтобы переопределения для конкретного клиента разрешались правильно; для Ubuntu cloud-init сам добавляет `user-data` и `meta-data`. Запросы без MAC-адреса или в другом виде, например `/autoinstall/<image-filename>/user-data`, возвращают 404.
 
 ## Диагностика
 
@@ -281,7 +283,7 @@ GET /autoinstall/<image-filename>/?mac=<mac>
 
 ### Плейсхолдеры выводятся буквально
 
-`{{HOSTNAME}}` появляется в установленной системе как сама строка — значит, файл раздался до того, как сработала подстановка. Обычно потому, что клиент пришёл только по IP, и в запросе не было параметра `mac`. Убедитесь, что загрузочное меню формирует URL вида `/autoinstall/<iso>/?mac=<mac>`.
+`{{HOSTNAME}}` появляется в установленной системе как сама строка — значит, файл раздался до того, как сработала подстановка. Обычно потому, что клиент пришёл только по IP, и в запросе не было параметра `mac`. Убедитесь, что загрузочное меню формирует URL вида `/autoinstall/<iso>?mac=<mac>` или `/autoinstall/<iso>/mac/<mac>/`.
 
 ### Раздался не тот файл
 

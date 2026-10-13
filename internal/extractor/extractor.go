@@ -292,7 +292,7 @@ func (e *Extractor) extractViaISO9660(isoPath string) (*BootFiles, error) {
 		return nil, fmt.Errorf("failed to read ISO image: %w", err)
 	}
 
-	reader := &ISO9660Reader{img: img, extract: e}
+	reader := &ISO9660Reader{img: img, isoPath: isoPath, extract: e}
 	bootFiles, err := e.detectAndExtractUnified(reader, isoPath)
 	if err != nil {
 		return nil, err
@@ -892,7 +892,7 @@ func (e *Extractor) cacheBootFiles(files *BootFiles, img *iso9660.Image, isoPath
 	}
 
 	log.Printf("Extracting full ISO contents to %s", extractedDir)
-	if err := e.extractISOContents(img, extractedDir); err != nil {
+	if err := e.extractISOContents(img, isoPath, extractedDir); err != nil {
 		return fmt.Errorf("failed to extract full ISO contents: %w", err)
 	}
 
@@ -901,7 +901,13 @@ func (e *Extractor) cacheBootFiles(files *BootFiles, img *iso9660.Image, isoPath
 	return nil
 }
 
-func (e *Extractor) extractISOContents(img *iso9660.Image, destDir string) error {
+func (e *Extractor) extractISOContents(img *iso9660.Image, isoPath, destDir string) error {
+	tarErr := extractWithBsdtar(isoPath, destDir, e.progress)
+	if tarErr == nil {
+		return nil
+	}
+	log.Printf("bsdtar extraction unavailable or failed (%v), using the built-in ISO9660 reader; long file names may be shortened", tarErr)
+
 	root, err := img.RootDir()
 	if err != nil {
 		return fmt.Errorf("failed to get root directory: %w", err)

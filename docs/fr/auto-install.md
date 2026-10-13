@@ -150,10 +150,10 @@ autoinstall:
     - curtin in-target -- systemctl enable --now serial-getty@ttyS0.service
 ```
 
-Boot params (l'image concernée a déjà ceux-ci par défaut pour Ubuntu) :
+Bootimus ajoute lui-même le paramètre de boot dès qu'un fichier auto-install est attaché, il n'y a donc rien à ajouter aux boot params de l'image. Le paramètre généré ressemble à ceci :
 
 ```
-autoinstall ds=nocloud-net;s=http://{{SERVER_ADDR}}:8080/autoinstall/{{IMAGE_FILENAME}}/
+autoinstall ds=nocloud-net;s=http://<server>:8080/autoinstall/<image-filename>/mac/<mac>/
 ```
 
 ### Debian (preseed)
@@ -268,10 +268,12 @@ curl -u admin:pw -X PUT http://localhost:8081/api/clients/b4:2e:99:01:5f:a3 \
 L'endpoint auto-install que les clients tapent au boot :
 
 ```
-GET /autoinstall/<image-filename>/?mac=<mac>
+GET /autoinstall/<image-filename>?mac=<mac>             # preseed, kickstart
+GET /autoinstall/<image-filename>/mac/<mac>/user-data   # Ubuntu autoinstall
+GET /autoinstall/<image-filename>/mac/<mac>/meta-data   # Ubuntu autoinstall
 ```
 
-Le query param `mac` est ajouté automatiquement par le menu de boot pour que les overrides par client se résolvent correctement.
+Le menu de boot construit ces URLs avec l'adresse MAC du client pour que les overrides par client se résolvent correctement ; pour Ubuntu, cloud-init ajoute lui-même `user-data` et `meta-data`. Les requêtes sans adresse MAC, ou sous une autre forme comme `/autoinstall/<image-filename>/user-data`, renvoient une 404.
 
 ## Dépannage
 
@@ -281,7 +283,7 @@ Le query param `mac` est ajouté automatiquement par le menu de boot pour que le
 
 ### Placeholders rendus littéralement
 
-`{{HOSTNAME}}` qui apparaît comme une chaîne littérale dans le système installé signifie que le fichier a été servi avant que la substitution ne tourne — généralement parce que le client a booté uniquement par IP et que la requête ne contenait pas de query param `mac`. Confirme que le menu de boot génère des URLs de la forme `/autoinstall/<iso>/?mac=<mac>`.
+`{{HOSTNAME}}` qui apparaît comme une chaîne littérale dans le système installé signifie que le fichier a été servi avant que la substitution ne tourne — généralement parce que le client a booté uniquement par IP et que la requête ne contenait pas de query param `mac`. Confirme que le menu de boot génère des URLs de la forme `/autoinstall/<iso>?mac=<mac>` ou `/autoinstall/<iso>/mac/<mac>/`.
 
 ### Mauvais fichier servi
 

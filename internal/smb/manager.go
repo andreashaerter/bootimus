@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,9 +14,9 @@ import (
 )
 
 type Manager struct {
-	dataDir string
-	addr    string
-	port    int
+	dataDir    string
+	interfaces string
+	port       int
 
 	mu     sync.RWMutex
 	shares map[string]string
@@ -23,13 +24,49 @@ type Manager struct {
 	cmd *exec.Cmd
 }
 
-func NewManager(dataDir string, addr string, port int) *Manager {
-	return &Manager{
-		dataDir: dataDir,
-		addr:    addr,
-		port:    port,
-		shares:  make(map[string]string),
+func NewManager(dataDir, addr, bindInterface string, port int) *Manager {
+	interfaces := bindTarget(bindInterface, addr, localIPs())
+	if interfaces == "" {
+		log.Printf("Windows SMB: %s is not assigned to a local interface, listening on all interfaces", addr)
+	} else {
+		log.Printf("Windows SMB: binding to %s", interfaces)
 	}
+	return &Manager{
+		dataDir:    dataDir,
+		interfaces: interfaces,
+		port:       port,
+		shares:     make(map[string]string),
+	}
+}
+
+func bindTarget(bindInterface, addr string, local []net.IP) string {
+	if bindInterface != "" {
+		return bindInterface
+	}
+	ip := net.ParseIP(addr)
+	if ip == nil {
+		return ""
+	}
+	for _, l := range local {
+		if l.Equal(ip) {
+			return addr
+		}
+	}
+	return ""
+}
+
+func localIPs() []net.IP {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil
+	}
+	ips := make([]net.IP, 0, len(addrs))
+	for _, a := range addrs {
+		if ipNet, ok := a.(*net.IPNet); ok {
+			ips = append(ips, ipNet.IP)
+		}
+	}
+	return ips
 }
 
 func (m *Manager) AddShare(name, path string) {
@@ -162,8 +199,10 @@ workgroup = WORKGROUP
 server role = standalone server
 log level = 1
 log file = {{ .Dir }}/log/smbd.log
+{{- if .Interfaces }}
 bind interfaces only = yes
-interfaces = {{ .Addr }}
+interfaces = {{ .Interfaces }}
+{{- end }}
 smb ports = {{ .Port }}
 server min protocol = SMB2
 map to guest = bad user
@@ -210,15 +249,15 @@ browseable = yes
 
 	var buf bytes.Buffer
 	err := configTemplate.Execute(&buf, &struct {
-		Dir    string
-		Addr   string
-		Port   int
-		Shares map[string]string
+		Dir        string
+		Interfaces string
+		Port       int
+		Shares     map[string]string
 	}{
-		Dir:    m.smbDir(),
-		Addr:   m.addr,
-		Port:   m.port,
-		Shares: m.shares,
+		Dir:        m.smbDir(),
+		Interfaces: m.interfaces,
+		Port:       m.port,
+		Shares:     m.shares,
 	})
 	if err != nil {
 		return err

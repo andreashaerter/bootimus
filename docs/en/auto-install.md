@@ -150,10 +150,10 @@ autoinstall:
     - curtin in-target -- systemctl enable --now serial-getty@ttyS0.service
 ```
 
-Boot params (the relevant image already has these by default for Ubuntu):
+Bootimus adds the boot parameter itself whenever an auto-install file is attached, so there is nothing to add to the image's boot params. The generated parameter looks like this:
 
 ```
-autoinstall ds=nocloud-net;s=http://{{SERVER_ADDR}}:8080/autoinstall/{{IMAGE_FILENAME}}/
+autoinstall ds=nocloud-net;s=http://<server>:8080/autoinstall/<image-filename>/mac/<mac>/
 ```
 
 ### Debian (preseed)
@@ -268,10 +268,12 @@ curl -u admin:pw -X PUT http://localhost:8081/api/clients/b4:2e:99:01:5f:a3 \
 The auto-install endpoint clients hit at boot:
 
 ```
-GET /autoinstall/<image-filename>/?mac=<mac>
+GET /autoinstall/<image-filename>?mac=<mac>             # preseed, kickstart
+GET /autoinstall/<image-filename>/mac/<mac>/user-data   # Ubuntu autoinstall
+GET /autoinstall/<image-filename>/mac/<mac>/meta-data   # Ubuntu autoinstall
 ```
 
-The `mac` query param is appended automatically by the boot menu so per-client overrides resolve correctly.
+The boot menu builds these URLs with the client's MAC address so per-client overrides resolve correctly; for Ubuntu, cloud-init appends `user-data` and `meta-data` itself. Requests without the MAC address, or in another shape such as `/autoinstall/<image-filename>/user-data`, return 404.
 
 ## Troubleshooting
 
@@ -281,7 +283,7 @@ The `mac` query param is appended automatically by the boot menu so per-client o
 
 ### Placeholders rendered literally
 
-`{{HOSTNAME}}` showing up as the literal string in the installed system means the file was served before the substitution ran — usually because the client booted by IP only and the request didn't include a `mac` query param. Confirm the boot menu is generating URLs of the form `/autoinstall/<iso>/?mac=<mac>`.
+`{{HOSTNAME}}` showing up as the literal string in the installed system means the file was served before the substitution ran — usually because the client booted by IP only and the request didn't include a `mac` query param. Confirm the boot menu is generating URLs of the form `/autoinstall/<iso>?mac=<mac>` or `/autoinstall/<iso>/mac/<mac>/`.
 
 ### Wrong file served
 

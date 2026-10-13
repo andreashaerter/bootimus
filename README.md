@@ -86,6 +86,8 @@ chmod +x bootimus-amd64
 # Admin panel: http://localhost:8081
 ```
 
+Install `bsdtar` (`libarchive-tools` on Debian/Ubuntu, `libarchive` on Arch and Fedora) alongside the binary. Bootimus uses it to extract ISOs with their full Rock Ridge and Joliet file names; without it, extraction falls back to a built-in reader that can shorten long names on some ISOs, which breaks RPM repositories. The Docker image already includes it.
+
 ### Docker Compose
 
 ```bash
@@ -225,6 +227,7 @@ If `smbd` isn't in `PATH`, the feature self-disables with a clear log line and t
 
 - `wimlib-imagex` (already required for Windows driver injection).
 - Port 445 reachable from clients. Windows' `net use` ignores non-445 SMB ports, so `--windows-smb-port` is for testing only.
+- `smbd` listens on `--bind-interface` when it is set. Otherwise it binds to `--server-addr` if that address belongs to this host, and listens on all interfaces when it does not (for example under Kubernetes, where the advertised address is a node or service IP the pod does not own).
 - If running standalone with `setcap` instead of root, grant `smbd` the same capability so the forked child can bind 445:
 
   ```bash

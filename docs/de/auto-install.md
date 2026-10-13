@@ -150,10 +150,10 @@ autoinstall:
     - curtin in-target -- systemctl enable --now serial-getty@ttyS0.service
 ```
 
-Boot-Parameter (das passende Image hat diese für Ubuntu bereits als Default):
+Bootimus fügt den Boot-Parameter selbst hinzu, sobald eine Auto-Install-Datei angehängt ist; in den Boot-Parametern des Images musst du also nichts eintragen. Der erzeugte Parameter sieht so aus:
 
 ```
-autoinstall ds=nocloud-net;s=http://{{SERVER_ADDR}}:8080/autoinstall/{{IMAGE_FILENAME}}/
+autoinstall ds=nocloud-net;s=http://<server>:8080/autoinstall/<image-filename>/mac/<mac>/
 ```
 
 ### Debian (preseed)
@@ -268,10 +268,12 @@ curl -u admin:pw -X PUT http://localhost:8081/api/clients/b4:2e:99:01:5f:a3 \
 Den Auto-Install-Endpunkt, den Clients beim Boot ansprechen:
 
 ```
-GET /autoinstall/<image-filename>/?mac=<mac>
+GET /autoinstall/<image-filename>?mac=<mac>             # preseed, kickstart
+GET /autoinstall/<image-filename>/mac/<mac>/user-data   # Ubuntu autoinstall
+GET /autoinstall/<image-filename>/mac/<mac>/meta-data   # Ubuntu autoinstall
 ```
 
-Der Query-Parameter `mac` wird vom Boot-Menü automatisch angehängt, damit Per-Client-Overrides korrekt aufgelöst werden.
+Das Boot-Menü baut diese URLs mit der MAC-Adresse des Clients, damit Per-Client-Overrides korrekt aufgelöst werden; bei Ubuntu hängt cloud-init `user-data` und `meta-data` selbst an. Anfragen ohne MAC-Adresse oder in anderer Form, etwa `/autoinstall/<image-filename>/user-data`, liefern 404.
 
 ## Fehlersuche
 
@@ -281,7 +283,7 @@ Der Query-Parameter `mac` wird vom Boot-Menü automatisch angehängt, damit Per-
 
 ### Platzhalter werden wörtlich ausgespielt
 
-Wenn `{{HOSTNAME}}` als literaler String im installierten System auftaucht, wurde die Datei vor dem Substitutions-Lauf ausgeliefert — meistens, weil der Client nur per IP gebootet hat und der Request keinen `mac`-Query-Parameter enthielt. Stelle sicher, dass das Boot-Menü URLs der Form `/autoinstall/<iso>/?mac=<mac>` erzeugt.
+Wenn `{{HOSTNAME}}` als literaler String im installierten System auftaucht, wurde die Datei vor dem Substitutions-Lauf ausgeliefert — meistens, weil der Client nur per IP gebootet hat und der Request keinen `mac`-Query-Parameter enthielt. Stelle sicher, dass das Boot-Menü URLs der Form `/autoinstall/<iso>?mac=<mac>` oder `/autoinstall/<iso>/mac/<mac>/` erzeugt.
 
 ### Falsche Datei ausgeliefert
 
