@@ -2833,16 +2833,16 @@ const API_REFERENCE = [
         { method: 'DELETE', path: '/api/autoinstall-files/delete?filename={fn}', desc: 'Delete file.' },
     ]},
     { category: 'Custom Files', endpoints: [
-        { method: 'GET',    path: '/api/files',                    desc: 'List files. Add <code>?image_id={id}</code> to filter.' },
-        { method: 'POST',   path: '/api/files/upload',             desc: 'Multipart: <code>file</code>, <code>image_id</code>, <code>description</code>.' },
+        { method: 'GET',    path: '/api/files',                    desc: 'List all custom files.' },
+        { method: 'POST',   path: '/api/files/upload',             desc: 'Multipart: <code>file</code>, <code>imageId</code>, <code>description</code>, <code>destinationPath</code>, <code>public</code>.' },
         { method: 'PUT',    path: '/api/files/update?id={id}',     desc: 'Update file metadata.' },
         { method: 'DELETE', path: '/api/files/delete?id={id}',     desc: 'Delete file.' },
     ]},
     { category: 'Driver Packs (Windows)', endpoints: [
-        { method: 'GET',    path: '/api/drivers?image_id={id}',    desc: 'List driver packs for image.' },
-        { method: 'POST',   path: '/api/drivers/upload',           desc: 'Multipart: <code>file</code>, <code>image_id</code>.' },
+        { method: 'GET',    path: '/api/drivers?imageId={id}',     desc: 'List driver packs for image.' },
+        { method: 'POST',   path: '/api/drivers/upload',           desc: 'Multipart: <code>file</code>, <code>imageId</code>.' },
         { method: 'DELETE', path: '/api/drivers/delete?id={id}',   desc: 'Delete pack.' },
-        { method: 'POST',   path: '/api/drivers/rebuild?image_id={id}', desc: 'Rebuild boot.wim with driver packs.' },
+        { method: 'POST',   path: '/api/drivers/rebuild?imageId={id}', desc: 'Rebuild boot.wim with driver packs.' },
     ]},
     { category: 'Webhooks', endpoints: [
         { method: 'GET',    path: '/api/webhook',                  desc: 'Get webhook config.' },
