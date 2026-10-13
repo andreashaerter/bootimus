@@ -293,7 +293,7 @@ Les routeurs MikroTik sont populaires pour le boot réseau grâce à leur flexib
 #### 1. Définir les options DHCP
 * Va dans **IP** > **DHCP Server** > **Options**.
 * Clique **Add New** pour chacun des éléments suivants (assure-toi que la **Value** inclut des **single quotes**) :
-    * **Option 66 (Server)** : Name: `tftp-server` | Code: `66` | Value: `'<BOOT_SERVER_IP>'`.
+    * **Option 66 (Server)** : Name: `tftp-server` | Code: `66` | Value: `s'<BOOT_SERVER_IP>'`. Le préfixe `s` force RouterOS à envoyer l'adresse sous forme de texte ; sans lui, une IP entre guillemets est envoyée comme quatre octets bruts, inutilisables par iPXE.
     * **Option 67 (BIOS)** : Name: `boot-bios` | Code: `67` | Value: `'undionly.kpxe'`.
     * **Option 67 (UEFI)** : Name: `boot-uefi` | Code: `67` | Value: `'ipxe.efi'`.
 
@@ -325,7 +325,7 @@ Remplace les placeholders `<BOOT_SERVER_IP>`, `<DHCP_SERVER_NAME>` et `<YOUR_SUB
 ```routeros
 # 1. Define DHCP Options
 /ip dhcp-server option
-add code=66 name=tftp-server value="'<BOOT_SERVER_IP>'"
+add code=66 name=tftp-server value="s'<BOOT_SERVER_IP>'"
 add code=67 name=boot-bios value="'undionly.kpxe'"
 add code=67 name=boot-uefi value="'ipxe.efi'"
 

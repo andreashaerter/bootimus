@@ -293,7 +293,7 @@ MikroTik 路由器因其灵活性和性能,在网络引导中很受欢迎。
 #### 1. 定义 DHCP 选项
 * 进入 **IP** > **DHCP Server** > **Options**。
 * 为以下每一项点击 **Add New**(确保 **Value** 包含**单引号**):
-    * **Option 66 (Server)**:Name:`tftp-server` | Code:`66` | Value:`'<BOOT_SERVER_IP>'`。
+    * **Option 66 (Server)**:Name:`tftp-server` | Code:`66` | Value:`s'<BOOT_SERVER_IP>'`。前缀 `s` 让 RouterOS 以文本形式发送地址;不加前缀时,带引号的 IP 会作为四个原始字节发送,iPXE 无法使用。
     * **Option 67 (BIOS)**:Name:`boot-bios` | Code:`67` | Value:`'undionly.kpxe'`。
     * **Option 67 (UEFI)**:Name:`boot-uefi` | Code:`67` | Value:`'ipxe.efi'`。
 
@@ -325,7 +325,7 @@ MikroTik 路由器因其灵活性和性能,在网络引导中很受欢迎。
 ```routeros
 # 1. Define DHCP Options
 /ip dhcp-server option
-add code=66 name=tftp-server value="'<BOOT_SERVER_IP>'"
+add code=66 name=tftp-server value="s'<BOOT_SERVER_IP>'"
 add code=67 name=boot-bios value="'undionly.kpxe'"
 add code=67 name=boot-uefi value="'ipxe.efi'"
 

@@ -293,7 +293,7 @@ MikroTik-роутеры популярны для сетевой загрузк�
 #### 1. Определите DHCP-опции
 * Откройте **IP** > **DHCP Server** > **Options**.
 * Нажмите **Add New** для каждого из следующих (значение **обязательно** в **одинарных кавычках**):
-    * **Option 66 (Server)**: Name: `tftp-server` | Code: `66` | Value: `'<BOOT_SERVER_IP>'`.
+    * **Option 66 (Server)**: Name: `tftp-server` | Code: `66` | Value: `s'<BOOT_SERVER_IP>'`. Префикс `s` заставляет RouterOS отправлять адрес как текст; без него IP в кавычках отправляется как четыре сырых байта, которые iPXE не может использовать.
     * **Option 67 (BIOS)**: Name: `boot-bios` | Code: `67` | Value: `'undionly.kpxe'`.
     * **Option 67 (UEFI)**: Name: `boot-uefi` | Code: `67` | Value: `'ipxe.efi'`.
 
@@ -325,7 +325,7 @@ MikroTik-роутеры популярны для сетевой загрузк�
 ```routeros
 # 1. Определить DHCP-опции
 /ip dhcp-server option
-add code=66 name=tftp-server value="'<BOOT_SERVER_IP>'"
+add code=66 name=tftp-server value="s'<BOOT_SERVER_IP>'"
 add code=67 name=boot-bios value="'undionly.kpxe'"
 add code=67 name=boot-uefi value="'ipxe.efi'"
 
