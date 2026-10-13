@@ -27,7 +27,7 @@ Das ist der einfachste Weg, Bootimus in jeder Umgebung zu betreiben, in der dir 
 1. Client broadcasted `DHCPDISCOVER`.
 2. Der bestehende DHCP-Server im LAN antwortet mit einem IP-Lease (keine PXE-Info nötig).
 3. Bootimus antwortet auf demselben Broadcast nur mit PXE-Boot-Info — keine IP.
-4. Das PXE-ROM des Clients merged beide Antworten: IP vom Haupt-DHCP, Bootfile von Bootimus.
+4. Das PXE-ROM des Clients merged beide Antworten: IP vom Haupt-DHCP, Bootfile von Bootimus. Die meiste Firmware tut das, wie RFC 4578 es vorsieht, manche UEFI-PXE-ROMs aber nicht — siehe die Einschränkungen unten.
 
 Weil Bootimus nie eine IP anbietet, gibt es keinen Konflikt mit dem bestehenden DHCP-Server und keinen Lease-Pool zu koordinieren.
 
@@ -46,6 +46,7 @@ proxy_dhcp:
   bootfile_bios: undionly.kpxe           # Legacy BIOS PXE
   bootfile_uefi: bootimus.efi            # UEFI x64
   bootfile_arm64: bootimus-arm64.efi     # UEFI ARM64
+  no_bootfile_option: false              # true: Option 67 für Firmware weglassen, die sie ablehnt
 ```
 
 Standardmäßig aus, damit bestehende Installationen, die schon dnsmasq/ISC-DHCP/etc. nutzen, nicht überrascht werden.
@@ -54,6 +55,7 @@ Standardmäßig aus, damit bestehende Installationen, die schon dnsmasq/ISC-DHCP
 
 - **Bindet UDP/67 und UDP/4011.** UDP/67 braucht `CAP_NET_BIND_SERVICE` oder Root; UDP/4011 ist der PXE-Boot-Server-Discovery-Port, auf den manche UEFI-ROMs (vor allem AMI/Supermicro) nach dem ersten Offer noch ansprechen. In Docker läuft das Default-Image schon als Root, also keine Extra-Capability nötig; `--cap-add NET_BIND_SERVICE` nur bei Rootless-Setups.
 - **Gleiche Broadcast-Domäne.** proxyDHCP ist darauf angewiesen, die DHCP-Broadcasts der Clients zu sehen. Das funktioniert auf einem flachen LAN oder einem einzelnen VLAN. Wenn dein Netz einen DHCP-Relay (`ip helper-address`) nutzt, um DHCP über VLANs zu forwarden, leitet der Relay zum Haupt-DHCP, aber nicht zu Bootimus weiter — füge Bootimus als zusätzliches Relay-Ziel hinzu, oder halte Ziele im selben VLAN wie Bootimus. Bootimus beantwortet weitergeleitete Anfragen per Unicast an die Relay-Adresse (`giaddr`), wie RFC 2131 es vorsieht, sodass der Relay sie an den Client zurückgeben kann.
+- **Nicht jede Firmware merged die beiden Offers.** Manche UEFI-PXE-ROMs ignorieren das Offer von Bootimus oder lehnen die darin enthaltene Bootfile-Option ab und schicken immer wieder `DHCPDISCOVER`, ohne je einen `DHCPREQUEST` zu senden. Probiere zuerst `--proxy-dhcp-no-bootfile-option` (`BOOTIMUS_PROXY_DHCP_NO_BOOTFILE_OPTION=true` oder `no_bootfile_option: true` unter `proxy_dhcp`): Damit entfällt Option 67, und das Bootfile steht nur im klassischen BOOTP-Feld `file`, mit dem ältere oder fehlerhafte Firmware besser zurechtkommt. Hängt der Client weiterhin in der Schleife, deaktiviere proxyDHCP und trage `next-server` und das Bootfile (Optionen 66/67) stattdessen im Haupt-DHCP-Server ein, wie in den serverspezifischen Abschnitten unten beschrieben.
 - **Docker-Networking.** Nutze `macvlan`, `ipvlan` oder `network_mode: host`, damit der Container ein vollwertiger Teilnehmer auf der Broadcast-Domäne ist. Ein Default-Bridge-Netzwerk funktioniert nicht — Broadcasts hängen in `docker0` fest.
 - **Zwei proxyDHCP-Server im selben LAN sind erlaubt, aber das Debugging ist ein Albtraum.** Wenn du das eingebaute proxyDHCP von Bootimus aktivierst, deaktiviere alle bestehenden dnsmasq-proxyDHCPs, die im selben Netz PXE ausspielen.
 
@@ -522,6 +524,14 @@ ping 192.168.1.10
 
 # DHCP-Traffic mitschneiden
 sudo tcpdump -i eth0 port 67 or port 68
+```
+
+### DISCOVER-Wiederholungen ohne DHCPREQUEST (proxyDHCP)
+
+Wenn ein Paketmitschnitt zeigt, dass der Client immer wieder `DHCPDISCOVER` schickt, Offers von deinem DHCP-Server und von Bootimus erhält, aber nie einen `DHCPREQUEST` sendet (und auf UDP/4011 nichts ankommt), merged die Firmware die beiden Offers nicht. Probiere `--proxy-dhcp-no-bootfile-option`; hilft das nicht, deaktiviere proxyDHCP und konfiguriere die Optionen 66/67 im Haupt-DHCP-Server.
+
+```bash
+sudo tcpdump -i eth0 -n port 67 or port 68 or port 4011
 ```
 
 ### Client lädt den Bootloader nicht
