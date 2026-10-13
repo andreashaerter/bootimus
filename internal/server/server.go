@@ -301,6 +301,7 @@ func New(cfg *Config) *Server {
 	globalLogBroadcaster = lb
 
 	tm := tools.NewManager(cfg.Storage, cfg.DataDir)
+	tm.DisableRemoteCheck = cfg.ProfileManager != nil && cfg.ProfileManager.DisableRemoteCheck
 	if err := tm.SeedTools(); err != nil {
 		log.Printf("Tools: Failed to seed tools: %v", err)
 	}
