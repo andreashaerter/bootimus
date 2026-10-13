@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"bootimus/internal/models"
+	"bootimus/internal/tools"
 )
 
 func testMenuBuilder(types map[uint]string) *MenuBuilder {
@@ -210,5 +211,36 @@ func TestBuildWindowsBootSectionBareWimboot(t *testing.T) {
 	out := mb.buildKernelBootSection(img, "Win11_25H2.iso", "Win11_25H2")
 	if !strings.Contains(out, "kernel http://10.0.0.1:8080/wimboot\n") {
 		t.Errorf("expected a bare wimboot kernel line, got:\n%s", out)
+	}
+}
+
+func TestBuildFooterToolKernelGetsInitrdName(t *testing.T) {
+	mb := testMenuBuilder(nil)
+	mb.enabledTools = []tools.EnabledTool{
+		{
+			Name:        "clonezilla",
+			DisplayName: "Clonezilla",
+			KernelURL:   "http://10.0.0.1:8080/tools/clonezilla/live/vmlinuz",
+			InitrdURL:   "http://10.0.0.1:8080/tools/clonezilla/live/initrd.img",
+			BootParams:  "boot=live fetch=http://10.0.0.1:8080/tools/clonezilla/live/filesystem.squashfs",
+			BootMethod:  "kernel",
+		},
+		{
+			Name:        "memtest86plus",
+			DisplayName: "Memtest86+",
+			KernelURL:   "http://10.0.0.1:8080/tools/memtest86plus/memtest64.bin",
+			BootMethod:  "kernel",
+		},
+	}
+
+	out := mb.buildFooter()
+	if !strings.Contains(out, "kernel http://10.0.0.1:8080/tools/clonezilla/live/vmlinuz initrd=initrd boot=live ") {
+		t.Errorf("expected initrd=initrd on the tool kernel line, got:\n%s", out)
+	}
+	if !strings.Contains(out, "initrd --name initrd http://10.0.0.1:8080/tools/clonezilla/live/initrd.img\n") {
+		t.Errorf("expected the tool initrd to be named initrd, got:\n%s", out)
+	}
+	if strings.Contains(out, "memtest64.bin initrd=") {
+		t.Errorf("tools without an initrd must not get initrd=, got:\n%s", out)
 	}
 }
