@@ -840,6 +840,7 @@ func (s *Server) startTFTPServer() error {
 				script := fmt.Sprintf(`#!ipxe
 
 # Auto-detect server IP and chain to dynamic menu
+:dhcp
 dhcp
 chain http://%s:%d/inventory?mac=${net0/mac}&cpu=${cpuid/0}&memsize=${memsize}&platform=${platform}&buildarch=${buildarch}&product=${product}&manufacturer=${manufacturer}&serial=${serial}&asset=${asset}&uuid=${uuid}&nic_chip=${net0/chip} || chain http://%s:%d/menu.ipxe?mac=${net0/mac} || goto failed
 
