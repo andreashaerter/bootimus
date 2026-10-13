@@ -380,10 +380,10 @@ func (mb *MenuBuilder) buildKernelBootSection(img *models.Image, encodedFilename
 		initrdName := ""
 		if img.InitrdOverride != "" {
 			initrdPath = encodePathSegments(img.InitrdOverride)
-			initrdName = " initrd"
+			initrdName = "--name initrd "
 		}
 		sb.WriteString(fmt.Sprintf("kernel %s/boot/%s/%s%s%s\n", baseURL, cacheDir, kernelPath, autoInstallParam, bootParams))
-		sb.WriteString(fmt.Sprintf("initrd %s/boot/%s/%s%s\n", baseURL, cacheDir, initrdPath, initrdName))
+		sb.WriteString(fmt.Sprintf("initrd %s%s/boot/%s/%s\n", initrdName, baseURL, cacheDir, initrdPath))
 		if img.ShimPath != "" {
 			sb.WriteString(fmt.Sprintf("iseq ${platform} efi && shim %s/boot/%s/%s ||\n", baseURL, cacheDir, encodePathSegments(img.ShimPath)))
 		}

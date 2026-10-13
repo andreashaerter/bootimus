@@ -53,7 +53,7 @@ func TestBuildKernelBootSectionOverrides(t *testing.T) {
 	if !strings.Contains(section, "kernel http://10.0.0.1:8080/boot/kali-linux-2026.2-live-amd64/iso/LIVE/vmlinuz-6.19.14+kali-amd64 ") {
 		t.Errorf("expected overridden kernel path, got:\n%s", section)
 	}
-	if !strings.Contains(section, "initrd http://10.0.0.1:8080/boot/kali-linux-2026.2-live-amd64/iso/LIVE/initrd.img-6.19.14+kali-amd64 initrd\n") {
+	if !strings.Contains(section, "initrd --name initrd http://10.0.0.1:8080/boot/kali-linux-2026.2-live-amd64/iso/LIVE/initrd.img-6.19.14+kali-amd64\n") {
 		t.Errorf("expected overridden initrd path with explicit initrd name, got:\n%s", section)
 	}
 }
