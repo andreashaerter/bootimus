@@ -5149,6 +5149,9 @@ function getDefaultBootParams(img) {
             return 'initrd=initrd ip=dhcp url={{BASE_URL}}/isos/{{FILENAME}}';
         case 'freebsd':
             return 'vfs.root.mountfrom=cd9660:/dev/md0 kernelname=/boot/kernel/kernel';
+        case 'windows':
+        case 'windows7':
+            return '';
         default:
             return 'iso-url={{BASE_URL}}/isos/{{FILENAME}} ip=dhcp';
     }
@@ -5349,7 +5352,7 @@ async function saveAndRepatchFromProperties() {
 function applyBootParamsWindowsLock(distro) {
     const input = document.getElementById('image-props-boot-params');
     const redetect = document.getElementById('image-props-redetect-btn');
-    const isWindows = distro === 'windows';
+    const isWindows = distro === 'windows' || distro === 'windows7';
     input.disabled = isWindows;
     input.style.opacity = isWindows ? '0.5' : '';
     input.style.cursor = isWindows ? 'not-allowed' : '';
@@ -5597,7 +5600,8 @@ async function saveImageProperties(opts) {
     const order = parseInt(document.getElementById('image-props-order').value) || 0;
     const bootMethod = document.getElementById('image-props-boot-method').value;
     const distro = document.getElementById('image-props-distro').value;
-    const bootParams = document.getElementById('image-props-boot-params').value;
+    const bootParamsInput = document.getElementById('image-props-boot-params');
+    const bootParams = bootParamsInput.disabled ? '' : bootParamsInput.value;
     const enabled = document.getElementById('image-props-enabled').checked;
     const isPublic = document.getElementById('image-props-public').checked;
 

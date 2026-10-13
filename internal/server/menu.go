@@ -359,14 +359,7 @@ func (mb *MenuBuilder) buildKernelBootSection(img *models.Image, encodedFilename
 
 	switch img.Distro {
 	case "windows", "windows7":
-		fields := strings.Fields(bootParams)
-		flags := fields[:0]
-		for _, f := range fields {
-			if !strings.Contains(f, "/") {
-				flags = append(flags, f)
-			}
-		}
-		bootParams = strings.Join(flags, " ")
+		bootParams = wimbootArgs(bootParams)
 		if bootParams != "" {
 			bootParams = " " + bootParams
 		}
@@ -420,6 +413,28 @@ func (mb *MenuBuilder) buildAutoInstallParam(img *models.Image, baseURL, encoded
 	default:
 		return fmt.Sprintf(" autoinstall=%s", installURL)
 	}
+}
+
+var wimbootKeys = map[string]bool{
+	"rawbcd":     true,
+	"rawwim":     true,
+	"gui":        true,
+	"linear":     true,
+	"quiet":      true,
+	"pause":      true,
+	"index":      true,
+	"initrdfile": true,
+}
+
+func wimbootArgs(params string) string {
+	var kept []string
+	for _, f := range strings.Fields(params) {
+		key, _, _ := strings.Cut(f, "=")
+		if wimbootKeys[key] {
+			kept = append(kept, f)
+		}
+	}
+	return strings.Join(kept, " ")
 }
 
 func (mb *MenuBuilder) resolveBootParams(img *models.Image, baseURL, encodedFilename, cacheDir string) string {

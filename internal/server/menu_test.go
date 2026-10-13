@@ -180,6 +180,23 @@ func TestBuildWindowsBootSectionDropsPathTokens(t *testing.T) {
 	}
 }
 
+func TestBuildWindowsBootSectionDropsLinuxParams(t *testing.T) {
+	mb := testMenuBuilder(nil)
+	img := &models.Image{
+		ID:         9,
+		Filename:   "Win11_25H2.iso",
+		Enabled:    true,
+		BootMethod: "kernel",
+		Distro:     "windows",
+		BootParams: "iso-url={{BASE_URL}}/isos/{{FILENAME}} ip=dhcp gui index=2 pause=quiet",
+	}
+
+	out := mb.buildKernelBootSection(img, "Win11_25H2.iso", "Win11_25H2")
+	if !strings.Contains(out, "kernel http://10.0.0.1:8080/wimboot gui index=2 pause=quiet\n") {
+		t.Errorf("expected only wimboot arguments on the kernel line, got:\n%s", out)
+	}
+}
+
 func TestBuildWindowsBootSectionBareWimboot(t *testing.T) {
 	mb := testMenuBuilder(nil)
 	img := &models.Image{
