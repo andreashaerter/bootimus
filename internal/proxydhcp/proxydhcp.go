@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,10 +21,14 @@ const (
 	DefaultBootfileBIOS  = "undionly.kpxe"
 	DefaultBootfileUEFI  = "bootimus.efi"
 	DefaultBootfileARM64 = "bootimus-arm64.efi"
+
+	pxeClientClass  = "PXEClient"
+	httpClientClass = "HTTPClient"
 )
 
 type Config struct {
 	ServerIP        net.IP
+	ServerHTTPPort  int
 	Interface       string
 	BootfileBIOS    string
 	BootfileUEFI    string
@@ -160,8 +165,8 @@ func (s *Server) handle(conn *net.UDPConn, src *net.UDPAddr, req *dhcpv4.DHCPv4,
 }
 
 func (s *Server) buildReply(req *dhcpv4.DHCPv4) (*dhcpv4.DHCPv4, string, bool) {
-	vci := req.ClassIdentifier()
-	if len(vci) < 9 || vci[:9] != "PXEClient" {
+	classID, ok := bootClassID(req.ClassIdentifier())
+	if !ok {
 		return nil, "", false
 	}
 
@@ -176,17 +181,23 @@ func (s *Server) buildReply(req *dhcpv4.DHCPv4) (*dhcpv4.DHCPv4, string, bool) {
 	}
 
 	bootfile := s.bootfileFor(req)
-	vendorOpts := pxeVendorOptions()
-	if clientArch(req) == iana.INTEL_X86PC && raspberrypi.IsRaspberryPiMAC(req.ClientHWAddr) {
-		vendorOpts = []byte("Raspberry Pi Boot")
-	}
 	modifiers := []dhcpv4.Modifier{
 		dhcpv4.WithMessageType(respType),
 		dhcpv4.WithServerIP(s.cfg.ServerIP),
 		dhcpv4.WithOption(dhcpv4.OptServerIdentifier(s.cfg.ServerIP)),
-		dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
-		dhcpv4.WithOption(dhcpv4.OptTFTPServerName(s.cfg.ServerIP.String())),
-		dhcpv4.WithOption(dhcpv4.OptGeneric(dhcpv4.OptionVendorSpecificInformation, vendorOpts)),
+		dhcpv4.WithOption(dhcpv4.OptClassIdentifier(classID)),
+	}
+	if classID == httpClientClass {
+		bootfile = s.httpBootURL(bootfile)
+	} else {
+		vendorOpts := pxeVendorOptions()
+		if clientArch(req) == iana.INTEL_X86PC && raspberrypi.IsRaspberryPiMAC(req.ClientHWAddr) {
+			vendorOpts = []byte("Raspberry Pi Boot")
+		}
+		modifiers = append(modifiers,
+			dhcpv4.WithOption(dhcpv4.OptTFTPServerName(s.cfg.ServerIP.String())),
+			dhcpv4.WithOption(dhcpv4.OptGeneric(dhcpv4.OptionVendorSpecificInformation, vendorOpts)),
+		)
 	}
 	if !s.cfg.NoBootfileption {
 		modifiers = append(modifiers, dhcpv4.WithOption(dhcpv4.OptBootFileName(bootfile)))
@@ -202,6 +213,24 @@ func (s *Server) buildReply(req *dhcpv4.DHCPv4) (*dhcpv4.DHCPv4, string, bool) {
 	}
 	resp.BootFileName = bootfile
 	return resp, bootfile, true
+}
+
+func bootClassID(vci string) (string, bool) {
+	for _, id := range []string{pxeClientClass, httpClientClass} {
+		if strings.HasPrefix(vci, id) {
+			return id, true
+		}
+	}
+	return "", false
+}
+
+func (s *Server) httpBootURL(bootfile string) string {
+	u := url.URL{
+		Scheme: "http",
+		Host:   net.JoinHostPort(s.cfg.ServerIP.String(), strconv.Itoa(s.cfg.ServerHTTPPort)),
+		Path:   "/" + strings.TrimLeft(bootfile, "/"),
+	}
+	return u.String()
 }
 
 func pxeVendorOptions() []byte {

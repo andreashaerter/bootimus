@@ -11,10 +11,11 @@ import (
 func testServer(t *testing.T) *Server {
 	t.Helper()
 	return &Server{cfg: Config{
-		ServerIP:      net.ParseIP("192.168.203.111").To4(),
-		BootfileBIOS:  DefaultBootfileBIOS,
-		BootfileUEFI:  DefaultBootfileUEFI,
-		BootfileARM64: DefaultBootfileARM64,
+		ServerIP:       net.ParseIP("192.168.203.111").To4(),
+		ServerHTTPPort: 8080,
+		BootfileBIOS:   DefaultBootfileBIOS,
+		BootfileUEFI:   DefaultBootfileUEFI,
+		BootfileARM64:  DefaultBootfileARM64,
 	}}
 }
 
@@ -148,5 +149,79 @@ func TestArchFromVCI(t *testing.T) {
 		if ok != c.ok || (ok && got != c.want) {
 			t.Errorf("archFromVCI(%q) = %d,%v want %d,%v", c.vci, got, ok, c.want, c.ok)
 		}
+	}
+}
+
+func TestHTTPClientGetsBootURL(t *testing.T) {
+	s := testServer(t)
+	cases := []struct {
+		arch iana.Arch
+		want string
+	}{
+		{iana.EFI_X86_64_HTTP, "http://192.168.203.111:8080/bootimus.efi"},
+		{iana.EFI_X86_HTTP, "http://192.168.203.111:8080/bootimus.efi"},
+		{iana.EFI_ARM64_HTTP, "http://192.168.203.111:8080/bootimus-arm64.efi"},
+	}
+	for _, c := range cases {
+		req := discover(t, "00:11:22:33:44:55", "HTTPClient:Arch:00016:UNDI:003001",
+			dhcpv4.WithOption(dhcpv4.OptClientArch(c.arch)))
+		resp, bootfile, ok := s.buildReply(req)
+		if !ok {
+			t.Fatalf("arch %d: expected a reply", c.arch)
+		}
+		if bootfile != c.want || resp.BootFileName != c.want {
+			t.Errorf("arch %d: bootfile = %q, BootFileName = %q, want %q", c.arch, bootfile, resp.BootFileName, c.want)
+		}
+		if got := resp.ClassIdentifier(); got != "HTTPClient" {
+			t.Errorf("arch %d: class identifier = %q, want HTTPClient", c.arch, got)
+		}
+		if resp.Options.Has(dhcpv4.OptionTFTPServerName) || resp.Options.Has(dhcpv4.OptionVendorSpecificInformation) {
+			t.Errorf("arch %d: HTTP clients must not receive TFTP or PXE vendor options", c.arch)
+		}
+	}
+}
+
+func TestHTTPClientWithoutOption93FallsBackToVCI(t *testing.T) {
+	s := testServer(t)
+	req := discover(t, "00:11:22:33:44:55", "HTTPClient:Arch:00016:UNDI:003001")
+
+	_, bootfile, ok := s.buildReply(req)
+	if !ok {
+		t.Fatal("expected a reply")
+	}
+	if want := "http://192.168.203.111:8080/bootimus.efi"; bootfile != want {
+		t.Errorf("bootfile = %q, want %q", bootfile, want)
+	}
+}
+
+func TestHTTPBootURLNormalisesPath(t *testing.T) {
+	s := testServer(t)
+	s.cfg.BootfileUEFI = "/ipxe/snp boot.efi"
+	req := discover(t, "00:11:22:33:44:55", "HTTPClient:Arch:00016:UNDI:003001",
+		dhcpv4.WithOption(dhcpv4.OptClientArch(iana.EFI_X86_64_HTTP)))
+
+	_, bootfile, ok := s.buildReply(req)
+	if !ok {
+		t.Fatal("expected a reply")
+	}
+	if want := "http://192.168.203.111:8080/ipxe/snp%20boot.efi"; bootfile != want {
+		t.Errorf("bootfile = %q, want %q", bootfile, want)
+	}
+}
+
+func TestPXEClientKeepsPXEClassAndTFTPServer(t *testing.T) {
+	s := testServer(t)
+	req := discover(t, "00:11:22:33:44:55", "PXEClient:Arch:00007:UNDI:003016",
+		dhcpv4.WithOption(dhcpv4.OptClientArch(iana.EFI_X86_64)))
+
+	resp, _, ok := s.buildReply(req)
+	if !ok {
+		t.Fatal("expected a reply")
+	}
+	if got := resp.ClassIdentifier(); got != "PXEClient" {
+		t.Errorf("class identifier = %q, want PXEClient", got)
+	}
+	if got := resp.TFTPServerName(); got != "192.168.203.111" {
+		t.Errorf("TFTP server name = %q, want 192.168.203.111", got)
 	}
 }

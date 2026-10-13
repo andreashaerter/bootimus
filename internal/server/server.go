@@ -609,6 +609,7 @@ func (s *Server) Start() error {
 	if s.config.ProxyDHCPEnabled {
 		pd, err := proxydhcp.NewServer(proxydhcp.Config{
 			ServerIP:        net.ParseIP(s.config.ServerAddr),
+			ServerHTTPPort:  s.config.HTTPPort,
 			Interface:       s.config.BindInterface,
 			BootfileBIOS:    s.config.ProxyDHCPBootfileBIOS,
 			BootfileUEFI:    s.config.ProxyDHCPBootfileUEFI,
