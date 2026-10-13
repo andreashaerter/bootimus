@@ -1,0 +1,43 @@
+--- a/src/net/tcp/httpcore.c
++++ b/src/net/tcp/httpcore.c
+@@ -938,6 +938,16 @@
+ 	.format = http_format_connection,
+ };
+ 
++static char * http_format_offset ( char *end, size_t num ) {
++
++	*(--end) = '\0';
++	do {
++		*(--end) = ( '0' + ( num % 10 ) );
++		num /= 10;
++	} while ( num );
++	return end;
++}
++
+ /**
+  * Construct HTTP "Range" header
+  *
+@@ -948,13 +958,19 @@
+  */
+ static int http_format_range ( struct http_transaction *http,
+ 			       char *buf, size_t len ) {
++	char first[ 3 * sizeof ( size_t ) + 1 ];
++	char last[ 3 * sizeof ( size_t ) + 1 ];
+ 
+ 	/* Construct range, if applicable */
+ 	if ( http->request.range.len ) {
+-		return snprintf ( buf, len, "bytes=%zd-%zd",
+-				  http->request.range.start,
+-				  ( http->request.range.start +
+-				    http->request.range.len - 1 ) );
++		return snprintf ( buf, len, "bytes=%s-%s",
++				  http_format_offset ( ( first +
++							 sizeof ( first ) ),
++						       http->request.range.start ),
++				  http_format_offset ( ( last +
++							 sizeof ( last ) ),
++						       ( http->request.range.start +
++							 http->request.range.len - 1 ) ) );
+ 	} else {
+ 		return 0;
+ 	}
