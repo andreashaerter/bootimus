@@ -538,7 +538,7 @@ func (s *Server) Start() error {
 	}
 
 	if s.config.WindowsSMBEnabled {
-		mgr := smb.NewManager(s.config.DataDir, s.config.ServerAddr, s.config.WindowsSMBPort)
+		mgr := smb.NewManager(s.config.DataDir, s.config.ServerAddr, s.config.BindInterface, s.config.WindowsSMBPort)
 		s.preloadSMBShares(mgr)
 		if err := mgr.Start(); err != nil {
 			log.Printf("Windows SMB: requested but could not start: %v - feature disabled for this run", err)
