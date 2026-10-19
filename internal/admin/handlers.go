@@ -33,6 +33,7 @@ import (
 	"bootimus/internal/storage"
 	"bootimus/internal/sysstats"
 	"bootimus/internal/tools"
+	"bootimus/internal/uki"
 	"bootimus/internal/webhook"
 	"bootimus/internal/wim"
 	"bootimus/internal/wol"
@@ -1163,10 +1164,10 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 		switch part.FormName() {
 		case "file":
 			filename = filepath.Base(part.FileName())
-			if !strings.HasSuffix(strings.ToLower(filename), ".iso") {
+			if !imagescan.IsSupportedFilename(filename) {
 				part.Close()
 				log.Printf("Upload rejected: invalid file type: %s", filename)
-				h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Only .iso files are allowed"})
+				h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Only .iso files and unified kernel images (.efi) are allowed"})
 				return
 			}
 
@@ -1222,6 +1223,16 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var ukiImage *uki.Image
+	if strings.EqualFold(filepath.Ext(filename), ".efi") {
+		if ukiImage, err = uki.Inspect(filePath); err != nil {
+			cleanup()
+			log.Printf("Upload rejected: %s is not a unified kernel image: %v", filename, err)
+			h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "This .efi file is not a unified kernel image"})
+			return
+		}
+	}
+
 	existingImage, err := h.storage.GetImage(filename)
 	if err == nil && existingImage != nil {
 		existingImage.Size = size
@@ -1233,7 +1244,9 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 			existingImage.Description = description
 		}
 
-		h.detectAndSetDistro(existingImage)
+		if ukiImage == nil {
+			h.detectAndSetDistro(existingImage)
+		}
 
 		if err := h.storage.UpdateImage(filename, existingImage); err != nil {
 			cleanup()
@@ -1259,7 +1272,12 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 		Description: description,
 	}
 
-	h.detectAndSetDistro(&image)
+	if ukiImage != nil {
+		image.BootMethod = imagescan.BootMethodUKI
+		image.BootParams = ukiImage.Cmdline
+	} else {
+		h.detectAndSetDistro(&image)
+	}
 
 	if err := h.storage.CreateImage(&image); err != nil {
 		cleanup()
@@ -1338,6 +1356,10 @@ func (h *Handler) ExtractImage(w http.ResponseWriter, r *http.Request) {
 	image, err := h.storage.GetImage(filename)
 	if err != nil {
 		h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "Image not found"})
+		return
+	}
+	if image.BootMethod == imagescan.BootMethodUKI {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Unified kernel images boot directly and need no extraction"})
 		return
 	}
 
@@ -2995,16 +3017,16 @@ func formatBytes(bytes int64) string {
 func isoDownloadFilename(rawURL, requested string) (string, error) {
 	if requested == "" {
 		filename := filepath.Base(rawURL)
-		if !strings.HasSuffix(strings.ToLower(filename), ".iso") {
-			return "", fmt.Errorf("URL must point to an .iso file")
+		if !imagescan.IsSupportedFilename(filename) {
+			return "", fmt.Errorf("URL must point to an .iso file or a unified kernel image (.efi)")
 		}
 		return filename, nil
 	}
 	if requested == "." || requested == ".." || strings.ContainsAny(requested, `/\`) {
 		return "", fmt.Errorf("filename must be a plain file name without directories")
 	}
-	if !strings.HasSuffix(strings.ToLower(requested), ".iso") {
-		return "", fmt.Errorf("filename must end in .iso")
+	if !imagescan.IsSupportedFilename(requested) {
+		return "", fmt.Errorf("filename must end in .iso or .efi")
 	}
 	return requested, nil
 }
@@ -3121,13 +3143,24 @@ func (h *Handler) downloadISO(url, filename, destPath, description string) {
 		}
 	}
 
+	syncFile := models.SyncFile{Name: strings.TrimSuffix(filename, filepath.Ext(filename)), Filename: filename, Size: downloaded}
+	if strings.EqualFold(filepath.Ext(filename), ".efi") {
+		img, err := uki.Inspect(destPath)
+		if err != nil {
+			log.Printf("Downloaded %s is not a unified kernel image: %v", filename, err)
+			downloadMgr.Error(filename, "not a unified kernel image")
+			os.Remove(destPath)
+			return
+		}
+		syncFile.BootMethod = imagescan.BootMethodUKI
+		syncFile.BootParams = img.Cmdline
+	}
+
 	downloadMgr.Complete(filename)
 	log.Printf("Completed ISO download: %s (%d bytes)", filename, downloaded)
 
 	if h.storage != nil {
-		isoFiles := []models.SyncFile{
-			{Name: strings.TrimSuffix(filename, filepath.Ext(filename)), Filename: filename, Size: downloaded},
-		}
+		isoFiles := []models.SyncFile{syncFile}
 
 		if err := h.storage.SyncImages(isoFiles); err != nil {
 			log.Printf("Failed to sync downloaded ISO to database: %v", err)
@@ -3139,9 +3172,11 @@ func (h *Handler) downloadISO(url, filename, destPath, description string) {
 				img.Description = description
 				changed = true
 			}
-			h.detectAndSetDistro(img)
-			if img.Distro != "" {
-				changed = true
+			if syncFile.BootMethod == "" {
+				h.detectAndSetDistro(img)
+				if img.Distro != "" {
+					changed = true
+				}
 			}
 			if changed {
 				if err := h.storage.UpdateImage(filename, img); err != nil {

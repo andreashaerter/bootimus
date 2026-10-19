@@ -244,3 +244,29 @@ func TestBuildFooterToolKernelGetsInitrdName(t *testing.T) {
 		t.Errorf("tools without an initrd must not get initrd=, got:\n%s", out)
 	}
 }
+
+func TestBuildImageBootSectionsUKI(t *testing.T) {
+	mb := testMenuBuilder(nil)
+	mb.images = []models.Image{
+		{ID: 21, Name: "Hello World", Filename: "hello-world.efi", Enabled: true, BootMethod: "uki", BootParams: "audit=0"},
+		{ID: 22, Name: "Bare", Filename: "lab/bare.efi", Enabled: true, BootMethod: "uki"},
+	}
+
+	out := mb.buildImageBootSections()
+	for _, want := range []string{
+		":iso21\n",
+		"iseq ${platform} efi || goto uki_needs_uefi\n",
+		"kernel http://10.0.0.1:8080/isos/hello-world.efi?mac=aa:bb:cc:dd:ee:ff audit=0\n",
+		"kernel http://10.0.0.1:8080/isos/lab/bare.efi?mac=aa:bb:cc:dd:ee:ff\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "iso-url=") || strings.Contains(out, "sanboot") {
+		t.Errorf("UKI sections must not fall back to ISO parameters or sanboot:\n%s", out)
+	}
+	if !strings.Contains(mb.buildFooter(), ":uki_needs_uefi\n") {
+		t.Error("footer must define the uki_needs_uefi label")
+	}
+}
