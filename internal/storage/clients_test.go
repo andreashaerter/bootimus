@@ -185,3 +185,25 @@ func TestUpdateClientGroupPersistsAutoInstallFile(t *testing.T) {
 		t.Fatalf("expected group auto install file to clear, got %q", got.AutoInstallFile)
 	}
 }
+
+func TestUpdateClientPersistsProxyDHCPNoVendorOption(t *testing.T) {
+	store := newTestStore(t)
+	mac := "aa:bb:cc:dd:ee:04"
+
+	if err := store.CreateClient(&models.Client{MACAddress: mac, Name: "i219"}); err != nil {
+		t.Fatalf("CreateClient: %v", err)
+	}
+
+	for _, want := range []bool{true, false} {
+		if err := store.UpdateClient(mac, &models.Client{Name: "i219", ProxyDHCPNoVendorOption: want}); err != nil {
+			t.Fatalf("UpdateClient(%v): %v", want, err)
+		}
+		client, err := store.GetClient(mac)
+		if err != nil {
+			t.Fatalf("GetClient: %v", err)
+		}
+		if client.ProxyDHCPNoVendorOption != want {
+			t.Fatalf("ProxyDHCPNoVendorOption = %v, want %v", client.ProxyDHCPNoVendorOption, want)
+		}
+	}
+}

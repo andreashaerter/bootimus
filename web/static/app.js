@@ -1313,6 +1313,7 @@ async function editClient(mac) {
             form.querySelector('[name="description"]').value = currentClient.description || '';
             form.querySelector('[name="enabled"]').checked = currentClient.enabled || false;
             form.querySelector('[name="show_public_images"]').checked = currentClient.show_public_images !== false;
+            form.querySelector('[name="proxy_dhcp_no_vendor_option"]').checked = !!currentClient.proxy_dhcp_no_vendor_option;
 
             // BMC / Redfish
             form.querySelector('[name="ipmi_host"]').value = currentClient.ipmi_host || '';
@@ -2679,6 +2680,7 @@ function setupForms() {
             enabled: formData.get('enabled') === 'on',
             show_public_images: formData.get('show_public_images') === 'on',
             bootloader_set: formData.get('bootloader_set') || '',
+            proxy_dhcp_no_vendor_option: formData.get('proxy_dhcp_no_vendor_option') === 'on',
             client_group_id: groupIdRaw ? parseInt(groupIdRaw, 10) : null,
             ipmi_host: formData.get('ipmi_host') || '',
             ipmi_port: ipmiPortRaw ? parseInt(ipmiPortRaw, 10) : 0,

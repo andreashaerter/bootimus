@@ -98,6 +98,7 @@ type Config struct {
 	ProxyDHCPBootfileUEFI     string
 	ProxyDHCPBootfileARM      string
 	ProxyDHCPNoBootfileOption bool
+	ProxyDHCPNoVendorOption   bool
 
 	WindowsSMBEnabled bool
 	WindowsSMBPort    int
@@ -394,6 +395,14 @@ func (s *Server) activeSetManifest() *bootloaders.Manifest {
 	return m
 }
 
+func (s *Server) proxyDHCPOmitVendorOption(mac net.HardwareAddr) bool {
+	if s.config.Storage == nil || len(mac) == 0 {
+		return false
+	}
+	client, err := s.config.Storage.GetClient(strings.ToLower(mac.String()))
+	return err == nil && client != nil && client.ProxyDHCPNoVendorOption
+}
+
 // proxyDHCPBootfiles returns the bootfile names proxyDHCP should advertise.
 // Precedence: explicitly configured value (differs from the compiled default)
 // > active bootloader set manifest > compiled default. Evaluated per DHCP
@@ -609,14 +618,16 @@ func (s *Server) Start() error {
 
 	if s.config.ProxyDHCPEnabled {
 		pd, err := proxydhcp.NewServer(proxydhcp.Config{
-			ServerIP:        net.ParseIP(s.config.ServerAddr),
-			ServerHTTPPort:  s.config.HTTPPort,
-			Interface:       s.config.BindInterface,
-			BootfileBIOS:    s.config.ProxyDHCPBootfileBIOS,
-			BootfileUEFI:    s.config.ProxyDHCPBootfileUEFI,
-			BootfileARM64:   s.config.ProxyDHCPBootfileARM,
-			NoBootfileption: s.config.ProxyDHCPNoBootfileOption,
-			Bootfiles:       s.proxyDHCPBootfiles,
+			ServerIP:         net.ParseIP(s.config.ServerAddr),
+			ServerHTTPPort:   s.config.HTTPPort,
+			Interface:        s.config.BindInterface,
+			BootfileBIOS:     s.config.ProxyDHCPBootfileBIOS,
+			BootfileUEFI:     s.config.ProxyDHCPBootfileUEFI,
+			BootfileARM64:    s.config.ProxyDHCPBootfileARM,
+			NoBootfileption:  s.config.ProxyDHCPNoBootfileOption,
+			NoVendorOption:   s.config.ProxyDHCPNoVendorOption,
+			OmitVendorOption: s.proxyDHCPOmitVendorOption,
+			Bootfiles:        s.proxyDHCPBootfiles,
 		})
 		if err != nil {
 			log.Printf("proxyDHCP: failed to construct server: %v", err)

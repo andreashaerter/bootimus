@@ -237,7 +237,7 @@ func (s *PostgresStore) CreateClient(client *models.Client) error {
 func (s *PostgresStore) UpdateClient(mac string, client *models.Client) error {
 	return s.db.Model(&models.Client{}).Where("mac_address = ?", mac).
 		Select("Name", "Description", "Enabled", "ShowPublicImages", "BootloaderSet", "Static", "ClientGroupID",
-			"IPMIHost", "IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "UpdatedAt").
+			"IPMIHost", "IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "ProxyDHCPNoVendorOption", "UpdatedAt").
 		Updates(client).Error
 }
 

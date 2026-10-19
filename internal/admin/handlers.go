@@ -546,6 +546,9 @@ func (h *Handler) UpdateClient(w http.ResponseWriter, r *http.Request) {
 	if insecure, ok := updates["ipmi_insecure"].(bool); ok {
 		client.IPMIInsecure = insecure
 	}
+	if noVendor, ok := updates["proxy_dhcp_no_vendor_option"].(bool); ok {
+		client.ProxyDHCPNoVendorOption = noVendor
+	}
 	if groupID, ok := updates["client_group_id"]; ok {
 		if groupID == nil {
 			client.ClientGroupID = nil

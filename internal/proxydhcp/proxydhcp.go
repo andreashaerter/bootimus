@@ -27,13 +27,15 @@ const (
 )
 
 type Config struct {
-	ServerIP        net.IP
-	ServerHTTPPort  int
-	Interface       string
-	BootfileBIOS    string
-	BootfileUEFI    string
-	BootfileARM64   string
-	NoBootfileption bool
+	ServerIP         net.IP
+	ServerHTTPPort   int
+	Interface        string
+	BootfileBIOS     string
+	BootfileUEFI     string
+	BootfileARM64    string
+	NoBootfileption  bool
+	NoVendorOption   bool
+	OmitVendorOption func(mac net.HardwareAddr) bool
 	// Bootfiles, when set, is consulted on every request; any non-empty value
 	// it returns overrides the static Bootfile* fields. This lets the server
 	// switch bootloader sets at runtime without restarting proxyDHCP.
@@ -196,14 +198,12 @@ func (s *Server) buildReply(req *dhcpv4.DHCPv4) (*dhcpv4.DHCPv4, string, bool) {
 	if classID == httpClientClass {
 		bootfile = s.httpBootURL(bootfile)
 	} else {
-		vendorOpts := pxeVendorOptions()
+		modifiers = append(modifiers, dhcpv4.WithOption(dhcpv4.OptTFTPServerName(s.cfg.ServerIP.String())))
 		if clientArch(req) == iana.INTEL_X86PC && raspberrypi.IsRaspberryPiMAC(req.ClientHWAddr) {
-			vendorOpts = []byte("Raspberry Pi Boot")
+			modifiers = append(modifiers, dhcpv4.WithOption(dhcpv4.OptGeneric(dhcpv4.OptionVendorSpecificInformation, []byte("Raspberry Pi Boot"))))
+		} else if !s.omitVendorOption(req.ClientHWAddr) {
+			modifiers = append(modifiers, dhcpv4.WithOption(dhcpv4.OptGeneric(dhcpv4.OptionVendorSpecificInformation, pxeVendorOptions())))
 		}
-		modifiers = append(modifiers,
-			dhcpv4.WithOption(dhcpv4.OptTFTPServerName(s.cfg.ServerIP.String())),
-			dhcpv4.WithOption(dhcpv4.OptGeneric(dhcpv4.OptionVendorSpecificInformation, vendorOpts)),
-		)
 	}
 	if !s.cfg.NoBootfileption {
 		modifiers = append(modifiers, dhcpv4.WithOption(dhcpv4.OptBootFileName(bootfile)))
@@ -219,6 +219,13 @@ func (s *Server) buildReply(req *dhcpv4.DHCPv4) (*dhcpv4.DHCPv4, string, bool) {
 	}
 	resp.BootFileName = bootfile
 	return resp, bootfile, true
+}
+
+func (s *Server) omitVendorOption(mac net.HardwareAddr) bool {
+	if s.cfg.NoVendorOption {
+		return true
+	}
+	return s.cfg.OmitVendorOption != nil && s.cfg.OmitVendorOption(mac)
 }
 
 func bootClassID(vci string) (string, bool) {

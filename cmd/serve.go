@@ -215,6 +215,7 @@ func runServe(cmd *cobra.Command, args []string) {
 		ProxyDHCPBootfileUEFI:     viper.GetString("proxy_dhcp.bootfile_uefi"),
 		ProxyDHCPBootfileARM:      viper.GetString("proxy_dhcp.bootfile_arm64"),
 		ProxyDHCPNoBootfileOption: viper.GetBool("proxy_dhcp.no_bootfile_option"),
+		ProxyDHCPNoVendorOption:   viper.GetBool("proxy_dhcp.no_vendor_option"),
 
 		WindowsSMBEnabled: viper.GetBool("windows_smb.enabled"),
 		WindowsSMBPort:    viper.GetInt("windows_smb.port"),

@@ -89,6 +89,8 @@ type Client struct {
 
 	AutoInstallFile string `json:"auto_install_file,omitempty"`
 
+	ProxyDHCPNoVendorOption bool `gorm:"default:false" json:"proxy_dhcp_no_vendor_option"`
+
 	EnrollmentState string     `gorm:"default:'';index" json:"enrollment_state,omitempty"`
 	ClusterID       *uint      `gorm:"index" json:"cluster_id,omitempty"`
 	Cluster         *Cluster   `gorm:"foreignKey:ClusterID" json:"cluster,omitempty"`
