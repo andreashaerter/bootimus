@@ -6021,6 +6021,7 @@ function exportClientsCSV() {
     const header = [
         'mac_address', 'name', 'description', 'enabled', 'show_public_images',
         'static', 'bootloader_set', 'client_group', 'allowed_images', 'next_boot_image',
+        'proxy_dhcp_no_vendor_option',
     ];
     const rows = clients.map(c => [
         c.mac_address,
@@ -6033,6 +6034,7 @@ function exportClientsCSV() {
         c.client_group_id ? (groupsById[c.client_group_id] || '') : '',
         (c.allowed_images || []).join('|'),
         c.next_boot_image || '',
+        c.proxy_dhcp_no_vendor_option ? 'true' : 'false',
     ]);
     const csv = [header, ...rows].map(r => r.map(csvEscape).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });

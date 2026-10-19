@@ -4691,7 +4691,14 @@ func (h *Handler) ImportClientsCSV(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		if _, err := h.storage.GetClient(mac); err == nil {
+		existing, existsErr := h.storage.GetClient(mac)
+		if v := get(row, "proxy_dhcp_no_vendor_option"); v != "" {
+			client.ProxyDHCPNoVendorOption = toBool(v)
+		} else if existsErr == nil {
+			client.ProxyDHCPNoVendorOption = existing.ProxyDHCPNoVendorOption
+		}
+
+		if existsErr == nil {
 			if err := h.storage.UpdateClient(mac, client); err != nil {
 				errors = append(errors, fmt.Sprintf("row %d (%s): update failed: %v", rowNum, mac, err))
 				continue
