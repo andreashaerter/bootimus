@@ -5,6 +5,7 @@ Complete guide for managing ISO images, extracting boot files, and handling spec
 ##  Table of Contents
 
 - [Adding Images](#adding-images)
+- [Unified Kernel Images (UKI)](#unified-kernel-images-uki)
 - [Kernel Extraction](#kernel-extraction)
 - [Netboot Support](#netboot-support)
 - [Ubuntu Desktop Optimisation](#ubuntu-desktop-optimisation)
@@ -90,6 +91,22 @@ If you manually copy ISOs to the data directory (including into subdirectories):
 ```bash
 curl -u admin:password -X POST http://localhost:8081/api/scan
 ```
+
+## Unified Kernel Images (UKI)
+
+A unified kernel image (UKI) is a single EFI executable that bundles a Linux kernel, its initrd and its kernel command line. Bootimus boots UKIs directly, with no extraction.
+
+**Adding a UKI**: upload the `.efi` file, download it from a URL, or copy it into `/data/isos/` and scan, exactly as for an ISO. Bootimus only registers `.efi` files that are UKIs (EFI executables with a `.linux` section); other EFI programs are rejected, and files inside an ISO's extracted folder are ignored.
+
+**Boot parameters**: the command line embedded in the UKI's `.cmdline` section is copied into the image's boot parameters when it is first added, so you can see and change it in the image properties. Bootimus boots the image with:
+
+```
+kernel http://<server>:8080/isos/<image>.efi <boot parameters>
+```
+
+With Secure Boot disabled, these parameters replace the embedded command line, which is why the embedded one is pre-filled. With Secure Boot enabled, the systemd-stub inside most UKIs ignores them and always uses the embedded command line.
+
+**UEFI only**: UKIs are EFI programs, so legacy BIOS clients cannot boot them. Choosing one on a BIOS client shows a message saying it needs UEFI.
 
 ## Kernel Extraction
 

@@ -5,6 +5,7 @@
 ##  目录
 
 - [添加镜像](#添加镜像)
+- [统一内核镜像 (UKI)](#统一内核镜像-uki)
 - [Kernel 提取](#kernel-提取)
 - [Netboot 支持](#netboot-支持)
 - [Ubuntu Desktop 优化](#ubuntu-desktop-优化)
@@ -87,6 +88,22 @@ curl -u admin:password http://localhost:8081/api/downloads/progress?filename=ubu
 ```bash
 curl -u admin:password -X POST http://localhost:8081/api/scan
 ```
+
+## 统一内核镜像 (UKI)
+
+统一内核镜像 (UKI) 是一个单独的 EFI 可执行文件,其中打包了 Linux 内核、它的 initrd 以及内核命令行。Bootimus 直接启动 UKI,无需提取。
+
+**添加 UKI**:上传 `.efi` 文件、从 URL 下载,或复制到 `/data/isos/` 后扫描,方式与 ISO 完全相同。Bootimus 只登记属于 UKI 的 `.efi` 文件(带有 `.linux` 段的 EFI 可执行文件);其他 EFI 程序会被拒绝,ISO 提取目录中的文件也会被忽略。
+
+**启动参数**:UKI 的 `.cmdline` 段中内嵌的命令行会在首次添加时复制到镜像的启动参数中,因此你可以在镜像属性中查看并修改它。Bootimus 使用以下方式启动该镜像:
+
+```
+kernel http://<server>:8080/isos/<image>.efi <boot parameters>
+```
+
+关闭 Secure Boot 时,这些参数会替换内嵌的命令行,所以内嵌命令行会被预先填入。开启 Secure Boot 时,大多数 UKI 内的 systemd-stub 会忽略这些参数,始终使用内嵌的命令行。
+
+**仅限 UEFI**:UKI 是 EFI 程序,传统 BIOS 客户端无法启动它们。在 BIOS 客户端上选择 UKI 时,会显示需要 UEFI 的提示。
 
 ## Kernel 提取
 
