@@ -141,6 +141,7 @@ const TRANSLATIONS = {
         'props.boot_method.kernel': 'Kernel/Initrd',
         'props.boot_method.nbd': 'NBD Mount',
         'props.boot_method.nfs': 'NFS Mount',
+        'props.boot_method.uki': 'Unified Kernel Image (UKI)',
 
         'props.action.extract': 'Extract',
         'props.action.re_extract': 'Re-Extract',
@@ -317,6 +318,7 @@ const TRANSLATIONS = {
         'props.boot_method.kernel': 'Kernel/Initrd',
         'props.boot_method.nbd': 'NBD-Mount',
         'props.boot_method.nfs': 'NFS-Mount',
+        'props.boot_method.uki': 'Unified Kernel Image (UKI)',
 
         'props.action.extract': 'Extrahieren',
         'props.action.re_extract': 'Neu extrahieren',
@@ -493,6 +495,7 @@ const TRANSLATIONS = {
         'props.boot_method.kernel': 'Noyau/Initrd',
         'props.boot_method.nbd': 'Montage NBD',
         'props.boot_method.nfs': 'Montage NFS',
+        'props.boot_method.uki': 'Image noyau unifiée (UKI)',
 
         'props.action.extract': 'Extraire',
         'props.action.re_extract': 'Ré-extraire',
@@ -669,6 +672,7 @@ const TRANSLATIONS = {
         'props.boot_method.kernel': 'Kernel/Initrd',
         'props.boot_method.nbd': 'Montaje NBD',
         'props.boot_method.nfs': 'Montaje NFS',
+        'props.boot_method.uki': 'Imagen de kernel unificada (UKI)',
 
         'props.action.extract': 'Extraer',
         'props.action.re_extract': 'Volver a extraer',
@@ -845,6 +849,7 @@ const TRANSLATIONS = {
         'props.boot_method.kernel': 'Kernel/Initrd',
         'props.boot_method.nbd': 'Montaggio NBD',
         'props.boot_method.nfs': 'Montaggio NFS',
+        'props.boot_method.uki': 'Immagine kernel unificata (UKI)',
 
         'props.action.extract': 'Estrai',
         'props.action.re_extract': 'Estrai di nuovo',
@@ -1021,6 +1026,7 @@ const TRANSLATIONS = {
         'props.boot_method.kernel': 'Kernel/Initrd',
         'props.boot_method.nbd': 'NBD-mount',
         'props.boot_method.nfs': 'NFS-mount',
+        'props.boot_method.uki': 'Unified Kernel Image (UKI)',
 
         'props.action.extract': 'Uitpakken',
         'props.action.re_extract': 'Opnieuw uitpakken',
@@ -1197,6 +1203,7 @@ const TRANSLATIONS = {
         'props.boot_method.kernel': 'Ядро/Initrd',
         'props.boot_method.nbd': 'Монтирование NBD',
         'props.boot_method.nfs': 'Монтирование NFS',
+        'props.boot_method.uki': 'Унифицированный образ ядра (UKI)',
 
         'props.action.extract': 'Извлечь',
         'props.action.re_extract': 'Извлечь заново',
@@ -1373,6 +1380,7 @@ const TRANSLATIONS = {
         'props.boot_method.kernel': '内核 / Initrd',
         'props.boot_method.nbd': 'NBD 挂载',
         'props.boot_method.nfs': 'NFS 挂载',
+        'props.boot_method.uki': '统一内核镜像 (UKI)',
 
         'props.action.extract': '解包',
         'props.action.re_extract': '重新解包',

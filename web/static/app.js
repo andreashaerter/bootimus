@@ -2125,6 +2125,8 @@ function imageRowHTML(img, includeGroupCell, depth = 0) {
                         <td style="white-space: nowrap;">
                             ${img.boot_method === 'kernel' ?
                                 '<span class="badge badge-success">Kernel</span>' :
+                                img.boot_method === 'uki' ?
+                                '<span class="badge badge-success">UKI</span>' :
                                 img.boot_method === 'nbd' ?
                                 '<span class="badge badge-warning">NBD</span>' :
                                 img.boot_method === 'nfs' ?
@@ -3758,7 +3760,7 @@ function setupUpload() {
         }
         pendingUploads.set(filename, {
             filename,
-            name: filename.replace(/\.iso$/i, ''),
+            name: filename.replace(/\.(iso|efi)$/i, ''),
             size: file.size,
             progress: 0,
             status: 'Starting…',
@@ -5177,7 +5179,11 @@ async function showImagePropertiesModal(filename, opts) {
     document.getElementById('image-props-display-name').value = img.name || '';
     document.getElementById('image-props-description').value = img.description || '';
     document.getElementById('image-props-order').value = img.order || 0;
-    document.getElementById('image-props-boot-method').value = img.boot_method || 'sanboot';
+    const bootMethodSelect = document.getElementById('image-props-boot-method');
+    const isUKI = img.boot_method === 'uki';
+    bootMethodSelect.querySelector('option[value="uki"]').hidden = !isUKI;
+    bootMethodSelect.disabled = isUKI;
+    bootMethodSelect.value = img.boot_method || 'sanboot';
 
     // Populate distro profile dropdown
     const distroSelect = document.getElementById('image-props-distro');
@@ -5220,7 +5226,10 @@ async function showImagePropertiesModal(filename, opts) {
     // Toggle action buttons based on image state
     const extractBtn = document.getElementById('image-props-extract-btn');
     const netbootBtn = document.getElementById('image-props-netboot-btn');
-    if (extractionProgress[filename]) {
+    if (isUKI) {
+        extractBtn.style.display = 'none';
+        netbootBtn.style.display = 'none';
+    } else if (extractionProgress[filename]) {
         extractBtn.style.display = 'inline-block';
         extractBtn.disabled = true;
         extractBtn.style.opacity = '0.5';
