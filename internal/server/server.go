@@ -27,6 +27,7 @@ import (
 	"bootimus/internal/admin"
 	"bootimus/internal/auth"
 	"bootimus/internal/autoinstall"
+	"bootimus/internal/imagescan"
 	"bootimus/internal/metrics"
 	"bootimus/internal/models"
 	"bootimus/internal/nbd"
@@ -520,26 +521,16 @@ func (s *Server) Start() error {
 		log.Printf("Auto-install files directory: %s", mgr.Root())
 	}
 
-	isos, err := s.scanISOs()
+	isoFiles, err := imagescan.Scan(s.config.ISODir)
 	if err != nil {
 		log.Printf("Warning: Failed to scan ISOs: %v", err)
 	} else {
-		log.Printf("Found %d ISO image(s)", len(isos))
-		for _, iso := range isos {
-			log.Printf("  - %s (%s)", iso.Name, iso.SizeStr)
+		log.Printf("Found %d image(s)", len(isoFiles))
+		for _, f := range isoFiles {
+			log.Printf("  - %s (%s)", f.Name, formatBytes(f.Size))
 		}
 
 		if s.config.Storage != nil {
-			isoFiles := make([]models.SyncFile, len(isos))
-			for i, iso := range isos {
-				isoFiles[i] = models.SyncFile{
-					Name:      iso.Name,
-					Filename:  iso.Filename,
-					Size:      iso.Size,
-					GroupPath: iso.GroupPath,
-				}
-			}
-
 			if err := s.config.Storage.SyncImages(isoFiles); err != nil {
 				log.Printf("Warning: Failed to sync images with database: %v", err)
 			}
@@ -724,45 +715,20 @@ func (s *Server) Shutdown() error {
 }
 
 func (s *Server) scanISOs() ([]ISOImage, error) {
-	var isos []ISOImage
-
-	err := filepath.WalkDir(s.config.ISODir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if !strings.HasSuffix(strings.ToLower(d.Name()), ".iso") {
-			return nil
-		}
-
-		info, err := d.Info()
-		if err != nil {
-			log.Printf("Warning: Failed to get info for %s: %v", path, err)
-			return nil
-		}
-
-		relPath, _ := filepath.Rel(s.config.ISODir, path)
-		groupPath := filepath.Dir(relPath)
-		if groupPath == "." {
-			groupPath = ""
-		}
-
-		displayName := strings.TrimSuffix(d.Name(), filepath.Ext(d.Name()))
-
-		isos = append(isos, ISOImage{
-			Name:      displayName,
-			Filename:  relPath,
-			Size:      info.Size(),
-			SizeStr:   formatBytes(info.Size()),
-			GroupPath: groupPath,
-		})
-
-		return nil
-	})
+	files, err := imagescan.Scan(s.config.ISODir)
 	if err != nil {
 		return nil, err
+	}
+
+	isos := make([]ISOImage, 0, len(files))
+	for _, f := range files {
+		isos = append(isos, ISOImage{
+			Name:      f.Name,
+			Filename:  f.Filename,
+			Size:      f.Size,
+			SizeStr:   formatBytes(f.Size),
+			GroupPath: f.GroupPath,
+		})
 	}
 
 	sort.Slice(isos, func(i, j int) bool {

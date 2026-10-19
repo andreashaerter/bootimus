@@ -305,6 +305,10 @@ func (s *PostgresStore) SyncImages(isoFiles []models.SyncFile) error {
 				Public:   true,
 				GroupID:  groupID,
 			}
+			if iso.BootMethod != "" {
+				image.BootMethod = iso.BootMethod
+				image.BootParams = iso.BootParams
+			}
 			if err := s.db.Create(&image).Error; err != nil {
 				return fmt.Errorf("failed to create image %s: %w", iso.Name, err)
 			}

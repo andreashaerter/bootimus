@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -26,6 +25,7 @@ import (
 	"bootimus/bootloaders"
 	"bootimus/internal/autoinstall"
 	"bootimus/internal/extractor"
+	"bootimus/internal/imagescan"
 	"bootimus/internal/models"
 	"bootimus/internal/profiles"
 	"bootimus/internal/redfish"
@@ -742,40 +742,7 @@ func (h *Handler) GetClientInventoryHistory(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *Handler) syncFilesystemToDatabase() {
-	var isoFiles []models.SyncFile
-
-	err := filepath.WalkDir(h.isoDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if !strings.HasSuffix(strings.ToLower(d.Name()), ".iso") {
-			return nil
-		}
-
-		info, err := d.Info()
-		if err != nil {
-			log.Printf("Failed to get file info for %s: %v", path, err)
-			return nil
-		}
-
-		relPath, _ := filepath.Rel(h.isoDir, path)
-		groupPath := filepath.Dir(relPath)
-		if groupPath == "." {
-			groupPath = ""
-		}
-
-		isoFiles = append(isoFiles, models.SyncFile{
-			Name:      strings.TrimSuffix(d.Name(), filepath.Ext(d.Name())),
-			Filename:  relPath,
-			Size:      info.Size(),
-			GroupPath: groupPath,
-		})
-
-		return nil
-	})
+	isoFiles, err := imagescan.Scan(h.isoDir)
 	if err != nil {
 		log.Printf("Failed to walk ISO directory for sync: %v", err)
 		return
@@ -2035,41 +2002,11 @@ func (h *Handler) ScanImages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	existingFiles := make(map[string]bool)
-	var isoFiles []models.SyncFile
-
-	err := filepath.WalkDir(h.isoDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if !strings.HasSuffix(strings.ToLower(d.Name()), ".iso") {
-			return nil
-		}
-
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-
-		relPath, _ := filepath.Rel(h.isoDir, path)
-		groupPath := filepath.Dir(relPath)
-		if groupPath == "." {
-			groupPath = ""
-		}
-
-		existingFiles[relPath] = true
-		isoFiles = append(isoFiles, models.SyncFile{
-			Name:      strings.TrimSuffix(d.Name(), filepath.Ext(d.Name())),
-			Filename:  relPath,
-			Size:      info.Size(),
-			GroupPath: groupPath,
-		})
-
-		return nil
-	})
+	isoFiles, err := imagescan.Scan(h.isoDir)
+	existingFiles := make(map[string]bool, len(isoFiles))
+	for _, f := range isoFiles {
+		existingFiles[f.Filename] = true
+	}
 	if err != nil {
 		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
 		return

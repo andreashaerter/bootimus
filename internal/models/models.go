@@ -204,10 +204,12 @@ type ClientGroup struct {
 }
 
 type SyncFile struct {
-	Name      string
-	Filename  string
-	Size      int64
-	GroupPath string // relative directory path from isoDir, empty for root
+	Name       string
+	Filename   string
+	Size       int64
+	GroupPath  string // relative directory path from isoDir, empty for root
+	BootMethod string
+	BootParams string
 }
 
 type ImageGroup struct {
