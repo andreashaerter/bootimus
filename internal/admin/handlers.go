@@ -4699,6 +4699,12 @@ func (h *Handler) ImportClientsCSV(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if existsErr == nil {
+			client.IPMIHost = existing.IPMIHost
+			client.IPMIPort = existing.IPMIPort
+			client.IPMIUsername = existing.IPMIUsername
+			client.IPMIPassword = existing.IPMIPassword
+			client.IPMIInsecure = existing.IPMIInsecure
+			client.AutoInstallFile = existing.AutoInstallFile
 			if err := h.storage.UpdateClient(mac, client); err != nil {
 				errors = append(errors, fmt.Sprintf("row %d (%s): update failed: %v", rowNum, mac, err))
 				continue

@@ -31,6 +31,49 @@ func importClientsCSV(t *testing.T, h *Handler, csv string) {
 	}
 }
 
+func TestImportClientsCSVKeepsFieldsItDoesNotCarry(t *testing.T) {
+	store, err := storage.NewSQLiteStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AutoMigrate(); err != nil {
+		t.Fatal(err)
+	}
+	h := &Handler{storage: store}
+
+	mac := "aa:bb:cc:dd:ee:03"
+	if err := store.CreateClient(&models.Client{MACAddress: mac, Name: "bmc-node"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateClient(mac, &models.Client{
+		Name:            "bmc-node",
+		IPMIHost:        "10.0.0.100",
+		IPMIPort:        443,
+		IPMIUsername:    "admin",
+		IPMIPassword:    "secret",
+		IPMIInsecure:    true,
+		AutoInstallFile: "ubuntu/node.yaml",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	importClientsCSV(t, h, "mac_address,name\n"+mac+",bmc-node-renamed\n")
+
+	c, err := store.GetClient(mac)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Name != "bmc-node-renamed" {
+		t.Errorf("name = %q, want the imported name", c.Name)
+	}
+	if c.IPMIHost != "10.0.0.100" || c.IPMIPort != 443 || c.IPMIUsername != "admin" || c.IPMIPassword != "secret" || !c.IPMIInsecure {
+		t.Errorf("IPMI settings were not kept: %+v", c)
+	}
+	if c.AutoInstallFile != "ubuntu/node.yaml" {
+		t.Errorf("auto-install file = %q, want it kept", c.AutoInstallFile)
+	}
+}
+
 func TestImportClientsCSVNoVendorOption(t *testing.T) {
 	store, err := storage.NewSQLiteStore(t.TempDir())
 	if err != nil {
