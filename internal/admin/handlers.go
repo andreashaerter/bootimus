@@ -9,6 +9,7 @@ import (
 	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -481,6 +482,10 @@ func (h *Handler) CreateClient(w http.ResponseWriter, r *http.Request) {
 	client.Static = true
 
 	if err := h.storage.CreateClient(&client); err != nil {
+		if errors.Is(err, storage.ErrClientExists) {
+			h.sendJSON(w, http.StatusConflict, Response{Success: false, Error: "A client with this MAC address already exists"})
+			return
+		}
 		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
 		return
 	}

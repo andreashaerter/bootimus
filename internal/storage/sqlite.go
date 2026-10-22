@@ -77,7 +77,7 @@ func (s *SQLiteStore) GetClient(mac string) (*models.Client, error) {
 }
 
 func (s *SQLiteStore) CreateClient(client *models.Client) error {
-	return s.db.Create(client).Error
+	return createClient(s.db, client)
 }
 
 func (s *SQLiteStore) UpdateClient(mac string, client *models.Client) error {
