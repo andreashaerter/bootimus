@@ -89,7 +89,7 @@ Alle Statistiken aktualisieren sich in Echtzeit über WebSocket/SSE.
 
 **Per API**:
 ```bash
-curl -u admin:password -X POST http://localhost:8081/api/clients \
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/clients \
   -H "Content-Type: application/json" \
   -d '{
     "mac_address": "00:11:22:33:44:55",
@@ -108,7 +108,7 @@ curl -u admin:password -X POST http://localhost:8081/api/clients \
 
 **Per API**:
 ```bash
-curl -u admin:password -X PUT "http://localhost:8081/api/clients?mac=00:11:22:33:44:55" \
+curl -H "Authorization: Bearer $TOKEN" -X PUT "http://localhost:8081/api/clients?mac=00:11:22:33:44:55" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Updated Name",
@@ -122,7 +122,7 @@ Klicke **"Delete"** in einer beliebigen Client-Zeile und bestätige das Löschen
 
 **Per API**:
 ```bash
-curl -u admin:password -X DELETE "http://localhost:8081/api/clients?mac=00:11:22:33:44:55"
+curl -H "Authorization: Bearer $TOKEN" -X DELETE "http://localhost:8081/api/clients?mac=00:11:22:33:44:55"
 ```
 
 ### Images einem Client zuweisen
@@ -134,7 +134,7 @@ curl -u admin:password -X DELETE "http://localhost:8081/api/clients?mac=00:11:22
 
 **Per API**:
 ```bash
-curl -u admin:password -X POST http://localhost:8081/api/clients/assign \
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/assign-images \
   -H "Content-Type: application/json" \
   -d '{
     "mac_address": "00:11:22:33:44:55",
@@ -157,7 +157,7 @@ curl -u admin:password -X POST http://localhost:8081/api/clients/assign \
 
 **Per API**:
 ```bash
-curl -u admin:password -X POST http://localhost:8081/api/images/upload \
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/images/upload \
   -F "file=@/path/to/ubuntu-24.04-live-server-amd64.iso" \
   -F "description=Ubuntu 24.04 LTS Server" \
   -F "public=true"
@@ -175,7 +175,7 @@ ISOs direkt auf den Server herunterladen:
 
 **Per API**:
 ```bash
-curl -u admin:password -X POST http://localhost:8081/api/images/download \
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/images/download \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://releases.ubuntu.com/24.04/ubuntu-24.04-live-server-amd64.iso",
@@ -183,7 +183,7 @@ curl -u admin:password -X POST http://localhost:8081/api/images/download \
   }'
 
 # Fortschritt überwachen
-curl -u admin:password http://localhost:8081/api/downloads/progress?filename=ubuntu-24.04-live-server-amd64.iso
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/downloads/progress?filename=ubuntu-24.04-live-server-amd64.iso
 ```
 
 ### Kernel/Initrd extrahieren
@@ -197,7 +197,7 @@ Boot-Dateien für schnelleres Booten und geringere Bandbreite extrahieren:
 
 **Per API**:
 ```bash
-curl -u admin:password -X POST http://localhost:8081/api/images/extract \
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/images/extract \
   -H "Content-Type: application/json" \
   -d '{"filename": "ubuntu-24.04.iso"}'
 ```
@@ -220,7 +220,7 @@ Für Debian-/Ubuntu-Installer-ISOs, die Netboot benötigen:
 
 **Per API**:
 ```bash
-curl -u admin:password -X POST http://localhost:8081/api/images/netboot/download \
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/images/netboot/download \
   -H "Content-Type: application/json" \
   -d '{"filename": "debian-13.2.0-amd64-netinst.iso"}'
 ```
@@ -244,7 +244,7 @@ Daten-Verzeichnis nach manuell hinzugefügten ISOs scannen:
 
 **Per API**:
 ```bash
-curl -u admin:password -X POST http://localhost:8081/api/scan
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/scan
 ```
 
 ### Image aktivieren/deaktivieren
@@ -255,7 +255,7 @@ curl -u admin:password -X POST http://localhost:8081/api/scan
 
 **Per API**:
 ```bash
-curl -u admin:password -X PUT "http://localhost:8081/api/images?filename=ubuntu.iso" \
+curl -H "Authorization: Bearer $TOKEN" -X PUT "http://localhost:8081/api/images?filename=ubuntu.iso" \
   -H "Content-Type: application/json" \
   -d '{"enabled": true}'
 ```
@@ -268,7 +268,7 @@ curl -u admin:password -X PUT "http://localhost:8081/api/images?filename=ubuntu.
 
 **Per API**:
 ```bash
-curl -u admin:password -X PUT "http://localhost:8081/api/images?filename=ubuntu.iso" \
+curl -H "Authorization: Bearer $TOKEN" -X PUT "http://localhost:8081/api/images?filename=ubuntu.iso" \
   -H "Content-Type: application/json" \
   -d '{"public": true}'
 ```
@@ -284,10 +284,10 @@ curl -u admin:password -X PUT "http://localhost:8081/api/images?filename=ubuntu.
 **Per API**:
 ```bash
 # Nur aus der Datenbank löschen
-curl -u admin:password -X DELETE "http://localhost:8081/api/images?filename=ubuntu.iso"
+curl -H "Authorization: Bearer $TOKEN" -X DELETE "http://localhost:8081/api/images?filename=ubuntu.iso"
 
 # Aus Datenbank und Dateisystem löschen
-curl -u admin:password -X DELETE "http://localhost:8081/api/images?filename=ubuntu.iso&delete_file=true"
+curl -H "Authorization: Bearer $TOKEN" -X DELETE "http://localhost:8081/api/images?filename=ubuntu.iso&delete_file=true"
 ```
 
 ## Boot-Logs
@@ -307,13 +307,13 @@ Aktuelle Boot-Versuche mit Live-Streaming einsehen:
 **Per API**:
 ```bash
 # Letzte 100 Logs holen (Default)
-curl -u admin:password http://localhost:8081/api/logs
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/logs
 
 # Letzte 10 Logs holen
-curl -u admin:password http://localhost:8081/api/logs?limit=10
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/logs?limit=10
 
 # Letzte 500 Logs holen (max. 1000)
-curl -u admin:password http://localhost:8081/api/logs?limit=500
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/logs?limit=500
 ```
 
 ## REST-API
@@ -327,7 +327,11 @@ Für alle Endpunkte ist HTTP Basic Authentication erforderlich:
 - **Passwort**: Beim ersten Lauf automatisch generiert
 
 ```bash
-curl -u admin:your-password http://localhost:8081/api/stats
+TOKEN=$(curl -s -X POST http://localhost:8081/api/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"your-password"}' | jq -r '.data.token')
+
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/stats
 ```
 
 ### API-Endpunkte
@@ -361,7 +365,7 @@ GET /api/stats
 | `POST` | `/api/clients` | Client anlegen |
 | `PUT` | `/api/clients?mac=<MAC>` | Client aktualisieren |
 | `DELETE` | `/api/clients?mac=<MAC>` | Client löschen |
-| `POST` | `/api/clients/assign` | Images einem Client zuweisen |
+| `POST` | `/api/assign-images` | Images einem Client zuweisen |
 
 #### Images
 
@@ -400,6 +404,9 @@ GET /api/stats
 # bulk-add-clients.sh
 
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-your-password}"
+TOKEN=$(curl -s -X POST http://localhost:8081/api/login \
+  -H "Content-Type: application/json" \
+  -d "{\"username\":\"admin\",\"password\":\"$ADMIN_PASSWORD\"}" | jq -r '.data.token')
 
 CLIENTS=(
   "00:11:22:33:44:01:Server1"
@@ -411,7 +418,7 @@ for entry in "${CLIENTS[@]}"; do
   IFS=':' read -r mac1 mac2 mac3 mac4 mac5 mac6 name <<< "$entry"
   mac="${mac1}:${mac2}:${mac3}:${mac4}:${mac5}:${mac6}"
 
-  curl -u admin:$ADMIN_PASSWORD -X POST http://localhost:8081/api/clients \
+  curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/clients \
     -H "Content-Type: application/json" \
     -d "{\"mac_address\":\"$mac\",\"name\":\"$name\",\"enabled\":true}"
 
@@ -426,11 +433,14 @@ done
 # make-all-public.sh
 
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-your-password}"
+TOKEN=$(curl -s -X POST http://localhost:8081/api/login \
+  -H "Content-Type: application/json" \
+  -d "{\"username\":\"admin\",\"password\":\"$ADMIN_PASSWORD\"}" | jq -r '.data.token')
 
-images=$(curl -u admin:$ADMIN_PASSWORD -s http://localhost:8081/api/images | jq -r '.data[].filename')
+images=$(curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/images | jq -r '.data[].filename')
 
 for filename in $images; do
-  curl -u admin:$ADMIN_PASSWORD -X PUT "http://localhost:8081/api/images?filename=$filename" \
+  curl -H "Authorization: Bearer $TOKEN" -X PUT "http://localhost:8081/api/images?filename=$filename" \
     -H "Content-Type: application/json" \
     -d '{"public":true}'
   echo "Made $filename public"
@@ -444,11 +454,14 @@ done
 # monitor-boots.sh
 
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-your-password}"
+TOKEN=$(curl -s -X POST http://localhost:8081/api/login \
+  -H "Content-Type: application/json" \
+  -d "{\"username\":\"admin\",\"password\":\"$ADMIN_PASSWORD\"}" | jq -r '.data.token')
 
 while true; do
   clear
   echo "=== Recent Boot Attempts ==="
-  curl -u admin:$ADMIN_PASSWORD -s http://localhost:8081/api/logs?limit=20 | \
+  curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/logs?limit=20 | \
     jq -r '.data[] | "\(.created_at) | \(.mac_address) | \(.image_name) | \(if .success then "" else "✗" end)"'
   sleep 5
 done
@@ -461,11 +474,14 @@ done
 # export-stats.sh
 
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-your-password}"
+TOKEN=$(curl -s -X POST http://localhost:8081/api/login \
+  -H "Content-Type: application/json" \
+  -d "{\"username\":\"admin\",\"password\":\"$ADMIN_PASSWORD\"}" | jq -r '.data.token')
 
 echo "Bootimus Usage Report - $(date)"
 echo "================================"
 
-stats=$(curl -u admin:$ADMIN_PASSWORD -s http://localhost:8081/api/stats | jq '.data')
+stats=$(curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/stats | jq '.data')
 
 echo "Total Clients: $(echo $stats | jq -r '.total_clients')"
 echo "Active Clients: $(echo $stats | jq -r '.active_clients')"
@@ -473,7 +489,7 @@ echo "Total Images: $(echo $stats | jq -r '.total_images')"
 echo "Total Boots: $(echo $stats | jq -r '.total_boots')"
 
 echo -e "\nTop Clients by Boot Count:"
-curl -u admin:$ADMIN_PASSWORD -s http://localhost:8081/api/clients | \
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/clients | \
   jq -r '.data | sort_by(.boot_count) | reverse | .[:5] | .[] | "\(.boot_count) boots - \(.name // .mac_address)"'
 ```
 
@@ -534,7 +550,7 @@ docker ps | grep bootimus
 docker logs bootimus
 
 # Port-Erreichbarkeit prüfen
-curl -u admin:password http://localhost:8081/api/stats
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/stats
 
 # Firewall prüfen
 sudo ufw status | grep 8081
@@ -561,12 +577,12 @@ df -h /opt/bootimus/data
 
 ```bash
 # Request-Format prüfen (JSON-Content-Type bei POST/PUT)
-curl -v -u admin:password -X POST http://localhost:8081/api/clients \
+curl -v -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/clients \
   -H "Content-Type: application/json" \
   -d '{"mac_address":"00:11:22:33:44:55","name":"Test"}'
 
 # Existenz der Ressource für Update/Delete prüfen
-curl -u admin:password http://localhost:8081/api/images | jq
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/images | jq
 
 # Server-Logs prüfen
 docker logs bootimus | tail -50

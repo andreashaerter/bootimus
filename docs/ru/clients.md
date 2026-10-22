@@ -95,7 +95,7 @@ Bootimus принимает MAC-адреса в этих форматах:
 
 **Через API**:
 ```bash
-curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/clients/assign \
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/assign-images \
   -H "Content-Type: application/json" \
   -d '{
     "mac_address": "00:11:22:33:44:55",
@@ -270,7 +270,7 @@ SERVER_MACS=(
 IMAGES='["ubuntu-24.04-live-server-amd64.iso","debian-13.2.0-amd64-netinst.iso"]'
 
 for mac in "${SERVER_MACS[@]}"; do
-  curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/clients/assign \
+  curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/assign-images \
     -H "Content-Type: application/json" \
     -d "{\"mac_address\":\"$mac\",\"image_filenames\":$IMAGES}"
 
@@ -475,7 +475,7 @@ curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/clients?mac=00
   jq '.data.allowed_images'
 
 # Переназначить образы
-curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/clients/assign \
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/assign-images \
   -H "Content-Type: application/json" \
   -d '{
     "mac_address":"00:11:22:33:44:55",
