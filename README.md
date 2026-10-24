@@ -129,6 +129,7 @@ $ systemctl start bootimus
 - **[DHCP Configuration](docs/en/dhcp.md)** - Configure your DHCP server
 - **[Auto-Install](docs/en/auto-install.md)** - autounattend.xml, cloud-init, kickstart, preseed
 - **[Client Management](docs/en/clients.md)** - MAC-based access control, auto-discovery, next boot
+- **[Multi-Site](docs/en/multi-site.md)** - Read-only branch replicas that mirror a primary
 - **[Authentication](docs/en/authentication.md)** - JWT auth, LDAP/Active Directory and OIDC single sign-on setup
 - **[Distro Profiles](docs/en/distro-profiles.md)** - Data-driven distro detection and boot params
 

@@ -14,6 +14,7 @@ Complete guide for deploying Bootimus in various environments with networking an
 - [Database Options](#database-options)
 - [Remote Updates & Privacy](#remote-updates--privacy)
 - [Production Deployment](#production-deployment)
+- [Multi-Site](#multi-site)
 
 ## Quick Start
 
@@ -629,6 +630,10 @@ rm /opt/bootimus/data/isos/old-image.iso
 # Scan for new ISOs to update database
 curl -u admin:password -X POST http://localhost:8081/api/scan
 ```
+
+## Multi-Site
+
+Branch offices can run a read-only replica that mirrors this instance and boots local clients from local copies. See the [Multi-Site guide](multi-site.md).
 
 ## Next Steps
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"bootimus/internal/proxydhcp"
 
@@ -96,9 +97,18 @@ func init() {
 	rootCmd.PersistentFlags().Bool("admin-tls-self-signed", false, "Generate and reuse a self-signed certificate under <data-dir>/tls even when cert and key files are set")
 	rootCmd.PersistentFlags().Int("admin-tls-redirect-port", 0, "Also listen on this plain HTTP port and redirect to the HTTPS admin interface (0 disables)")
 
+	rootCmd.PersistentFlags().String("replica-primary", "", "Run as a read-only replica of this primary Bootimus admin URL, e.g. https://bootimus.example.com:8081")
+	rootCmd.PersistentFlags().String("replica-token", "", "API token created on the primary for the replica to authenticate with")
+	rootCmd.PersistentFlags().Duration("replica-interval", 5*time.Minute, "How often the replica syncs from the primary")
+	rootCmd.PersistentFlags().Bool("replica-sync-isos", true, "Copy ISOs and extracted boot files from the primary; when off, clients fetch them from the primary directly")
+
 	rootCmd.PersistentFlags().Bool("windows-smb", false, "Enable Samba share for unattended Windows PXE installs (requires smbd in PATH)")
 	rootCmd.PersistentFlags().Int("windows-smb-port", 445, "SMB port (Windows 'net use' always uses 445; override only for testing)")
 
+	viper.BindPFlag("replica.primary_url", rootCmd.PersistentFlags().Lookup("replica-primary"))
+	viper.BindPFlag("replica.token", rootCmd.PersistentFlags().Lookup("replica-token"))
+	viper.BindPFlag("replica.interval", rootCmd.PersistentFlags().Lookup("replica-interval"))
+	viper.BindPFlag("replica.sync_isos", rootCmd.PersistentFlags().Lookup("replica-sync-isos"))
 	viper.BindPFlag("tftp_port", rootCmd.PersistentFlags().Lookup("tftp-port"))
 	viper.BindPFlag("tftp_single_port", rootCmd.PersistentFlags().Lookup("tftp-single-port"))
 	viper.BindPFlag("http_port", rootCmd.PersistentFlags().Lookup("http-port"))

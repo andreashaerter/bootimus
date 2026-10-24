@@ -131,6 +131,7 @@
         <!-- Main Content -->
         <main class="main-content">
             <div class="read-only-banner" data-i18n="ui.read_only_banner">You have read-only access. Ask an administrator if you need to make changes.</div>
+            <div class="replica-banner" id="replica-banner"></div>
             <div class="content-area">
 
                 <div id="stats-container" class="stats">
@@ -183,6 +184,18 @@
                     <div class="spinner"></div>
                     <span data-i18n="server.info.loading">Loading server info...</span>
                 </div>
+            </div>
+            <div class="card" id="replica-card" style="display: none; margin-top: 20px;">
+                <h2>Replica</h2>
+                <p style="color: var(--text-secondary); margin: 0 12px 12px; font-size: 13px;">
+                    This instance mirrors a primary Bootimus and refuses changes. Make changes on the primary; they arrive here on the next sync.
+                </p>
+                <div class="toolbar">
+                    <button class="btn read-ok" type="button" id="replica-sync-btn" onclick="runReplicaSync()">Sync now</button>
+                    <button class="btn read-ok" type="button" onclick="loadReplicaStatus()">Refresh</button>
+                    <span id="replica-status-line" style="color: var(--text-secondary); font-size: 12px;"></span>
+                </div>
+                <div id="replica-kinds" style="padding: 0 12px 12px;"></div>
             </div>
         </div>
 

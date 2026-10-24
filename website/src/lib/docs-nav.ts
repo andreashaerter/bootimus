@@ -15,6 +15,7 @@ export const docsNav: DocSection[] = [
     items: [
       { slug: 'deployment', title: 'Deployment', description: 'Docker, binary, networking, and storage.' },
       { slug: 'appliance',  title: 'USB Appliance', description: 'Flashable Alpine + bootimus image for portable PXE servers.' },
+      { slug: 'multi-site', title: 'Multi-Site',    description: 'Read-only branch replicas that mirror a primary.' },
     ],
   },
   {

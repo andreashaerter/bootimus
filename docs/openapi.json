@@ -65,6 +65,10 @@
       "name": "Settings"
     },
     {
+      "name": "Multi-site",
+      "description": "Primary-side sync feed and replica control."
+    },
+    {
       "name": "Logs"
     },
     {
@@ -195,7 +199,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 148
+        "x-bootimus-order": 153
       }
     },
     "/api/auth-info": {
@@ -3469,7 +3473,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 145
+        "x-bootimus-order": 150
       }
     },
     "/api/logs/buffer": {
@@ -3493,7 +3497,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 147
+        "x-bootimus-order": 152
       }
     },
     "/api/logs/stream": {
@@ -3517,7 +3521,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 146
+        "x-bootimus-order": 151
       }
     },
     "/api/me": {
@@ -3882,7 +3886,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 149
+        "x-bootimus-order": 154
       }
     },
     "/api/proxydhcp/events/clear": {
@@ -3906,7 +3910,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 151
+        "x-bootimus-order": 156
       }
     },
     "/api/proxydhcp/stream": {
@@ -3930,7 +3934,55 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 150
+        "x-bootimus-order": 155
+      }
+    },
+    "/api/replica/status": {
+      "get": {
+        "tags": [
+          "Multi-site"
+        ],
+        "summary": "Whether this instance is a replica and the result of its last sync.",
+        "operationId": "getApiReplicaStatus",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 148
+      }
+    },
+    "/api/replica/sync": {
+      "post": {
+        "tags": [
+          "Multi-site"
+        ],
+        "summary": "Run a sync from the primary now and return the result.",
+        "operationId": "postApiReplicaSync",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 149
       }
     },
     "/api/san-targets": {
@@ -4310,6 +4362,132 @@
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
         "x-bootimus-order": 10
+      }
+    },
+    "/api/sync/asset": {
+      "get": {
+        "tags": [
+          "Multi-site"
+        ],
+        "summary": "Stream an ISO, tool file or custom file to a replica.",
+        "operationId": "getApiSyncAsset",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "iso, tool or file",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "filename",
+            "in": "query",
+            "description": "ISO filename when kind is iso",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "description": "Tool name when kind is tool",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "File path within the tool when kind is tool",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Custom file ID when kind is file",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 147
+      }
+    },
+    "/api/sync/manifest": {
+      "get": {
+        "tags": [
+          "Multi-site"
+        ],
+        "summary": "Counts and last-change times per kind, the boot base URL and the active bootloader set, for replicas.",
+        "operationId": "getApiSyncManifest",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 145
+      }
+    },
+    "/api/sync/tool-files": {
+      "get": {
+        "tags": [
+          "Multi-site"
+        ],
+        "summary": "Files on disk for a downloaded boot tool, for replicas.",
+        "operationId": "getApiSyncToolFiles",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "description": "Tool name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 146
       }
     },
     "/api/theme": {
@@ -5115,7 +5293,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 153
+        "x-bootimus-order": 158
       }
     },
     "/autoinstall/{filename}": {
@@ -5150,7 +5328,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 157
+        "x-bootimus-order": 162
       }
     },
     "/boot/{cache_dir}/{path}": {
@@ -5194,7 +5372,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 156
+        "x-bootimus-order": 161
       }
     },
     "/bootenv/{filename}": {
@@ -5229,7 +5407,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 160
+        "x-bootimus-order": 165
       }
     },
     "/files/{filename}": {
@@ -5264,7 +5442,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 159
+        "x-bootimus-order": 164
       }
     },
     "/health": {
@@ -5339,7 +5517,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 158
+        "x-bootimus-order": 163
       }
     },
     "/inventory": {
@@ -5374,7 +5552,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 154
+        "x-bootimus-order": 159
       }
     },
     "/isos/{filename}": {
@@ -5409,7 +5587,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 155
+        "x-bootimus-order": 160
       }
     },
     "/logout": {
@@ -5485,7 +5663,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 163
+        "x-bootimus-order": 168
       }
     },
     "/menu.ipxe": {
@@ -5519,7 +5697,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 152
+        "x-bootimus-order": 157
       }
     },
     "/metrics": {
@@ -5578,7 +5756,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 162
+        "x-bootimus-order": 167
       }
     },
     "/tools/{path}": {
@@ -5613,7 +5791,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 161
+        "x-bootimus-order": 166
       }
     }
   },

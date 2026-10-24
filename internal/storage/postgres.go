@@ -101,6 +101,7 @@ func (s *PostgresStore) AutoMigrate() error {
 		&models.AuditLog{},
 		&models.APIToken{},
 		&models.InstallRecord{},
+		&models.ReplicaState{},
 		&models.SANTarget{},
 	); err != nil {
 		return err

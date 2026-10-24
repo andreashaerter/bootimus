@@ -27,6 +27,8 @@ type MenuBuilder struct {
 	profileManager    *profiles.Manager
 	autoInstallTypes  map[uint]string
 	forceLocalDefault bool
+	remoteBase        string
+	remoteImages      map[uint]bool
 	sanTarget         *models.SANTarget
 	sanDefault        bool
 	nextBootSAN       bool
@@ -134,6 +136,7 @@ func (s *Server) generateIPXEMenuFor(images []models.Image, macAddress string, n
 		sanDefault:        sanDefault,
 		nextBootSAN:       nextBootSAN,
 	}
+	mb.remoteBase, mb.remoteImages = s.remoteImages(images)
 
 	return mb.Build()
 }
@@ -383,7 +386,7 @@ func (mb *MenuBuilder) buildImageBootSections() string {
 			sb.WriteString(mb.buildKernelBootSection(&img, encodedFilename, cacheDir))
 
 		case imagescan.BootMethodUKI:
-			baseURL := fmt.Sprintf("http://%s:%d", mb.serverAddr, mb.httpPort)
+			baseURL := mb.assetBase(&img)
 			params := mb.resolveBootParams(&img, baseURL, encodedFilename, cacheDir)
 			if params != "" {
 				params = " " + params
@@ -393,7 +396,7 @@ func (mb *MenuBuilder) buildImageBootSections() string {
 			sb.WriteString("boot || goto failed\n")
 
 		default:
-			sb.WriteString(fmt.Sprintf("sanboot --no-describe --drive 0x80 http://%s:%d/isos/%s?mac=%s\n", mb.serverAddr, mb.httpPort, encodedFilename, mb.macAddress))
+			sb.WriteString(fmt.Sprintf("sanboot --no-describe --drive 0x80 %s/isos/%s?mac=%s\n", mb.assetBase(&img), encodedFilename, mb.macAddress))
 		}
 
 		if img.GroupID != nil {
@@ -409,9 +412,10 @@ func (mb *MenuBuilder) buildImageBootSections() string {
 func (mb *MenuBuilder) buildKernelBootSection(img *models.Image, encodedFilename, cacheDir string) string {
 	var sb strings.Builder
 
-	baseURL := fmt.Sprintf("http://%s:%d", mb.serverAddr, mb.httpPort)
+	localURL := fmt.Sprintf("http://%s:%d", mb.serverAddr, mb.httpPort)
+	baseURL := mb.assetBase(img)
 
-	autoInstallParam := mb.buildAutoInstallParam(img, baseURL, encodedFilename)
+	autoInstallParam := mb.buildAutoInstallParam(img, localURL, encodedFilename)
 
 	bootParams := mb.resolveBootParams(img, baseURL, encodedFilename, cacheDir)
 	if strings.Contains(autoInstallParam, "ds=nocloud-net") {
@@ -438,7 +442,7 @@ func (mb *MenuBuilder) buildKernelBootSection(img *models.Image, encodedFilename
 			bootParams = " " + bootParams
 		}
 		sb.WriteString("echo Loading Windows boot files via wimboot...\n")
-		sb.WriteString(fmt.Sprintf("kernel %s/wimboot%s\n", baseURL, bootParams))
+		sb.WriteString(fmt.Sprintf("kernel %s/wimboot%s\n", localURL, bootParams))
 		// Ship only boot.wim and let wimboot synthesize the ramdisk BCD +
 		// boot.sdi (the documented minimal setup). Feeding the ISO's DVD BCD
 		// hangs 24H2/25H2 media on a black screen after the loading bar.
@@ -715,4 +719,11 @@ func (mb *MenuBuilder) buildSANBootSection() string {
 	}
 	sb.WriteString(fmt.Sprintf("sanboot --no-describe --drive 0x80 %s || goto failed\n\n", t.URI))
 	return sb.String()
+}
+
+func (mb *MenuBuilder) assetBase(img *models.Image) string {
+	if mb.remoteBase != "" && img != nil && mb.remoteImages[img.ID] {
+		return mb.remoteBase
+	}
+	return fmt.Sprintf("http://%s:%d", mb.serverAddr, mb.httpPort)
 }

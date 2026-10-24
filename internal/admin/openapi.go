@@ -231,6 +231,13 @@ var APISections = []APISection{
 		{Method: "PUT", Path: "/api/housekeeping", Summary: "Update retention periods in days; 0 keeps records forever.", Body: "{boot_log_days, inventory_history_days, discovered_client_days, audit_log_days}"},
 		{Method: "POST", Path: "/api/housekeeping/run", Summary: "Run housekeeping now and return the report."},
 	}},
+	{Tag: "Multi-site", Description: "Primary-side sync feed and replica control.", Endpoints: []APIEndpoint{
+		{Method: "GET", Path: "/api/sync/manifest", Summary: "Counts and last-change times per kind, the boot base URL and the active bootloader set, for replicas.", ReadOnly: true},
+		{Method: "GET", Path: "/api/sync/tool-files", Summary: "Files on disk for a downloaded boot tool, for replicas.", Params: []APIParam{qName("Tool name")}, ReadOnly: true},
+		{Method: "GET", Path: "/api/sync/asset", Summary: "Stream an ISO, tool file or custom file to a replica.", Params: []APIParam{{Name: "kind", In: "query", Description: "iso, tool or file", Required: true}, {Name: "filename", In: "query", Description: "ISO filename when kind is iso"}, {Name: "name", In: "query", Description: "Tool name when kind is tool"}, {Name: "path", In: "query", Description: "File path within the tool when kind is tool"}, {Name: "id", In: "query", Description: "Custom file ID when kind is file"}}, ReadOnly: true},
+		{Method: "GET", Path: "/api/replica/status", Summary: "Whether this instance is a replica and the result of its last sync.", ReadOnly: true},
+		{Method: "POST", Path: "/api/replica/sync", Summary: "Run a sync from the primary now and return the result."},
+	}},
 	{Tag: "Logs", Endpoints: []APIEndpoint{
 		{Method: "GET", Path: "/api/logs", Summary: "Boot log entries.", Params: []APIParam{{Name: "limit", In: "query", Description: "Number of entries, 1 to 1000 (default 100)"}, {Name: "mac", In: "query", Description: "Only entries for this client"}}, ReadOnly: true},
 		{Method: "GET", Path: "/api/logs/stream", Summary: "Server log as a server-sent event stream."},

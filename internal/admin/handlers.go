@@ -75,6 +75,7 @@ type Handler struct {
 	SchedulerRunNow    func(id uint) error
 	WebhookNotifier    *webhook.Notifier
 	Housekeeping       *housekeeping.Runner
+	Replica            ReplicaController
 }
 
 type extractionState struct {
@@ -1412,12 +1413,37 @@ func (h *Handler) ExtractImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	bootFiles, err := h.extractImageFiles(filename, image)
+	if err != nil {
+		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
+		return
+	}
+
+	h.sendJSON(w, http.StatusOK, Response{
+		Success: true,
+		Message: fmt.Sprintf("Successfully extracted %s boot files", bootFiles.Distro),
+		Data:    image,
+	})
+}
+
+func (h *Handler) ExtractImageByFilename(filename string) error {
+	image, err := h.storage.GetImage(filename)
+	if err != nil {
+		return fmt.Errorf("image %s not found", filename)
+	}
+	if image.BootMethod == imagescan.BootMethodUKI {
+		return nil
+	}
+	_, err = h.extractImageFiles(filename, image)
+	return err
+}
+
+func (h *Handler) extractImageFiles(filename string, image *models.Image) (*extractor.BootFiles, error) {
 	log.Printf("Admin: Starting kernel/initrd extraction - %s (re-extract: %v)", filename, image.Extracted)
 
 	ext, err := extractor.New(h.isoDir)
 	if err != nil {
-		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: fmt.Sprintf("Failed to create extractor: %v", err)})
-		return
+		return nil, fmt.Errorf("Failed to create extractor: %v", err)
 	}
 
 	isoPath := filepath.Join(h.isoDir, filename)
@@ -1452,12 +1478,7 @@ func (h *Handler) ExtractImage(w http.ResponseWriter, r *http.Request) {
 
 		image.ExtractionError = err.Error()
 		h.storage.UpdateImage(filename, image)
-
-		h.sendJSON(w, http.StatusInternalServerError, Response{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to extract boot files: %v", err),
-		})
-		return
+		return nil, fmt.Errorf("Failed to extract boot files: %v", err)
 	}
 	reporter.SetStage("Saving metadata...")
 
@@ -1521,8 +1542,7 @@ func (h *Handler) ExtractImage(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Setting boot_method to 'kernel' for image ID=%d, filename=%s", image.ID, image.Filename)
 
 	if err := h.storage.UpdateImage(filename, image); err != nil {
-		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
-		return
+		return nil, err
 	}
 
 	log.Printf("Admin: Image extraction completed - %s (distro: %s, kernel: %s, initrd: %s)",
@@ -1533,11 +1553,7 @@ func (h *Handler) ExtractImage(w http.ResponseWriter, r *http.Request) {
 	state.status = "done"
 	h.extractionMu.Unlock()
 
-	h.sendJSON(w, http.StatusOK, Response{
-		Success: true,
-		Message: fmt.Sprintf("Successfully extracted %s boot files", bootFiles.Distro),
-		Data:    image,
-	})
+	return bootFiles, nil
 }
 
 func (h *Handler) ExtractProgress(w http.ResponseWriter, r *http.Request) {
