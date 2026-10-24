@@ -14,6 +14,7 @@
 - [数据库选项](#数据库选项)
 - [远程更新与隐私](#远程更新与隐私)
 - [生产环境部署](#生产环境部署)
+- [多站点](#多站点)
 
 ## 快速开始
 
@@ -619,6 +620,10 @@ rm /opt/bootimus/data/isos/old-image.iso
 # Scan for new ISOs to update database
 curl -u admin:password -X POST http://localhost:8081/api/scan
 ```
+
+## 多站点
+
+分支机构可以运行一个只读副本,镜像本实例并用本地副本引导本地客户端。请参阅[多站点指南](multi-site.md)。
 
 ## 下一步
 

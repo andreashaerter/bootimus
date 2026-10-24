@@ -453,6 +453,20 @@ GET /api/stats
 | `PUT` | `/api/images/winpe?filename=<name>` | 选择 Windows 或 WinPE 镜像引导的 WIM 文件和映像索引。请求体:`{wim_path, wim_index}` |
 | `POST` | `/api/scan` | 扫描新 ISO |
 
+#### Disk Images
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| `GET` | `/api/disk-images` | 就绪状态和已捕获磁盘镜像列表 |
+| `PUT` | `/api/disk-images?id=<id>` | 更新镜像的描述 |
+| `DELETE` | `/api/disk-images?id=<id>` | 删除镜像及其文件 |
+| `POST` | `/api/disk-images/capture` | 排队一次捕获:`{mac_address, name, description, disk, wake}` |
+| `POST` | `/api/disk-images/deploy` | 排队一次部署:`{mac_address` 或 `client_group_id, image_id, disk, wake}` |
+| `GET` | `/api/disk-images/jobs?mac=<MAC>&limit=<n>` | 最近的捕获和部署任务 |
+| `DELETE` | `/api/disk-images/jobs?id=<id>` | 取消等待中或运行中的任务 |
+
+工作流程请参阅[磁盘镜像指南](disk-imaging.md)。
+
 #### Downloads
 
 | 方法 | 端点 | 说明 |
