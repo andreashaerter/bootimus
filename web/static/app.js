@@ -508,6 +508,8 @@ async function loadStats() {
             document.getElementById('stat-images').textContent = data.data.total_images;
             document.getElementById('stat-enabled-images').textContent = data.data.enabled_images;
             document.getElementById('stat-boots').textContent = data.data.total_boots;
+            const updates = document.getElementById('stat-updates');
+            if (updates) updates.textContent = data.data.updates_available ?? 0;
         }
     } catch (err) {
         console.error('Failed to load stats:', err);
@@ -960,6 +962,7 @@ const HOUSEKEEPING_TASK_LABELS = {
     inventory_history: 'Inventory history',
     discovered_clients: 'Discovered clients',
     audit_logs: 'Audit log',
+    catalogue_check: 'Catalogue check',
 };
 
 function renderHousekeeping(view) {
@@ -968,6 +971,7 @@ function renderHousekeeping(view) {
     document.getElementById('housekeeping-inventory-days').value = settings.inventory_history_days ?? 0;
     document.getElementById('housekeeping-discovered-days').value = settings.discovered_client_days ?? 0;
     document.getElementById('housekeeping-audit-days').value = settings.audit_log_days ?? 0;
+    document.getElementById('housekeeping-catalogue-check').checked = !settings.catalogue_check_off;
 
     const lastRun = document.getElementById('housekeeping-last-run');
     if (settings.last_run) {
@@ -987,6 +991,7 @@ function renderHousekeeping(view) {
             let result;
             if (t.error) result = `<span style="color: var(--danger);">${escapeHtml(t.error)}</span>`;
             else if (t.skipped) result = '<span style="color: var(--text-muted);">Disabled</span>';
+            else if (t.name === 'catalogue_check') result = `${t.affected} update${t.affected === 1 ? '' : 's'} available`;
             else result = `${t.affected} removed`;
             html += `<tr><td>${escapeHtml(label)}</td><td>${result}</td></tr>`;
         }
@@ -1011,6 +1016,36 @@ function renderHousekeeping(view) {
     }
 }
 
+async function checkCatalogueNow() {
+    const btn = document.getElementById('catalogue-check-btn');
+    const out = document.getElementById('catalogue-check-result');
+    btn.disabled = true;
+    out.textContent = 'Checking the catalogue…';
+    try {
+        const res = await authFetch(`${API_BASE}/catalogue/check`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.success) {
+            out.innerHTML = `<span style="color: var(--danger);">${escapeHtml(data.error || 'Check failed')}</span>`;
+            return;
+        }
+        const r = data.data;
+        const parts = [];
+        for (const i of (r.images || [])) parts.push(`${escapeHtml(i.name)} → ${escapeHtml(i.version || i.filename)}`);
+        for (const t of (r.tools || [])) parts.push(`${escapeHtml(t.display_name || t.name)} (tool)`);
+        const source = r.remote ? 'online catalogue' : 'built-in catalogue';
+        out.innerHTML = parts.length
+            ? `${parts.length} update${parts.length === 1 ? '' : 's'} available (${source}): ${parts.join(', ')}`
+            : `Everything is current against the ${source}.`;
+        loadImages();
+        loadTools();
+        loadStats();
+    } catch (err) {
+        out.innerHTML = `<span style="color: var(--danger);">Check failed: ${escapeHtml(err.message)}</span>`;
+    } finally {
+        btn.disabled = false;
+    }
+}
+
 async function loadHousekeeping() {
     if (!document.getElementById('housekeeping-form')) return;
     try {
@@ -1029,6 +1064,7 @@ async function saveHousekeeping(e) {
         inventory_history_days: parseInt(document.getElementById('housekeeping-inventory-days').value, 10) || 0,
         discovered_client_days: parseInt(document.getElementById('housekeeping-discovered-days').value, 10) || 0,
         audit_log_days: parseInt(document.getElementById('housekeeping-audit-days').value, 10) || 0,
+        catalogue_check_off: !document.getElementById('housekeeping-catalogue-check').checked,
     };
     try {
         const res = await authFetch(`${API_BASE}/housekeeping`, {
@@ -2514,6 +2550,8 @@ function imageRowHTML(img, includeGroupCell, depth = 0) {
                                 (img.extraction_error ? '<span class="badge badge-danger" title="'+img.extraction_error+'">Error</span>' : '')
                             }
                             ${img.smb_install_enabled ? ' <span class="badge badge-warning" title="boot.wim patched to auto-mount SMB share and launch setup.exe">SMB</span>' : ''}
+                            ${img.update_available ? ' <span class="badge badge-warning" title="' + escapeHtml(img.update_filename || img.update_url || '') + '">Update available: ' + escapeHtml(img.update_version || 'newer release') + '</span>' : ''}
+                            ${img.checksum_verified ? ' <span class="badge badge-success" title="SHA-256 ' + escapeHtml(img.checksum || '') + '">✓ Verified</span>' : ''}
                         </td>${groupCell}
                         <td class="col-dot">
                             <span class="status-dot ${img.enabled ? 'on' : 'off'}" title="${img.enabled ? 'Enabled' : 'Disabled'}"></span>
@@ -3524,6 +3562,7 @@ async function loadTools() {
             if (tool.custom) html += `<span class="badge badge-warning">Custom</span>`;
             if (tool.enabled) html += `<span class="badge badge-success">Enabled</span>`;
             if (tool.downloaded) html += `<span class="badge badge-info">Downloaded</span>`;
+            if (tool.update_available) html += `<span class="badge badge-warning" title="${escapeHtml(tool.update_url || '')}">Update available</span>`;
             html += `</div>`;
             html += `<p style="color: var(--text-secondary); font-size: 14px; margin: 0;">${escapeHtml(tool.description)}</p>`;
             html += `</div>`;
@@ -3544,6 +3583,9 @@ async function loadTools() {
                     html += `<button class="btn btn-success" onclick="toggleTool('${tool.name}', true)">Enable</button>`;
                 }
                 html += `<button class="btn btn-danger" onclick="deleteTool('${tool.name}')">Delete Files</button>`;
+                if (tool.update_available && tool.update_url) {
+                    html += `<button class="btn btn-primary" onclick="downloadNewerTool('${tool.name}', '${escapeHtml(tool.update_url)}')">Download newer</button>`;
+                }
             }
             if (tool.custom) {
                 html += `<button class="btn btn-danger" onclick="deleteCustomTool('${tool.name}')">Remove</button>`;
@@ -3572,6 +3614,25 @@ async function loadTools() {
 }
 
 const toolProgressIntervals = new Map();
+
+async function downloadNewerTool(name, url) {
+    try {
+        const res = await authFetch(`${API_BASE}/tools/url?name=${encodeURIComponent(name)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showNotification(data.error || 'Could not switch to the newer URL', 'error');
+            return;
+        }
+        await loadTools();
+        await downloadTool(name);
+    } catch (err) {
+        showNotification('Could not start the update: ' + err.message, 'error');
+    }
+}
 
 async function downloadTool(name) {
     try {
@@ -4757,7 +4818,7 @@ function renderGetImagesList(filter) {
                 <select class="get-iso-mirror-sel" data-row="${escapeHtml(rowKey)}" data-path="${escapeHtml(r.path)}" onchange="updateGetISORowURL(this)">${mirrorOpts}</select>
                 <input type="text" id="get-iso-url-${escapeHtml(rowKey)}" class="get-iso-url" value="${escapeHtml(defaultURL)}">
                 <div id="get-iso-actions-${escapeHtml(rowKey)}" class="get-iso-actions">
-                    <button type="button" class="btn btn-sm" onclick="downloadFromGetISO('${escapeHtml(rowKey)}', '${escapeHtml(distro.name)}', '${escapeHtml(r.label)}')">
+                    <button type="button" class="btn btn-sm" onclick="downloadFromGetISO('${escapeHtml(rowKey)}', '${escapeHtml(distro.name)}', '${escapeHtml(r.label)}', '${escapeHtml(distro.id)}', '${escapeHtml(r.sha256 || '')}', '${escapeHtml(r.checksum_path || '')}')">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         Download
                     </button>
@@ -4784,7 +4845,7 @@ function jsAttrEscape(s) {
     return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
-async function downloadFromGetISO(rowKey, distroName, releaseLabel) {
+async function downloadFromGetISO(rowKey, distroName, releaseLabel, catalogueId, sha256, checksumPath) {
     const input = document.getElementById('get-iso-url-' + rowKey);
     if (!input) return;
     const url = input.value.trim();
@@ -4794,10 +4855,16 @@ async function downloadFromGetISO(rowKey, distroName, releaseLabel) {
     }
     renderGetISOProgress(rowKey, 'Starting…');
     try {
+        const body = { url, description: `${distroName} ${releaseLabel}` };
+        if (!catalogueId) catalogueId = (rowKey || '').replace(/-\d+$/, '');
+        body.catalogue_id = catalogueId;
+        body.catalogue_release = releaseLabel;
+        if (sha256) body.sha256 = sha256;
+        if (checksumPath) body.checksum_url = checksumPath;
         const res = await authFetch(`${API_BASE}/images/download`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url, description: `${distroName} ${releaseLabel}` }),
+            body: JSON.stringify(body),
         });
         const data = await res.json();
         if (res.status === 409 && data.data && data.data.filename) {
@@ -4852,11 +4919,11 @@ function startGetISOProgressPolling(rowKey, filename, distroName, releaseLabel) 
                 const fill = document.getElementById('get-iso-bar-fill-' + rowKey);
                 const status = document.getElementById('get-iso-status-' + rowKey);
                 if (fill) fill.style.width = pct + '%';
-                if (status) status.textContent = `${pct}% · ${p.speed || ''}`;
+                if (status) status.textContent = `${pct}% · ${p.speed || ''}${p.verification === 'pending' ? ' · verifying SHA-256' : ''}`;
 
                 if (p.status === 'completed') {
                     stop();
-                    renderGetISOComplete(rowKey, distroName, releaseLabel);
+                    renderGetISOComplete(rowKey, distroName, releaseLabel, p.verification === 'verified');
                     loadImages();
                 } else if (p.status === 'error') {
                     stop();
@@ -4884,12 +4951,12 @@ function renderGetISOError(rowKey, errorMsg, distroName, releaseLabel) {
         </div>`;
 }
 
-function renderGetISOComplete(rowKey, distroName, releaseLabel) {
+function renderGetISOComplete(rowKey, distroName, releaseLabel, verified) {
     const el = document.getElementById('get-iso-actions-' + rowKey);
     if (!el) return;
     el.innerHTML = `
         <div class="get-iso-progress">
-            <span class="get-iso-status-text" style="color: var(--success);">✓ Downloaded</span>
+            <span class="get-iso-status-text" style="color: var(--success);" title="${verified ? 'SHA-256 matched the published checksum' : 'No published checksum was found, so the file was not verified'}">✓ Downloaded${verified ? ' and verified' : ' (unverified)'}</span>
             <button type="button" class="btn btn-sm" onclick="downloadFromGetISO('${jsAttrEscape(rowKey)}', '${jsAttrEscape(distroName)}', '${jsAttrEscape(releaseLabel)}')">Again</button>
         </div>`;
 }
@@ -5600,6 +5667,104 @@ function getDefaultBootParams(img) {
     }
 }
 
+function renderImageIntegrity(img) {
+    const status = document.getElementById('image-props-checksum-status');
+    const input = document.getElementById('image-props-checksum-input');
+    const update = document.getElementById('image-props-update');
+    const updateText = document.getElementById('image-props-update-text');
+    if (!status) return;
+    input.value = '';
+    if (img.checksum_verified && img.checksum) {
+        status.innerHTML = `<span class="badge badge-success">✓ Verified</span> <code title="${escapeHtml(img.checksum)}">sha256 ${escapeHtml(img.checksum.slice(0, 16))}…</code>${img.checksum_checked_at ? ' · ' + new Date(img.checksum_checked_at).toLocaleString() : ''}`;
+        input.placeholder = 'Re-verify against the recorded checksum, or paste another';
+    } else if (img.checksum) {
+        status.innerHTML = `<span class="badge badge-warning">Unverified</span> <code title="${escapeHtml(img.checksum)}">sha256 ${escapeHtml(img.checksum.slice(0, 16))}…</code>`;
+        input.placeholder = 'SHA-256 or URL of a SHA256SUMS file to verify against';
+    } else {
+        status.innerHTML = '<span class="badge badge-warning">Unverified</span> No checksum recorded';
+        input.placeholder = 'SHA-256 or URL of a SHA256SUMS file to verify against';
+    }
+    if (img.update_available) {
+        update.style.display = 'flex';
+        updateText.textContent = `A newer release is in the catalogue: ${img.update_version || ''} (${img.update_filename || img.update_url}).`;
+    } else {
+        update.style.display = 'none';
+    }
+}
+
+async function verifyImageFromProperties() {
+    const filename = document.getElementById('image-props-filename').value;
+    const value = document.getElementById('image-props-checksum-input').value.trim();
+    const body = {};
+    if (/^https?:\/\//i.test(value)) body.checksum_url = value;
+    else if (value) body.sha256 = value;
+    const status = document.getElementById('image-props-checksum-status');
+    const btn = document.getElementById('image-props-verify-btn');
+    try {
+        const res = await authFetch(`${API_BASE}/images/verify?filename=${encodeURIComponent(filename)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Verification could not start', 'error');
+            return;
+        }
+        btn.disabled = true;
+        const poll = setInterval(async () => {
+            try {
+                const pr = await authFetch(`${API_BASE}/images/verify?filename=${encodeURIComponent(filename)}`);
+                const pd = await pr.json();
+                if (!pd.success) { clearInterval(poll); btn.disabled = false; return; }
+                const p = pd.data;
+                if (p.status === 'running') {
+                    status.textContent = `Hashing… ${(p.percent || 0).toFixed(0)}%`;
+                    return;
+                }
+                clearInterval(poll);
+                btn.disabled = false;
+                if (p.status === 'completed' && p.verified) {
+                    showAlert('Checksum verified', 'success');
+                } else {
+                    showAlert(p.error || 'Checksum mismatch', 'error');
+                }
+                await loadImages();
+                const img = images.find(i => i.filename === filename);
+                if (img && document.getElementById('image-props-filename').value === filename) renderImageIntegrity(img);
+            } catch (_) {
+                clearInterval(poll);
+                btn.disabled = false;
+            }
+        }, 1000);
+    } catch (err) {
+        showAlert('Verification could not start: ' + err.message, 'error');
+    }
+}
+
+async function downloadNewerImage() {
+    const filename = document.getElementById('image-props-filename').value;
+    const img = images.find(i => i.filename === filename);
+    if (!img || !img.update_url) return;
+    try {
+        const res = await authFetch(`${API_BASE}/images/download`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: img.update_url, description: img.description || '', catalogue_id: img.catalogue_id || '', catalogue_release: img.catalogue_release || '' }),
+        });
+        const data = await res.json();
+        if (data.success || res.status === 409) {
+            showAlert(`Downloading ${data.data && data.data.filename ? data.data.filename : 'newer release'} – progress is shown in the downloads list`, 'success');
+            closeModal('image-properties-modal');
+            if (typeof loadDownloads === 'function') loadDownloads();
+        } else {
+            showAlert(data.error || 'Download failed to start', 'error');
+        }
+    } catch (err) {
+        showAlert('Download failed to start: ' + err.message, 'error');
+    }
+}
+
 async function showImagePropertiesModal(filename, opts) {
     opts = opts || {};
     const img = images.find(i => i.filename === filename);
@@ -5642,6 +5807,7 @@ async function showImagePropertiesModal(filename, opts) {
     document.getElementById('image-props-redetect-btn').style.display = img.extracted ? '' : 'none';
     document.getElementById('image-props-enabled').checked = img.enabled;
     document.getElementById('image-props-public').checked = img.public;
+    renderImageIntegrity(img);
 
     await populateBootFileOverrides(img);
     populateWIMSelector(img);

@@ -28,6 +28,7 @@ import (
 	"bootimus/internal/bmc"
 	_ "bootimus/internal/bmc/amt"
 	_ "bootimus/internal/bmc/redfish"
+	"bootimus/internal/catalogue"
 	"bootimus/internal/extractor"
 	"bootimus/internal/housekeeping"
 	"bootimus/internal/imagescan"
@@ -75,6 +76,8 @@ type Handler struct {
 	SchedulerRunNow    func(id uint) error
 	WebhookNotifier    *webhook.Notifier
 	Housekeeping       *housekeeping.Runner
+	Catalogue          *catalogue.Checker
+	verifier           *catalogue.Verifier
 }
 
 type extractionState struct {
@@ -92,6 +95,7 @@ func NewHandler(store storage.Storage, dataDir string, isoDir string, bootDir st
 		version:            version,
 		bootloaderSelector: blSelector,
 		toolsManager:       tm,
+		verifier:           catalogue.NewVerifier(),
 		profileManager:     pm,
 		wolBroadcastAddr:   wolBroadcastAddr,
 		proxyDHCPEnabled:   proxyDHCPEnabled,
@@ -2094,17 +2098,32 @@ func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stats := struct {
-		TotalClients  int64 `json:"total_clients"`
-		ActiveClients int64 `json:"active_clients"`
-		TotalImages   int64 `json:"total_images"`
-		EnabledImages int64 `json:"enabled_images"`
-		TotalBoots    int64 `json:"total_boots"`
+		TotalClients     int64 `json:"total_clients"`
+		ActiveClients    int64 `json:"active_clients"`
+		TotalImages      int64 `json:"total_images"`
+		EnabledImages    int64 `json:"enabled_images"`
+		TotalBoots       int64 `json:"total_boots"`
+		UpdatesAvailable int64 `json:"updates_available"`
 	}{
 		TotalClients:  statsMap["total_clients"],
 		ActiveClients: statsMap["active_clients"],
 		TotalImages:   statsMap["total_images"],
 		EnabledImages: statsMap["enabled_images"],
 		TotalBoots:    statsMap["total_boots"],
+	}
+	if images, err := h.storage.ListImages(); err == nil {
+		for _, img := range images {
+			if img.UpdateAvailable {
+				stats.UpdatesAvailable++
+			}
+		}
+	}
+	if toolList, err := h.storage.ListBootTools(); err == nil {
+		for _, t := range toolList {
+			if t.UpdateAvailable {
+				stats.UpdatesAvailable++
+			}
+		}
 	}
 
 	log.Printf("Stats retrieved: %d clients, %d images, %d boots", stats.TotalClients, stats.TotalImages, stats.TotalBoots)
@@ -3060,6 +3079,25 @@ type DownloadProgress struct {
 	Status          string    `json:"status"`
 	Error           string    `json:"error,omitempty"`
 	StartTime       time.Time `json:"start_time"`
+	Verification    string    `json:"verification,omitempty"`
+	Checksum        string    `json:"checksum,omitempty"`
+}
+
+type downloadOptions struct {
+	Description      string
+	SHA256           string
+	ChecksumURL      string
+	CatalogueID      string
+	CatalogueRelease string
+}
+
+func (dm *DownloadManager) SetVerification(filename, verification, checksum string) {
+	dm.mu.Lock()
+	defer dm.mu.Unlock()
+	if progress, ok := dm.downloads[filename]; ok {
+		progress.Verification = verification
+		progress.Checksum = checksum
+	}
 }
 
 type DownloadManager struct {
@@ -3181,9 +3219,13 @@ func isoDownloadFilename(rawURL, requested string) (string, error) {
 
 func (h *Handler) DownloadISO(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		URL         string `json:"url"`
-		Filename    string `json:"filename"`
-		Description string `json:"description"`
+		URL              string `json:"url"`
+		Filename         string `json:"filename"`
+		Description      string `json:"description"`
+		SHA256           string `json:"sha256"`
+		ChecksumURL      string `json:"checksum_url"`
+		CatalogueID      string `json:"catalogue_id"`
+		CatalogueRelease string `json:"catalogue_release"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -3194,6 +3236,21 @@ func (h *Handler) DownloadISO(w http.ResponseWriter, r *http.Request) {
 	if req.URL == "" {
 		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "URL is required"})
 		return
+	}
+
+	opts := downloadOptions{
+		Description:      req.Description,
+		ChecksumURL:      catalogue.ChecksumURLFor(req.URL, req.ChecksumURL),
+		CatalogueID:      req.CatalogueID,
+		CatalogueRelease: req.CatalogueRelease,
+	}
+	if req.SHA256 != "" {
+		sum, err := catalogue.NormaliseSHA256(req.SHA256)
+		if err != nil {
+			h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: err.Error()})
+			return
+		}
+		opts.SHA256 = sum
 	}
 
 	filename, err := isoDownloadFilename(req.URL, req.Filename)
@@ -3217,7 +3274,7 @@ func (h *Handler) DownloadISO(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go h.downloadISO(req.URL, filename, destPath, req.Description)
+	go h.downloadISO(req.URL, filename, destPath, opts)
 
 	h.sendJSON(w, http.StatusAccepted, Response{
 		Success: true,
@@ -3229,10 +3286,43 @@ func (h *Handler) DownloadISO(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handler) downloadISO(url, filename, destPath, description string) {
+func (h *Handler) resolveExpectedChecksum(url, filename string, opts downloadOptions) (string, string) {
+	if opts.SHA256 != "" {
+		return opts.SHA256, "request"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if opts.ChecksumURL != "" {
+		sum, err := catalogue.FetchChecksum(ctx, opts.ChecksumURL, filename)
+		if err != nil {
+			log.Printf("Checksum for %s not available from %s: %v", filename, opts.ChecksumURL, err)
+			return "", ""
+		}
+		return sum, opts.ChecksumURL
+	}
+	if opts.CatalogueID == "" {
+		return "", ""
+	}
+	sum, source, err := catalogue.DiscoverChecksum(ctx, url, filename)
+	if err != nil {
+		log.Printf("No published checksum found next to %s: %v", url, err)
+		return "", ""
+	}
+	return sum, source
+}
+
+func (h *Handler) downloadISO(url, filename, destPath string, opts downloadOptions) {
 	log.Printf("Starting ISO download: %s from %s", filename, url)
 
 	downloadMgr.Add(url, filename, 0)
+
+	expected, checksumSource := h.resolveExpectedChecksum(url, filename, opts)
+	verification := "unverified"
+	if expected != "" {
+		log.Printf("Verifying %s against SHA-256 from %s", filename, checksumSource)
+		verification = "pending"
+	}
+	downloadMgr.SetVerification(filename, verification, expected)
 
 	client := &http.Client{
 		Timeout: 0,
@@ -3254,6 +3344,7 @@ func (h *Handler) downloadISO(url, filename, destPath, description string) {
 	}
 
 	downloadMgr.Add(url, filename, resp.ContentLength)
+	downloadMgr.SetVerification(filename, verification, expected)
 
 	out, err := os.Create(destPath)
 	if err != nil {
@@ -3265,10 +3356,12 @@ func (h *Handler) downloadISO(url, filename, destPath, description string) {
 
 	buffer := make([]byte, 32*1024)
 	var downloaded int64
+	hasher := sha256.New()
 
 	for {
 		n, err := resp.Body.Read(buffer)
 		if n > 0 {
+			hasher.Write(buffer[:n])
 			_, writeErr := out.Write(buffer[:n])
 			if writeErr != nil {
 				log.Printf("Failed to write to file %s: %v", destPath, writeErr)
@@ -3289,6 +3382,19 @@ func (h *Handler) downloadISO(url, filename, destPath, description string) {
 			os.Remove(destPath)
 			return
 		}
+	}
+
+	actual := hex.EncodeToString(hasher.Sum(nil))
+	if expected != "" && actual != expected {
+		out.Close()
+		os.Remove(destPath)
+		log.Printf("Checksum mismatch for %s: expected %s, got %s", filename, expected, actual)
+		downloadMgr.SetVerification(filename, "mismatch", expected)
+		downloadMgr.Error(filename, fmt.Sprintf("SHA-256 mismatch: expected %s but the download hashed to %s; the file has been removed", expected, actual))
+		return
+	}
+	if expected != "" {
+		downloadMgr.SetVerification(filename, "verified", actual)
 	}
 
 	syncFile := models.SyncFile{Name: strings.TrimSuffix(filename, filepath.Ext(filename)), Filename: filename, Size: downloaded}
@@ -3315,10 +3421,19 @@ func (h *Handler) downloadISO(url, filename, destPath, description string) {
 		}
 
 		if img, err := h.storage.GetImage(filename); err == nil {
-			changed := false
-			if description != "" {
-				img.Description = description
-				changed = true
+			changed := true
+			now := time.Now()
+			img.Checksum = actual
+			img.ChecksumVerified = expected != ""
+			img.ChecksumCheckedAt = &now
+			img.CatalogueID = opts.CatalogueID
+			img.CatalogueRelease = opts.CatalogueRelease
+			img.UpdateAvailable = false
+			img.UpdateVersion = ""
+			img.UpdateFilename = ""
+			img.UpdateURL = ""
+			if opts.Description != "" {
+				img.Description = opts.Description
 			}
 			if syncFile.BootMethod == "" {
 				h.detectAndSetDistro(img)
@@ -3354,6 +3469,109 @@ func (h *Handler) GetDownloadProgress(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListDownloads(w http.ResponseWriter, r *http.Request) {
 	downloads := downloadMgr.GetAll()
 	h.sendJSON(w, http.StatusOK, Response{Success: true, Data: downloads})
+}
+
+func (h *Handler) VerifyImage(w http.ResponseWriter, r *http.Request) {
+	filename := r.URL.Query().Get("filename")
+	if filename == "" {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Filename required"})
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		progress := h.verifier.Get(filename)
+		if progress == nil {
+			h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "No verification running for this image"})
+			return
+		}
+		h.sendJSON(w, http.StatusOK, Response{Success: true, Data: progress})
+	case http.MethodPost:
+		img, err := h.storage.GetImage(filename)
+		if err != nil {
+			h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "Image not found"})
+			return
+		}
+		var body struct {
+			SHA256      string `json:"sha256"`
+			ChecksumURL string `json:"checksum_url"`
+		}
+		if r.Body != nil {
+			json.NewDecoder(r.Body).Decode(&body)
+		}
+		expected := ""
+		switch {
+		case body.SHA256 != "":
+			sum, err := catalogue.NormaliseSHA256(body.SHA256)
+			if err != nil {
+				h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: err.Error()})
+				return
+			}
+			expected = sum
+		case body.ChecksumURL != "":
+			ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
+			defer cancel()
+			sum, err := catalogue.FetchChecksum(ctx, body.ChecksumURL, filename)
+			if err != nil {
+				h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Checksum file did not list " + filename + ": " + err.Error()})
+				return
+			}
+			expected = sum
+		case img.ChecksumVerified && img.Checksum != "":
+			expected = img.Checksum
+		default:
+			h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "No checksum is known for this image; supply sha256 or checksum_url"})
+			return
+		}
+		filePath := filepath.Join(h.isoDir, filepath.Base(filename))
+		if _, err := os.Stat(filePath); err != nil {
+			h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "Image file not found on disk"})
+			return
+		}
+		if !h.verifier.Begin(filename, expected) {
+			h.sendJSON(w, http.StatusConflict, Response{Success: false, Error: "Verification already running"})
+			return
+		}
+		go h.verifier.Run(filename, filePath, expected, func(actual string, verified bool) {
+			current, err := h.storage.GetImage(filename)
+			if err != nil {
+				return
+			}
+			now := time.Now()
+			current.Checksum = actual
+			current.ChecksumVerified = verified
+			current.ChecksumCheckedAt = &now
+			if err := h.storage.UpdateImage(filename, current); err != nil {
+				log.Printf("Failed to record checksum for %s: %v", filename, err)
+			}
+			if verified {
+				log.Printf("Checksum verified for %s", filename)
+			} else {
+				log.Printf("Checksum mismatch for %s: expected %s, got %s", filename, expected, actual)
+			}
+		})
+		h.sendJSON(w, http.StatusAccepted, Response{Success: true, Message: "Verification started", Data: map[string]string{"filename": filename, "expected": expected}})
+	default:
+		h.sendJSON(w, http.StatusMethodNotAllowed, Response{Success: false, Error: "Method not allowed"})
+	}
+}
+
+func (h *Handler) CheckCatalogue(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		h.sendJSON(w, http.StatusMethodNotAllowed, Response{Success: false, Error: "Method not allowed"})
+		return
+	}
+	if h.Catalogue == nil {
+		h.sendJSON(w, http.StatusServiceUnavailable, Response{Success: false, Error: "Catalogue checks need a database"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+	report, err := h.Catalogue.Check(ctx)
+	if err != nil {
+		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
+		return
+	}
+	h.sendJSON(w, http.StatusOK, Response{Success: true, Message: fmt.Sprintf("%d image and %d tool updates available", len(report.Images), len(report.Tools)), Data: report})
 }
 
 func (h *Handler) GetAutoInstallScript(w http.ResponseWriter, r *http.Request) {
@@ -4627,10 +4845,11 @@ func (h *Handler) GetHousekeeping(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) UpdateHousekeeping(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		BootLogDays          int `json:"boot_log_days"`
-		InventoryHistoryDays int `json:"inventory_history_days"`
-		DiscoveredClientDays int `json:"discovered_client_days"`
-		AuditLogDays         int `json:"audit_log_days"`
+		BootLogDays          int  `json:"boot_log_days"`
+		InventoryHistoryDays int  `json:"inventory_history_days"`
+		DiscoveredClientDays int  `json:"discovered_client_days"`
+		AuditLogDays         int  `json:"audit_log_days"`
+		CatalogueCheckOff    bool `json:"catalogue_check_off"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Invalid body"})
@@ -4649,6 +4868,7 @@ func (h *Handler) UpdateHousekeeping(w http.ResponseWriter, r *http.Request) {
 	settings.InventoryHistoryDays = body.InventoryHistoryDays
 	settings.DiscoveredClientDays = body.DiscoveredClientDays
 	settings.AuditLogDays = body.AuditLogDays
+	settings.CatalogueCheckOff = body.CatalogueCheckOff
 	if err := h.storage.UpdateHousekeepingSettings(settings); err != nil {
 		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
 		return

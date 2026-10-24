@@ -282,6 +282,7 @@ type HousekeepingSettings struct {
 	InventoryHistoryDays int        `json:"inventory_history_days"`
 	DiscoveredClientDays int        `json:"discovered_client_days"`
 	AuditLogDays         int        `json:"audit_log_days"`
+	CatalogueCheckOff    bool       `json:"catalogue_check_off"`
 	LastRun              *time.Time `json:"last_run,omitempty"`
 	LastStatus           string     `json:"last_status,omitempty"`
 	LastReport           string     `gorm:"type:text" json:"last_report,omitempty"`
@@ -412,6 +413,15 @@ type Image struct {
 	SMBPatchFingerprint   string         `json:"smb_patch_fingerprint,omitempty"`
 	SMBNeedsRepatch       bool           `gorm:"-" json:"smb_needs_repatch"`
 	SMBUnpatchAvailable   bool           `gorm:"-" json:"smb_unpatch_available"`
+	Checksum              string         `json:"checksum,omitempty"`
+	ChecksumVerified      bool           `gorm:"default:false" json:"checksum_verified"`
+	ChecksumCheckedAt     *time.Time     `json:"checksum_checked_at,omitempty"`
+	CatalogueID           string         `json:"catalogue_id,omitempty"`
+	CatalogueRelease      string         `json:"catalogue_release,omitempty"`
+	UpdateAvailable       bool           `gorm:"default:false" json:"update_available"`
+	UpdateVersion         string         `json:"update_version,omitempty"`
+	UpdateFilename        string         `json:"update_filename,omitempty"`
+	UpdateURL             string         `json:"update_url,omitempty"`
 	WIMFiles              []WIMFile      `gorm:"serializer:json" json:"wim_files,omitempty"`
 	WIMPath               string         `json:"wim_path,omitempty"`
 	WIMIndex              int            `gorm:"default:0" json:"wim_index,omitempty"`
@@ -553,5 +563,8 @@ type BootTool struct {
 	BootMethod      string `json:"boot_method,omitempty"`            // "kernel", "memdisk", or "chain"
 	ArchiveType     string `json:"archive_type,omitempty"`           // "zip", "bin", or "iso"
 	DownloadURLBIOS string `json:"download_url_bios,omitempty"`      // optional BIOS variant URL (chain tools)
-	KernelPathBIOS  string `json:"kernel_path_bios,omitempty"`       // optional BIOS variant local path
+	DownloadedURL   string `json:"downloaded_url,omitempty"`
+	UpdateAvailable bool   `gorm:"default:false" json:"update_available"`
+	UpdateURL       string `json:"update_url,omitempty"`
+	KernelPathBIOS  string `json:"kernel_path_bios,omitempty"` // optional BIOS variant local path
 }

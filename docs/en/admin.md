@@ -330,6 +330,7 @@ Boot logs and hardware inventory submissions accumulate on every PXE boot, and t
 | Inventory history retention | 90 days | Older inventory submissions; the most recent inventory for every client is always kept |
 | Remove discovered clients not seen for | 0 (off) | Auto-discovered clients whose last boot is older than the period. Static clients and cluster nodes are never touched |
 | Audit log retention | 365 days | Admin action audit entries older than the period |
+| Check the catalogue daily | on | Not a pruning task: flags installed images and tools that have a newer release in the catalogue (see the [Image Management guide](images.md#checksums-and-update-notifications)) |
 
 The card also shows the result of the last run per task and how much space each top-level entry of the data directory uses, so it is easy to spot which ISO group or cache is taking the room.
 
@@ -345,6 +346,9 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json
 
 # Run housekeeping now
 curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/housekeeping/run
+
+# Compare installed images and tools with the catalogue now
+curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/catalogue/check
 ```
 
 ## Audit Log
@@ -442,7 +446,10 @@ GET /api/stats
 | `PUT` | `/api/images?filename=<name>` | Update image |
 | `DELETE` | `/api/images?filename=<name>` | Delete image |
 | `POST` | `/api/images/upload` | Upload ISO |
-| `POST` | `/api/images/download` | Download ISO from URL |
+| `POST` | `/api/images/download` | Download ISO from URL, verifying against `sha256` or `checksum_url` when given |
+| `POST` | `/api/images/verify?filename=<name>` | Hash an image against a checksum in the background |
+| `GET` | `/api/images/verify?filename=<name>` | Verification progress and result |
+| `POST` | `/api/catalogue/check` | Flag images and tools with newer catalogue releases |
 | `POST` | `/api/images/extract` | Extract kernel/initrd |
 | `POST` | `/api/images/netboot/download` | Download netboot files |
 | `PUT` | `/api/images/winpe?filename=<name>` | Choose the WIM file and image index a Windows or WinPE image boots. Body: `{wim_path, wim_index}` |

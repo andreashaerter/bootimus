@@ -5,6 +5,7 @@ Complete guide for managing ISO images, extracting boot files, and handling spec
 ##  Table of Contents
 
 - [Adding Images](#adding-images)
+- [Checksums and Update Notifications](#checksums-and-update-notifications)
 - [Unified Kernel Images (UKI)](#unified-kernel-images-uki)
 - [WinPE and Rescue Media](#winpe-and-rescue-media)
 - [Kernel Extraction](#kernel-extraction)
@@ -62,6 +63,21 @@ curl -u admin:password -X POST http://localhost:8081/api/images/download \
 ```bash
 curl -u admin:password http://localhost:8081/api/downloads/progress?filename=ubuntu-24.04-live-server-amd64.iso
 ```
+
+### Checksums and Update Notifications
+
+**Verification on download.** When an ISO is fetched through **Get Images** (the built-in catalogue), Bootimus looks for a published checksum file next to it (`SHA256SUMS`, `sha256sum.txt` and similar) and hashes the download as it streams. A mismatch fails the download and removes the file, so a truncated or tampered image never reaches the boot menu. Downloads from a plain URL can be verified too by passing a `sha256` or a `checksum_url` to `/api/images/download`:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/images/download \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://releases.ubuntu.com/24.04.4/ubuntu-24.04.4-live-server-amd64.iso",
+       "checksum_url": "https://releases.ubuntu.com/24.04.4/SHA256SUMS"}'
+```
+
+Verified images show a **✓ Verified** badge in the image list and the recorded SHA-256 in the image properties panel. Images downloaded without a published checksum, or uploaded by hand, are marked **Unverified**; paste a SHA-256 or the URL of a checksum file into the properties panel and press **Verify** to hash the file in the background (`POST /api/images/verify?filename=…`, poll the same URL with `GET`).
+
+**Newer releases.** Once a day (and on **Settings → Housekeeping → Check now**, or `POST /api/catalogue/check`) Bootimus compares installed images with the catalogue. An image downloaded from the catalogue is matched by its distribution and release line, so `ubuntu-24.04.3-desktop-amd64.iso` is flagged when `24.04.4` appears; images added before this feature are matched by filename shape. Flagged images carry an **Update available** badge and a **Download newer version** button in the properties panel, tools show the same badge with **Download newer**, and the dashboard counts outstanding updates. The check uses the online catalogue when remote profile updates are allowed and falls back to the catalogue built into the binary when `--disable-remote-profiles` is set. Untick **Check the catalogue daily** under Housekeeping to turn it off.
 
 ### Organise with Folders
 
