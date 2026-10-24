@@ -43,6 +43,7 @@ var viewerReadRoutes = map[string]bool{
 	"/api/client-groups/get":         true,
 	"/api/scheduled-tasks":           true,
 	"/api/clients/power/status":      true,
+	"/api/clients/menu-preview":      true,
 	"/api/theme":                     true,
 	"/api/usb":                       true,
 	"/api/usb/download":              true,
