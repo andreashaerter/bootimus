@@ -65,6 +65,10 @@ func newIntegrationEnv(t *testing.T, cfg auth.OIDCConfig) *integrationEnv {
 	mux.HandleFunc("/api/oidc/callback", mgr.HandleOIDCCallback)
 	mux.HandleFunc("/api/me", mgr.JWTMiddleware(ok))
 	mux.HandleFunc("/api/users", mgr.AdminMiddleware(ok))
+	mux.HandleFunc("/api/clients", mgr.ReadMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"success":true,"data":[{"mac_address":"aa:bb:cc:dd:ee:01","ipmi_password":"bmc-secret"}]}`))
+	}))
 
 	return &integrationEnv{server: server, store: store, auth: mgr}
 }
@@ -177,14 +181,21 @@ func mustParseURL(t *testing.T, raw string) *url.URL {
 
 func (e *integrationEnv) status(t *testing.T, path, token string) int {
 	t.Helper()
-	req, _ := http.NewRequest(http.MethodGet, e.server.URL+path, nil)
+	code, _ := e.request(t, http.MethodGet, path, token)
+	return code
+}
+
+func (e *integrationEnv) request(t *testing.T, method, path, token string) (int, string) {
+	t.Helper()
+	req, _ := http.NewRequest(method, e.server.URL+path, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
-	return resp.StatusCode
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(body)
 }
 
 func defaultGroups() auth.OIDCConfig {
@@ -252,6 +263,17 @@ func TestOIDCIntegrationRegularUser(t *testing.T) {
 	}
 	if code := env.status(t, "/api/users", res.token); code != http.StatusForbidden {
 		t.Fatalf("admin endpoint: want 403, got %d", code)
+	}
+
+	code, body := env.request(t, http.MethodGet, "/api/clients", res.token)
+	if code != http.StatusOK || !strings.Contains(body, "aa:bb:cc:dd:ee:01") {
+		t.Fatalf("read-only user listing clients: %d %s", code, body)
+	}
+	if strings.Contains(body, "bmc-secret") {
+		t.Fatalf("read-only user saw the IPMI password: %s", body)
+	}
+	if code, _ := env.request(t, http.MethodPost, "/api/clients", res.token); code != http.StatusForbidden {
+		t.Fatalf("read-only user creating a client: want 403, got %d", code)
 	}
 }
 
