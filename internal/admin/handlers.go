@@ -572,6 +572,23 @@ func (h *Handler) UpdateClient(w http.ResponseWriter, r *http.Request) {
 	if noVendor, ok := updates["proxy_dhcp_no_vendor_option"].(bool); ok {
 		client.ProxyDHCPNoVendorOption = noVendor
 	}
+	if sanID, ok := updates["san_target_id"]; ok {
+		if sanID == nil {
+			client.SANTargetID = nil
+		} else if id, ok := sanID.(float64); ok && id > 0 {
+			if _, err := h.storage.GetSANTarget(uint(id)); err != nil {
+				h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "SAN target not found"})
+				return
+			}
+			targetID := uint(id)
+			client.SANTargetID = &targetID
+		} else {
+			client.SANTargetID = nil
+		}
+	}
+	if bootSAN, ok := updates["boot_from_san"].(bool); ok {
+		client.BootFromSAN = bootSAN
+	}
 	if groupID, ok := updates["client_group_id"]; ok {
 		if groupID == nil {
 			client.ClientGroupID = nil
@@ -678,13 +695,23 @@ func (h *Handler) SetNextBootImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	label := req.ImageFilename
+	if sanID, ok := models.ParseNextBootSAN(req.ImageFilename); ok {
+		target, err := h.storage.GetSANTarget(sanID)
+		if err != nil {
+			h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "SAN target not found"})
+			return
+		}
+		label = "SAN target " + target.Name
+	}
+
 	if err := h.storage.SetNextBootImage(req.MACAddress, req.ImageFilename); err != nil {
 		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
 		return
 	}
 
 	log.Printf("Admin: Set next boot image for %s to %s", req.MACAddress, req.ImageFilename)
-	h.sendJSON(w, http.StatusOK, Response{Success: true, Message: fmt.Sprintf("Next boot set to %s", req.ImageFilename)})
+	h.sendJSON(w, http.StatusOK, Response{Success: true, Message: fmt.Sprintf("Next boot set to %s", label)})
 }
 
 func (h *Handler) PromoteClient(w http.ResponseWriter, r *http.Request) {

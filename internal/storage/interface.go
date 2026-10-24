@@ -82,6 +82,13 @@ type Storage interface {
 	GetMenuTheme() (*models.MenuTheme, error)
 	UpdateMenuTheme(theme *models.MenuTheme) error
 
+	ListSANTargets() ([]*models.SANTarget, error)
+	GetSANTarget(id uint) (*models.SANTarget, error)
+	CreateSANTarget(target *models.SANTarget) error
+	UpdateSANTarget(id uint, target *models.SANTarget) error
+	DeleteSANTarget(id uint) error
+	CountSANTargetUsers(id uint) (int64, int64, error)
+
 	GetWebhookConfig() (*models.WebhookConfig, error)
 	UpdateWebhookConfig(cfg *models.WebhookConfig) error
 
