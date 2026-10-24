@@ -107,6 +107,9 @@ type Client struct {
 
 	AutoInstallFile string `json:"auto_install_file,omitempty"`
 
+	InstallState     string     `json:"install_state,omitempty"`
+	InstallImage     string     `json:"install_image,omitempty"`
+	InstallUpdatedAt *time.Time `json:"install_updated_at,omitempty"`
 	SANTargetID *uint `gorm:"index" json:"san_target_id,omitempty"`
 	BootFromSAN bool  `gorm:"default:false" json:"boot_from_san"`
 
@@ -201,6 +204,33 @@ type WebhookConfig struct {
 	OnInventoryUpdated bool      `gorm:"default:false" json:"on_inventory_updated"`
 	OnEnrollment       bool      `gorm:"default:true" json:"on_enrollment"`
 	OnAdminAction      bool      `gorm:"default:false" json:"on_admin_action"`
+	OnInstall          bool      `gorm:"default:true" json:"on_install"`
+}
+
+const (
+	InstallStateBooted     = "booted"
+	InstallStateInstalling = "installing"
+	InstallStateCompleted  = "completed"
+	InstallStateFailed     = "failed"
+)
+
+type InstallRecord struct {
+	ID            uint       `gorm:"primarykey" json:"id"`
+	CreatedAt     time.Time  `json:"created_at"`
+	MACAddress    string     `gorm:"index" json:"mac_address"`
+	ImageFilename string     `json:"image_filename"`
+	ImageName     string     `json:"image_name"`
+	Token         string     `gorm:"uniqueIndex;size:64" json:"-"`
+	State         string     `gorm:"index" json:"state"`
+	BootedAt      time.Time  `json:"booted_at"`
+	InstallingAt  *time.Time `json:"installing_at,omitempty"`
+	FinishedAt    *time.Time `json:"finished_at,omitempty"`
+	Message       string     `json:"message,omitempty"`
+	ReporterIP    string     `json:"reporter_ip,omitempty"`
+}
+
+func (r *InstallRecord) Open() bool {
+	return r.State == InstallStateBooted || r.State == InstallStateInstalling
 }
 
 type AuditLog struct {

@@ -257,6 +257,7 @@ func runServe(cmd *cobra.Command, args []string) {
 	if err := cfg.AdminTLS.Validate(); err != nil {
 		log.Fatalf("Invalid configuration: %v", err)
 	}
+	cfg.InstallTimeoutHours = viper.GetInt("install_timeout_hours")
 
 	srv := server.New(cfg)
 	if err := srv.Start(); err != nil {

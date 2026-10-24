@@ -798,6 +798,7 @@ async function loadWebhookConfig() {
         document.getElementById('webhook-on-client-discovered').checked = !!c.on_client_discovered;
         document.getElementById('webhook-on-inventory-updated').checked = !!c.on_inventory_updated;
         document.getElementById('webhook-on-admin-action').checked = !!c.on_admin_action;
+        document.getElementById('webhook-on-install').checked = !!c.on_install;
     } catch (err) {
         console.error('Failed to load webhook config:', err);
     }
@@ -812,6 +813,7 @@ async function saveWebhookConfig(e) {
         on_client_discovered: document.getElementById('webhook-on-client-discovered').checked,
         on_inventory_updated: document.getElementById('webhook-on-inventory-updated').checked,
         on_admin_action: document.getElementById('webhook-on-admin-action').checked,
+        on_install: document.getElementById('webhook-on-install').checked,
     };
     try {
         const res = await authFetch(`${API_BASE}/webhook`, {
@@ -1442,6 +1444,7 @@ function clientRowHTML(client, includeGroupCell) {
                             ${client.last_boot ? new Date(client.last_boot).toLocaleString() : 'Never'}
                             ${client.next_boot_image ? '<br><span class="badge badge-info" title="' + escapeHtml(client.next_boot_image) + '">Next: ' + escapeHtml(nextBootLabel(client.next_boot_image)) + '</span>' : ''}
                         </td>
+                        <td>${installStateBadge(client)}</td>
                         <td onclick="event.stopPropagation()">
                             ${!client.static ? '<button class="btn btn-success btn-sm" onclick="promoteClient(\'' + client.mac_address + '\')">Make Static</button>' : ''}
                             <button class="btn btn-success btn-sm" onclick="wakeClient('${client.mac_address}')">Wake</button>
@@ -1470,7 +1473,7 @@ function renderClientsTable() {
     let colspan;
 
     if (!clientGroupedView) {
-        colspan = 11;
+        colspan = 12;
         theadHtml = `
                 <tr>
                     <th class="col-check"><input type="checkbox" id="clients-select-all" onchange="toggleClientsSelectAll(this.checked)" title="Select all"></th>
@@ -1483,11 +1486,12 @@ function renderClientsTable() {
                     <th>Assigned Images</th>
                     <th>Boot Count</th>
                     <th>Last Boot</th>
+                    <th>Install</th>
                     <th>Quick Actions</th>
                 </tr>`;
         bodyHtml = filteredClients.map(c => clientRowHTML(c, true)).join('');
     } else {
-        colspan = 10;
+        colspan = 11;
         theadHtml = `
                 <tr>
                     <th class="col-check"><input type="checkbox" id="clients-select-all" onchange="toggleClientsSelectAll(this.checked)" title="Select all"></th>
@@ -1499,6 +1503,7 @@ function renderClientsTable() {
                     <th>Assigned Images</th>
                     <th>Boot Count</th>
                     <th>Last Boot</th>
+                    <th>Install</th>
                     <th>Quick Actions</th>
                 </tr>`;
 
@@ -1600,6 +1605,7 @@ async function editClient(mac) {
             form.querySelector('[name="boot_from_san"]').checked = !!currentClient.boot_from_san;
             const powerResult = document.getElementById('power-client-result');
             if (powerResult) powerResult.textContent = '';
+            loadClientInstallHistory(currentClient.mac_address || mac);
 
             // Populate bootloader set dropdown
             try {
@@ -7049,6 +7055,64 @@ let clusterNodes = [];
 let nodeImages = [];
 let kubernetesProviders = [];
 let clusterConfigMode = 'edit';
+
+const INSTALL_STATE_LABELS = {
+    booted: ['Booted', 'badge-info'],
+    installing: ['Installing', 'badge-warning'],
+    completed: ['Installed', 'badge-success'],
+    failed: ['Failed', 'badge-danger'],
+};
+
+function relativeTime(iso) {
+    if (!iso) return '';
+    const diff = Date.now() - new Date(iso).getTime();
+    const mins = Math.round(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins} min ago`;
+    const hours = Math.round(mins / 60);
+    if (hours < 48) return `${hours} h ago`;
+    return `${Math.round(hours / 24)} d ago`;
+}
+
+function installStateBadge(client) {
+    const entry = INSTALL_STATE_LABELS[client.install_state];
+    if (!entry) return '<span style="color: var(--text-muted);">-</span>';
+    const title = `${escapeHtml(client.install_image || '')} ${client.install_updated_at ? new Date(client.install_updated_at).toLocaleString() : ''}`.trim();
+    return `<span class="badge ${entry[1]}" title="${title}">${entry[0]}</span><br><span style="font-size: 11px; color: var(--text-muted);">${relativeTime(client.install_updated_at)}</span>`;
+}
+
+async function loadClientInstallHistory(mac) {
+    const container = document.getElementById('client-install-history');
+    if (!container) return;
+    container.innerHTML = '<span style="color: var(--text-muted);">Loading…</span>';
+    try {
+        const res = await authFetch(`${API_BASE}/clients/installs?mac=${encodeURIComponent(mac)}&limit=20`);
+        const data = await res.json();
+        if (!data.success) {
+            container.innerHTML = `<span style="color: var(--danger);">${escapeHtml(data.error || 'Failed to load install history')}</span>`;
+            return;
+        }
+        const recs = data.data || [];
+        if (recs.length === 0) {
+            container.innerHTML = '<span style="color: var(--text-muted);">No unattended installs recorded for this client.</span>';
+            return;
+        }
+        container.innerHTML = `<div class="table-scroll"><table>
+            <thead><tr><th>Booted</th><th>Image</th><th>State</th><th>Finished</th><th>Message</th></tr></thead>
+            <tbody>${recs.map(r => {
+                const entry = INSTALL_STATE_LABELS[r.state] || [r.state, 'badge-info'];
+                return `<tr>
+                    <td style="white-space: nowrap;">${new Date(r.booted_at).toLocaleString()}</td>
+                    <td>${escapeHtml(r.image_name || r.image_filename || '')}</td>
+                    <td><span class="badge ${entry[1]}">${escapeHtml(entry[0])}</span></td>
+                    <td style="white-space: nowrap;">${r.finished_at ? new Date(r.finished_at).toLocaleString() : '-'}</td>
+                    <td>${escapeHtml(r.message || '')}</td>
+                </tr>`;
+            }).join('')}</tbody></table></div>`;
+    } catch (err) {
+        container.innerHTML = '<span style="color: var(--danger);">Failed to load install history</span>';
+    }
+}
 
 function enrollmentStateBadge(state) {
     const classes = {
