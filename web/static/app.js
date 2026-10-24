@@ -846,6 +846,7 @@ const HOUSEKEEPING_TASK_LABELS = {
     boot_logs: 'Boot logs',
     inventory_history: 'Inventory history',
     discovered_clients: 'Discovered clients',
+    audit_logs: 'Audit log',
 };
 
 function renderHousekeeping(view) {
@@ -853,6 +854,7 @@ function renderHousekeeping(view) {
     document.getElementById('housekeeping-boot-log-days').value = settings.boot_log_days ?? 0;
     document.getElementById('housekeeping-inventory-days').value = settings.inventory_history_days ?? 0;
     document.getElementById('housekeeping-discovered-days').value = settings.discovered_client_days ?? 0;
+    document.getElementById('housekeeping-audit-days').value = settings.audit_log_days ?? 0;
 
     const lastRun = document.getElementById('housekeeping-last-run');
     if (settings.last_run) {
@@ -913,6 +915,7 @@ async function saveHousekeeping(e) {
         boot_log_days: parseInt(document.getElementById('housekeeping-boot-log-days').value, 10) || 0,
         inventory_history_days: parseInt(document.getElementById('housekeeping-inventory-days').value, 10) || 0,
         discovered_client_days: parseInt(document.getElementById('housekeeping-discovered-days').value, 10) || 0,
+        audit_log_days: parseInt(document.getElementById('housekeeping-audit-days').value, 10) || 0,
     };
     try {
         const res = await authFetch(`${API_BASE}/housekeeping`, {
@@ -3151,7 +3154,7 @@ const API_REFERENCE = [
         { method: 'GET',    path: '/api/backup/import',            desc: 'Is a restore staged?' },
         { method: 'DELETE', path: '/api/backup/import',            desc: 'Discard the staged restore.' },
         { method: 'GET',    path: '/api/housekeeping',             desc: 'Retention settings, last housekeeping report and data directory usage.' },
-        { method: 'PUT',    path: '/api/housekeeping',             desc: 'Body: <code>{boot_log_days, inventory_history_days, discovered_client_days}</code>. 0 keeps forever.' },
+        { method: 'PUT',    path: '/api/housekeeping',             desc: 'Body: <code>{boot_log_days, inventory_history_days, discovered_client_days, audit_log_days}</code>. 0 keeps forever.' },
         { method: 'POST',   path: '/api/housekeeping/run',         desc: 'Run housekeeping now and return the report.' },
     ]},
     { category: 'Logs', endpoints: [

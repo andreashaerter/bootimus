@@ -28,6 +28,7 @@ type Store interface {
 	DeleteBootLogsBefore(cutoff time.Time) (int64, error)
 	DeleteInventoryHistoryBefore(cutoff time.Time) (int64, error)
 	DeleteDiscoveredClientsNotSeenSince(cutoff time.Time) (int64, error)
+	DeleteAuditLogsBefore(cutoff time.Time) (int64, error)
 }
 
 type Task interface {
@@ -78,6 +79,7 @@ func New(store Store) *Runner {
 	r.Register(pruneBootLogs(store))
 	r.Register(pruneInventoryHistory(store))
 	r.Register(pruneDiscoveredClients(store))
+	r.Register(pruneAuditLogs(store))
 	return r
 }
 

@@ -322,13 +322,14 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/logs?limit=500
 
 ## Housekeeping and Retention
 
-Boot logs and hardware inventory submissions accumulate on every PXE boot. Housekeeping runs once a day (and a few minutes after start-up) and prunes records older than the retention periods set under **Settings** → **Housekeeping**. A period of `0` keeps those records forever.
+Boot logs and hardware inventory submissions accumulate on every PXE boot, and the audit log grows with every admin change. Housekeeping runs once a day (and a few minutes after start-up) and prunes records older than the retention periods set under **Settings** → **Housekeeping**. A period of `0` keeps those records forever.
 
 | Setting | Default | What it removes |
 |---------|---------|-----------------|
 | Boot log retention | 90 days | Boot attempt entries older than the period |
 | Inventory history retention | 90 days | Older inventory submissions; the most recent inventory for every client is always kept |
 | Remove discovered clients not seen for | 0 (off) | Auto-discovered clients whose last boot is older than the period. Static clients and cluster nodes are never touched |
+| Audit log retention | 365 days | Admin action audit entries older than the period |
 
 The card also shows the result of the last run per task and how much space each top-level entry of the data directory uses, so it is easy to spot which ISO group or cache is taking the room.
 
@@ -339,7 +340,7 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/housekeeping
 
 # Keep boot logs for 30 days, inventory history for a year, never prune clients
 curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"boot_log_days":30,"inventory_history_days":365,"discovered_client_days":0}' \
+  -d '{"boot_log_days":30,"inventory_history_days":365,"discovered_client_days":0,"audit_log_days":365}' \
   http://localhost:8081/api/housekeeping
 
 # Run housekeeping now

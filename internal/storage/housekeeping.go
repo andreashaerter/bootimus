@@ -11,6 +11,7 @@ import (
 const (
 	DefaultBootLogDays          = 90
 	DefaultInventoryHistoryDays = 90
+	DefaultAuditLogDays         = 365
 )
 
 func getHousekeepingSettings(db *gorm.DB) (*models.HousekeepingSettings, error) {
@@ -21,6 +22,7 @@ func getHousekeepingSettings(db *gorm.DB) (*models.HousekeepingSettings, error) 
 				ID:                   1,
 				BootLogDays:          DefaultBootLogDays,
 				InventoryHistoryDays: DefaultInventoryHistoryDays,
+				AuditLogDays:         DefaultAuditLogDays,
 			}, nil
 		}
 		return nil, err

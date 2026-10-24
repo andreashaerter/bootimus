@@ -215,6 +215,7 @@ type HousekeepingSettings struct {
 	BootLogDays          int        `json:"boot_log_days"`
 	InventoryHistoryDays int        `json:"inventory_history_days"`
 	DiscoveredClientDays int        `json:"discovered_client_days"`
+	AuditLogDays         int        `json:"audit_log_days"`
 	LastRun              *time.Time `json:"last_run,omitempty"`
 	LastStatus           string     `json:"last_status,omitempty"`
 	LastReport           string     `gorm:"type:text" json:"last_report,omitempty"`

@@ -178,8 +178,8 @@ func TestRunNowRecordsReport(t *testing.T) {
 	if report.Status != StatusOK {
 		t.Fatalf("status = %q, want ok", report.Status)
 	}
-	if len(report.Tasks) != 3 {
-		t.Fatalf("tasks = %d, want 3", len(report.Tasks))
+	if len(report.Tasks) != 4 {
+		t.Fatalf("tasks = %d, want 4", len(report.Tasks))
 	}
 	if report.Tasks[0].Name != "boot_logs" || report.Tasks[0].Affected != 1 {
 		t.Fatalf("boot log task = %+v", report.Tasks[0])
@@ -200,6 +200,29 @@ func TestRunNowRecordsReport(t *testing.T) {
 	}
 	if settings.BootLogDays != storage.DefaultBootLogDays {
 		t.Fatalf("defaults should survive a run: %+v", settings)
+	}
+}
+
+func TestPruneAuditLogsRespectsRetention(t *testing.T) {
+	store := newStore(t)
+	for i, age := range []int{10, 400, 800} {
+		if err := store.CreateAuditLog(&models.AuditLog{Username: "admin", Method: "PUT", Path: "/api/clients", Status: 200}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.DB().Model(&models.AuditLog{}).Where("id = ?", i+1).Update("created_at", daysAgo(age)).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	affected, err := pruneAuditLogs(store).Run(t.Context(), &models.HousekeepingSettings{AuditLogDays: 365})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if affected != 2 {
+		t.Fatalf("affected = %d, want 2", affected)
+	}
+	if n := countRows(t, store, &models.AuditLog{}); n != 1 {
+		t.Fatalf("remaining audit logs = %d, want 1", n)
 	}
 }
 

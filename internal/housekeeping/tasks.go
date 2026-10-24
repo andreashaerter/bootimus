@@ -49,3 +49,11 @@ func pruneDiscoveredClients(store Store) Task {
 		delete: store.DeleteDiscoveredClientsNotSeenSince,
 	}
 }
+
+func pruneAuditLogs(store Store) Task {
+	return &pruneTask{
+		name:   "audit_logs",
+		days:   func(s *models.HousekeepingSettings) int { return s.AuditLogDays },
+		delete: store.DeleteAuditLogsBefore,
+	}
+}

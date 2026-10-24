@@ -4525,12 +4525,13 @@ func (h *Handler) UpdateHousekeeping(w http.ResponseWriter, r *http.Request) {
 		BootLogDays          int `json:"boot_log_days"`
 		InventoryHistoryDays int `json:"inventory_history_days"`
 		DiscoveredClientDays int `json:"discovered_client_days"`
+		AuditLogDays         int `json:"audit_log_days"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Invalid body"})
 		return
 	}
-	if body.BootLogDays < 0 || body.InventoryHistoryDays < 0 || body.DiscoveredClientDays < 0 {
+	if body.BootLogDays < 0 || body.InventoryHistoryDays < 0 || body.DiscoveredClientDays < 0 || body.AuditLogDays < 0 {
 		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Retention periods cannot be negative"})
 		return
 	}
@@ -4542,6 +4543,7 @@ func (h *Handler) UpdateHousekeeping(w http.ResponseWriter, r *http.Request) {
 	settings.BootLogDays = body.BootLogDays
 	settings.InventoryHistoryDays = body.InventoryHistoryDays
 	settings.DiscoveredClientDays = body.DiscoveredClientDays
+	settings.AuditLogDays = body.AuditLogDays
 	if err := h.storage.UpdateHousekeepingSettings(settings); err != nil {
 		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
 		return

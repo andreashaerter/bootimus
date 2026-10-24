@@ -867,6 +867,10 @@
                             <input type="number" id="housekeeping-discovered-days" min="0" step="1" value="0">
                             <small style="color: var(--text-secondary);">Only auto-discovered clients. Static clients and cluster nodes are never removed.</small>
                         </div>
+                        <div class="form-group" style="flex: 1; min-width: 180px;">
+                            <label for="housekeeping-audit-days">Audit log retention (days)</label>
+                            <input type="number" id="housekeeping-audit-days" min="0" step="1" value="365">
+                        </div>
                     </div>
                     <div style="display: flex; gap: 8px; align-items: center;">
                         <button type="submit" class="btn">
