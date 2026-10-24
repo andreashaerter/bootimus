@@ -88,6 +88,13 @@ type Storage interface {
 	GetMenuTheme() (*models.MenuTheme, error)
 	UpdateMenuTheme(theme *models.MenuTheme) error
 
+	ListSANTargets() ([]*models.SANTarget, error)
+	GetSANTarget(id uint) (*models.SANTarget, error)
+	CreateSANTarget(target *models.SANTarget) error
+	UpdateSANTarget(id uint, target *models.SANTarget) error
+	DeleteSANTarget(id uint) error
+	CountSANTargetUsers(id uint) (int64, int64, error)
+
 	GetWebhookConfig() (*models.WebhookConfig, error)
 	UpdateWebhookConfig(cfg *models.WebhookConfig) error
 
@@ -97,6 +104,14 @@ type Storage interface {
 	DeleteBootLogsBefore(cutoff time.Time) (int64, error)
 	DeleteInventoryHistoryBefore(cutoff time.Time) (int64, error)
 	DeleteDiscoveredClientsNotSeenSince(cutoff time.Time) (int64, error)
+	CreateInstallRecord(rec *models.InstallRecord) error
+	UpdateInstallRecord(rec *models.InstallRecord) error
+	GetInstallRecordByToken(token string) (*models.InstallRecord, error)
+	LatestOpenInstallRecord(mac, imageFilename string) (*models.InstallRecord, error)
+	ListInstallRecords(mac string, limit int) ([]models.InstallRecord, error)
+	ListOpenInstallRecordsBefore(cutoff time.Time) ([]models.InstallRecord, error)
+	SetClientInstallStatus(mac, state, image string, at time.Time) error
+
 	CreateAuditLog(entry *models.AuditLog) error
 	ListAuditLogs(filter AuditLogFilter) ([]models.AuditLog, int64, error)
 	DeleteAuditLogsBefore(cutoff time.Time) (int64, error)

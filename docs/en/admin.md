@@ -445,6 +445,7 @@ GET /api/stats
 | `POST` | `/api/images/download` | Download ISO from URL |
 | `POST` | `/api/images/extract` | Extract kernel/initrd |
 | `POST` | `/api/images/netboot/download` | Download netboot files |
+| `PUT` | `/api/images/winpe?filename=<name>` | Choose the WIM file and image index a Windows or WinPE image boots. Body: `{wim_path, wim_index}` |
 | `POST` | `/api/scan` | Scan for new ISOs |
 
 #### Downloads

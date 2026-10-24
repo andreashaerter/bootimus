@@ -197,6 +197,7 @@
                 <div class="subtabs">
                     <button class="subtab active" data-subtab="clients" onclick="switchClientsSubtab('clients')">Clients</button>
                     <button class="subtab" data-subtab="client-groups" onclick="switchClientsSubtab('client-groups')">Client Groups</button>
+                    <button class="subtab" data-subtab="san-targets" onclick="switchClientsSubtab('san-targets')">SAN Targets</button>
                 </div>
 
                 <div id="clients-subtab">
@@ -296,6 +297,24 @@
                     <div id="client-groups-table" class="loading">
                         <div class="spinner"></div>
                         Loading client groups...
+                    </div>
+                </div>
+
+                <div id="san-targets-subtab" style="display: none;">
+                    <h2>SAN Targets</h2>
+                    <p style="color: var(--text-secondary); margin: 0 12px 8px; font-size: 13px;">
+                        iSCSI, AoE or HTTP disks that clients boot from with iPXE <code>sanboot</code>. Assign a target to a client or a client group, and tick "Boot from SAN by default" to make it the entry the menu falls through to.
+                    </p>
+                    <div class="toolbar">
+                        <button class="btn admin-only" type="button" onclick="showSANTargetModal()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            Add SAN Target
+                        </button>
+                        <input type="search" class="toolbar-filter" placeholder="Filter targets…" oninput="applyTableFilter('san-targets', this.value, renderSANTargetsTable)">
+                    </div>
+                    <div id="san-targets-table" class="loading">
+                        <div class="spinner"></div>
+                        Loading SAN targets...
                     </div>
                 </div>
             </div>
@@ -871,6 +890,10 @@
                             <input type="checkbox" id="webhook-on-admin-action">
                             <label for="webhook-on-admin-action"><code>admin.action</code> — a change was made through the admin API (mirrors the audit log)</label>
                         </div>
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="webhook-on-install">
+                            <label for="webhook-on-install"><code>install.completed</code> / <code>install.failed</code> — an unattended install reported its result or timed out</label>
+                        </div>
                     </div>
                     <div style="display: flex; gap: 8px;">
                         <button type="submit" class="btn">
@@ -1206,6 +1229,17 @@
                     </select>
                     <small style="color: var(--text-secondary);">Override the installation config for this machine specifically. Leave blank to inherit from the client group, or fall back to the image's default.</small>
                 </div>
+                <div class="form-group">
+                    <label>SAN Target</label>
+                    <select name="san_target_id" id="edit-client-san-select">
+                        <option value="">(inherit from group, or none)</option>
+                    </select>
+                    <small style="color: var(--text-secondary);">iSCSI, AoE or HTTP disk offered as "Boot from SAN" in this client's menu.</small>
+                </div>
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" name="boot_from_san" id="edit-client-boot-from-san">
+                    <label for="edit-client-boot-from-san">Boot from SAN by default</label>
+                </div>
 
                 <details style="margin-bottom: 12px;">
                     <summary style="cursor: pointer; font-weight: 500; padding: 6px 0;">BMC (Power Control)</summary>
@@ -1254,6 +1288,13 @@
                         <button type="button" class="btn btn-sm read-ok" onclick="powerStatusClient()">Status</button>
                     </div>
                     <div id="power-client-result" style="font-size: 12px; color: var(--text-secondary);"></div>
+                </details>
+                <details style="margin-bottom: 12px;">
+                    <summary style="cursor: pointer; font-weight: 500; padding: 6px 0;">Install History</summary>
+                    <p style="color: var(--text-muted); font-size: 12px; margin: 4px 0 10px 0;">
+                        Unattended installs reported through the <code>{{CALLBACK_URL}}</code> placeholder. Installs that never report are marked failed after the configured timeout.
+                    </p>
+                    <div id="client-install-history" style="font-size: 13px;"></div>
                 </details>
                 <div class="form-group">
                     <label>Assigned Images</label>
@@ -1308,6 +1349,60 @@
             <button class="btn btn-primary" onclick="saveNextBoot()">Set Next Boot</button>
             <button class="btn btn-success" onclick="saveNextBootAndWake()" style="margin-left: 8px;">Set & Wake</button>
             <button type="button" class="btn" onclick="closeModal('next-boot-modal')">Cancel</button>
+        </div>
+    </div>
+
+    <div id="san-target-modal" class="modal">
+        <div class="modal-content" style="max-width: 560px;">
+            <div class="modal-header">
+                <h2 id="san-target-modal-title">Add SAN Target</h2>
+            </div>
+            <form id="san-target-form">
+                <input type="hidden" name="id">
+                <div class="form-group">
+                    <label>Name *</label>
+                    <input type="text" name="name" required placeholder="lab-disk">
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <input type="text" name="description">
+                </div>
+                <div class="form-group">
+                    <label>SAN URI *</label>
+                    <input type="text" name="uri" required placeholder="iscsi:10.0.0.5::::iqn.2024-01.lan:disk0" style="font-family: ui-monospace, monospace;">
+                    <small style="color: var(--text-secondary);">iPXE SAN URI: <code>iscsi:server:protocol:port:lun:iqn</code>, <code>aoe:e0.0</code> or <code>http://host/disk.img</code>.</small>
+                </div>
+                <div class="form-group">
+                    <label>Initiator IQN</label>
+                    <input type="text" name="initiator_iqn" placeholder="iqn.2024-01.lan:client-{{MAC}}" style="font-family: ui-monospace, monospace;">
+                    <small style="color: var(--text-secondary);">Optional. <code>{{MAC}}</code> is replaced with the client's MAC without colons. Leave blank to use iPXE's default.</small>
+                </div>
+                <details style="margin-bottom: 12px;">
+                    <summary style="cursor: pointer; font-weight: 500; padding: 6px 0;">CHAP Authentication</summary>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div class="form-group">
+                            <label>CHAP Username</label>
+                            <input type="text" name="chap_username" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label>CHAP Password</label>
+                            <input type="password" name="chap_password" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label>Reverse CHAP Username</label>
+                            <input type="text" name="reverse_chap_username" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label>Reverse CHAP Password</label>
+                            <input type="password" name="reverse_chap_password" autocomplete="off">
+                        </div>
+                    </div>
+                </details>
+                <div style="display: flex; gap: 10px;">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <button type="button" class="btn" onclick="closeModal('san-target-modal')">Cancel</button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -1878,6 +1973,20 @@
                     <small style="color: var(--text-muted);" data-i18n="props.field.bootfile_hint">Serve a specific kernel/initrd from the extracted ISO instead of the auto-detected ones.</small>
                 </div>
 
+                <div id="image-props-wim-row" style="display: none;">
+                    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px;">
+                        <div class="form-group" style="margin-bottom: 4px;">
+                            <label>Boot WIM</label>
+                            <select id="image-props-wim-path" class="form-control"></select>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 4px;">
+                            <label>Image index</label>
+                            <input type="number" id="image-props-wim-index" class="form-control" min="1" step="1" value="1">
+                        </div>
+                    </div>
+                    <small style="color: var(--text-muted);">WinPE and rescue media often carry several WIM files. Pick the one wimboot should load and, for multi-image WIMs, which image inside it.</small>
+                </div>
+
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                     <div class="form-group checkbox-group">
                         <input type="checkbox" id="image-props-enabled">
@@ -2168,6 +2277,17 @@
                         <option value="">(inherit from image)</option>
                     </select>
                     <small style="color: var(--text-secondary);">Default installation config for every machine in this group. Individual clients can still override.</small>
+                </div>
+                <div class="form-group">
+                    <label>SAN Target</label>
+                    <select name="san_target_id" id="cg-san-select">
+                        <option value="">(none)</option>
+                    </select>
+                    <small style="color: var(--text-secondary);">Members without their own SAN target inherit this one.</small>
+                </div>
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" name="boot_from_san" id="cg-boot-from-san">
+                    <label for="cg-boot-from-san">Boot from SAN by default</label>
                 </div>
                 <div class="form-group">
                     <label>Overlay Allowed Images</label>
