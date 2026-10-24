@@ -3,6 +3,9 @@ package models
 import (
 	"database/sql/driver"
 	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -46,6 +49,10 @@ type User struct {
 	IsAdmin   bool       `gorm:"default:false" json:"is_admin"`
 	Source    string     `gorm:"default:local" json:"source"`
 	LastLogin *time.Time `json:"last_login,omitempty"`
+
+	TOTPSecret    string `json:"-"`
+	TOTPEnabled   bool   `gorm:"default:false" json:"totp_enabled"`
+	RecoveryCodes string `gorm:"type:text" json:"-"`
 }
 
 const (
@@ -103,6 +110,12 @@ type Client struct {
 	IPMIInsecure bool   `gorm:"default:false" json:"ipmi_insecure,omitempty"`
 
 	AutoInstallFile string `json:"auto_install_file,omitempty"`
+
+	InstallState     string     `json:"install_state,omitempty"`
+	InstallImage     string     `json:"install_image,omitempty"`
+	InstallUpdatedAt *time.Time `json:"install_updated_at,omitempty"`
+	SANTargetID      *uint      `gorm:"index" json:"san_target_id,omitempty"`
+	BootFromSAN      bool       `gorm:"default:false" json:"boot_from_san"`
 
 	ProxyDHCPNoVendorOption bool `gorm:"default:false" json:"proxy_dhcp_no_vendor_option"`
 
@@ -195,6 +208,59 @@ type WebhookConfig struct {
 	OnInventoryUpdated bool      `gorm:"default:false" json:"on_inventory_updated"`
 	OnEnrollment       bool      `gorm:"default:true" json:"on_enrollment"`
 	OnAdminAction      bool      `gorm:"default:false" json:"on_admin_action"`
+	OnInstall          bool      `gorm:"default:true" json:"on_install"`
+}
+
+const (
+	InstallStateBooted     = "booted"
+	InstallStateInstalling = "installing"
+	InstallStateCompleted  = "completed"
+	InstallStateFailed     = "failed"
+)
+
+type InstallRecord struct {
+	ID            uint       `gorm:"primarykey" json:"id"`
+	CreatedAt     time.Time  `json:"created_at"`
+	MACAddress    string     `gorm:"index" json:"mac_address"`
+	ImageFilename string     `json:"image_filename"`
+	ImageName     string     `json:"image_name"`
+	Token         string     `gorm:"uniqueIndex;size:64" json:"-"`
+	State         string     `gorm:"index" json:"state"`
+	BootedAt      time.Time  `json:"booted_at"`
+	InstallingAt  *time.Time `json:"installing_at,omitempty"`
+	FinishedAt    *time.Time `json:"finished_at,omitempty"`
+	Message       string     `json:"message,omitempty"`
+	ReporterIP    string     `json:"reporter_ip,omitempty"`
+}
+
+func (r *InstallRecord) Open() bool {
+	return r.State == InstallStateBooted || r.State == InstallStateInstalling
+}
+
+type APIToken struct {
+	ID         uint       `gorm:"primarykey" json:"id"`
+	CreatedAt  time.Time  `json:"created_at"`
+	Name       string     `gorm:"not null" json:"name"`
+	Prefix     string     `gorm:"not null" json:"prefix"`
+	Hash       string     `gorm:"uniqueIndex;not null" json:"-"`
+	Scope      string     `gorm:"not null" json:"scope"`
+	CreatedBy  string     `json:"created_by"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
+	Revoked    bool       `gorm:"default:false" json:"revoked"`
+}
+
+const (
+	APITokenScopeRead  = "read"
+	APITokenScopeAdmin = "admin"
+)
+
+func (t *APIToken) Expired(now time.Time) bool {
+	return t.ExpiresAt != nil && !t.ExpiresAt.After(now)
+}
+
+func (t *APIToken) Usable(now time.Time) bool {
+	return !t.Revoked && !t.Expired(now)
 }
 
 type AuditLog struct {
@@ -216,6 +282,7 @@ type HousekeepingSettings struct {
 	InventoryHistoryDays int        `json:"inventory_history_days"`
 	DiscoveredClientDays int        `json:"discovered_client_days"`
 	AuditLogDays         int        `json:"audit_log_days"`
+	CatalogueCheckOff    bool       `json:"catalogue_check_off"`
 	LastRun              *time.Time `json:"last_run,omitempty"`
 	LastStatus           string     `json:"last_status,omitempty"`
 	LastReport           string     `gorm:"type:text" json:"last_report,omitempty"`
@@ -242,6 +309,44 @@ type ClientGroup struct {
 	IPMIInsecure bool   `gorm:"default:false" json:"ipmi_insecure,omitempty"`
 
 	AutoInstallFile string `json:"auto_install_file,omitempty"`
+
+	SANTargetID *uint `gorm:"index" json:"san_target_id,omitempty"`
+	BootFromSAN bool  `gorm:"default:false" json:"boot_from_san"`
+}
+
+type SANTarget struct {
+	ID                  uint      `gorm:"primarykey" json:"id"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
+	Name                string    `gorm:"uniqueIndex;not null" json:"name"`
+	Description         string    `json:"description"`
+	URI                 string    `gorm:"not null" json:"uri"`
+	InitiatorIQN        string    `json:"initiator_iqn,omitempty"`
+	CHAPUsername        string    `json:"chap_username,omitempty"`
+	CHAPPassword        string    `json:"chap_password,omitempty"`
+	ReverseCHAPUsername string    `json:"reverse_chap_username,omitempty"`
+	ReverseCHAPPassword string    `json:"reverse_chap_password,omitempty"`
+}
+
+const NextBootSANPrefix = "san:"
+
+func (t *SANTarget) NextBootValue() string {
+	return fmt.Sprintf("%s%d", NextBootSANPrefix, t.ID)
+}
+
+func ParseNextBootSAN(value string) (uint, bool) {
+	if !strings.HasPrefix(value, NextBootSANPrefix) {
+		return 0, false
+	}
+	id, err := strconv.ParseUint(strings.TrimPrefix(value, NextBootSANPrefix), 10, 32)
+	if err != nil || id == 0 {
+		return 0, false
+	}
+	return uint(id), true
+}
+
+func (t *SANTarget) ResolveInitiatorIQN(mac string) string {
+	return strings.ReplaceAll(t.InitiatorIQN, "{{MAC}}", strings.ReplaceAll(mac, ":", ""))
 }
 
 type SyncFile struct {
@@ -308,8 +413,39 @@ type Image struct {
 	SMBPatchFingerprint   string         `json:"smb_patch_fingerprint,omitempty"`
 	SMBNeedsRepatch       bool           `gorm:"-" json:"smb_needs_repatch"`
 	SMBUnpatchAvailable   bool           `gorm:"-" json:"smb_unpatch_available"`
+	Checksum              string         `json:"checksum,omitempty"`
+	ChecksumVerified      bool           `gorm:"default:false" json:"checksum_verified"`
+	ChecksumCheckedAt     *time.Time     `json:"checksum_checked_at,omitempty"`
+	CatalogueID           string         `json:"catalogue_id,omitempty"`
+	CatalogueRelease      string         `json:"catalogue_release,omitempty"`
+	UpdateAvailable       bool           `gorm:"default:false" json:"update_available"`
+	UpdateVersion         string         `json:"update_version,omitempty"`
+	UpdateFilename        string         `json:"update_filename,omitempty"`
+	UpdateURL             string         `json:"update_url,omitempty"`
+	WIMFiles              []WIMFile      `gorm:"serializer:json" json:"wim_files,omitempty"`
+	WIMPath               string         `json:"wim_path,omitempty"`
+	WIMIndex              int            `gorm:"default:0" json:"wim_index,omitempty"`
 
 	AutoInstallFile string `json:"auto_install_file,omitempty"`
+}
+
+type WIMFile struct {
+	Path string `json:"path"`
+	Size int64  `json:"size"`
+}
+
+const (
+	DistroWindows  = "windows"
+	DistroWindows7 = "windows7"
+	DistroWinPE    = "winpe"
+)
+
+func IsWindowsDistro(distro string) bool {
+	switch distro {
+	case DistroWindows, DistroWindows7, DistroWinPE:
+		return true
+	}
+	return false
 }
 
 type BootLog struct {
@@ -427,5 +563,8 @@ type BootTool struct {
 	BootMethod      string `json:"boot_method,omitempty"`            // "kernel", "memdisk", or "chain"
 	ArchiveType     string `json:"archive_type,omitempty"`           // "zip", "bin", or "iso"
 	DownloadURLBIOS string `json:"download_url_bios,omitempty"`      // optional BIOS variant URL (chain tools)
-	KernelPathBIOS  string `json:"kernel_path_bios,omitempty"`       // optional BIOS variant local path
+	DownloadedURL   string `json:"downloaded_url,omitempty"`
+	UpdateAvailable bool   `gorm:"default:false" json:"update_available"`
+	UpdateURL       string `json:"update_url,omitempty"`
+	KernelPathBIOS  string `json:"kernel_path_bios,omitempty"` // optional BIOS variant local path
 }

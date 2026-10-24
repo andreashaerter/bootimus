@@ -478,6 +478,18 @@
       "boot_method": "kernel"
     },
     {
+      "id": "winpe",
+      "display_name": "WinPE / Rescue Media",
+      "family": "windows",
+      "filename_patterns": ["winpe", "strelec", "activeboot", "active_boot", "active-boot", "hbcd", "hirens"],
+      "kernel_paths": [],
+      "initrd_paths": [],
+      "squashfs_paths": [],
+      "default_boot_params": "",
+      "auto_install_type": "",
+      "boot_method": "kernel"
+    },
+    {
       "id": "windows",
       "display_name": "Windows",
       "family": "windows",

@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +31,7 @@ import (
 	"bootimus/internal/bmc"
 	_ "bootimus/internal/bmc/amt"
 	_ "bootimus/internal/bmc/redfish"
+	"bootimus/internal/catalogue"
 	"bootimus/internal/housekeeping"
 	"bootimus/internal/imagescan"
 	"bootimus/internal/metrics"
@@ -41,6 +44,7 @@ import (
 	"bootimus/internal/scheduler"
 	"bootimus/internal/smb"
 	"bootimus/internal/storage"
+	"bootimus/internal/tlscert"
 	"bootimus/internal/tools"
 	"bootimus/internal/webhook"
 	"bootimus/internal/wol"
@@ -78,24 +82,25 @@ func panicRecoveryMiddleware(next http.Handler) http.Handler {
 }
 
 type Config struct {
-	TFTPPort         int
-	TFTPSinglePort   bool
-	TFTPBlockSize    int
-	HTTPPort         int
-	AdminPort        int
-	BootDir          string
-	DataDir          string
-	ISODir           string
-	ServerAddr       string
-	BindInterface    string
-	Storage          storage.Storage
-	Auth             *auth.Manager
-	NBDEnabled       bool
-	NBDPort          int
-	NFSEnabled       bool
-	NFSPort          int
-	WOLBroadcastAddr string
-	ProfileManager   *profiles.Manager
+	TFTPPort            int
+	TFTPSinglePort      bool
+	TFTPBlockSize       int
+	HTTPPort            int
+	AdminPort           int
+	BootDir             string
+	DataDir             string
+	ISODir              string
+	ServerAddr          string
+	BindInterface       string
+	Storage             storage.Storage
+	Auth                *auth.Manager
+	NBDEnabled          bool
+	NBDPort             int
+	NFSEnabled          bool
+	InstallTimeoutHours int
+	NFSPort             int
+	WOLBroadcastAddr    string
+	ProfileManager      *profiles.Manager
 
 	ProxyDHCPEnabled          bool
 	ProxyDHCPBootfileBIOS     string
@@ -106,12 +111,42 @@ type Config struct {
 
 	WindowsSMBEnabled bool
 	WindowsSMBPort    int
+
+	AdminTLS AdminTLSConfig
+}
+
+type AdminTLSConfig struct {
+	Enabled      bool
+	CertFile     string
+	KeyFile      string
+	SelfSigned   bool
+	RedirectPort int
+}
+
+func (c AdminTLSConfig) Validate() error {
+	if !c.Enabled {
+		return nil
+	}
+	if (c.CertFile == "") != (c.KeyFile == "") {
+		return fmt.Errorf("admin TLS needs both a certificate file and a key file, or neither for a self-signed certificate")
+	}
+	if c.RedirectPort < 0 || c.RedirectPort > 65535 {
+		return fmt.Errorf("admin TLS redirect port %d is out of range", c.RedirectPort)
+	}
+	return nil
+}
+
+func (c AdminTLSConfig) usesSelfSigned() bool {
+	return c.Enabled && (c.SelfSigned || c.CertFile == "")
 }
 
 type Server struct {
 	config                *Config
 	httpServer            *http.Server
 	adminServer           *http.Server
+	adminRedirectServer   *http.Server
+	adminTLS              *tlscert.Reloader
+	adminTLSMode          string
 	tftpServer            *tftp.Server
 	proxyDHCPServer       *proxydhcp.Server
 	proxyDHCPRecorder     *proxydhcp.Recorder
@@ -119,12 +154,18 @@ type Server struct {
 	webhookNotifier       *webhook.Notifier
 	scheduler             *scheduler.Scheduler
 	housekeeping          *housekeeping.Runner
+	catalogue             *catalogue.Checker
 	bootLogDedup          map[string]time.Time
 	bootLogDedupMu        sync.Mutex
+	installSweepStop      chan struct{}
+	installSweepOnce      sync.Once
+	installSweepWG        sync.WaitGroup
 	wg                    sync.WaitGroup
 	activeSessions        *ActiveSessions
 	logBroadcaster        *LogBroadcaster
 	audit                 *auditRecorder
+	consoles              consoleSessions
+	openConsole           func(ctx context.Context, t bmc.Target) (bmc.Console, error)
 	activeBootloaderSet   string // name of active set folder, empty = built-in
 	activeBootloaderSetMu sync.RWMutex
 	toolsManager          *tools.Manager
@@ -330,6 +371,8 @@ func New(cfg *Config) *Server {
 	s.scheduler = scheduler.New(cfg.Storage, s.executeScheduledTask)
 	if cfg.Storage != nil {
 		s.housekeeping = housekeeping.New(cfg.Storage)
+		s.catalogue = catalogue.NewChecker(cfg.Storage, tm.DisableRemoteCheck)
+		s.housekeeping.Register(s.catalogue)
 	}
 	s.loadBootloaderConfig()
 	return s
@@ -734,6 +777,8 @@ func (s *Server) Start() error {
 		s.housekeeping.Start()
 	}
 
+	s.startInstallSweeper()
+
 	if s.config.ProxyDHCPEnabled {
 		pd, err := proxydhcp.NewServer(proxydhcp.Config{
 			ServerIP:         net.ParseIP(s.config.ServerAddr),
@@ -814,6 +859,14 @@ func (s *Server) Shutdown() error {
 		}
 	}
 
+	if s.adminRedirectServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+		if err := s.adminRedirectServer.Shutdown(ctx); err != nil {
+			log.Printf("Admin redirect server shutdown error: %v", err)
+		}
+	}
+
 	if s.tftpServer != nil {
 		s.tftpServer.Shutdown()
 		log.Println("TFTP server stopped")
@@ -836,6 +889,8 @@ func (s *Server) Shutdown() error {
 		s.housekeeping.Stop()
 		log.Println("Housekeeping stopped")
 	}
+
+	s.stopInstallSweeper()
 
 	if s.smbManager != nil {
 		s.smbManager.Stop()
@@ -1272,6 +1327,7 @@ func (s *Server) startHTTPServer() error {
 	mux.HandleFunc("/api/isos", s.handleListISOs)
 
 	mux.HandleFunc("/autoinstall/", s.handleAutoInstallScript)
+	mux.HandleFunc("/install/callback", s.handleInstallCallback)
 
 	mux.HandleFunc("/machineconfig", s.handleMachineConfig)
 
@@ -1314,8 +1370,102 @@ func (s *Server) startHTTPServer() error {
 	return nil
 }
 
+func (s *Server) prepareAdminTLS() error {
+	cfg := s.config.AdminTLS
+	if !cfg.Enabled {
+		return nil
+	}
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	var load func() (tls.Certificate, error)
+	if cfg.usesSelfSigned() {
+		dir := filepath.Join(s.config.DataDir, "tls")
+		hosts := []string{s.config.ServerAddr}
+		load = func() (tls.Certificate, error) {
+			cert, created, err := tlscert.LoadOrCreateSelfSigned(dir, hosts)
+			if created {
+				log.Printf("Admin TLS: generated a self-signed certificate in %s", dir)
+			}
+			return cert, err
+		}
+		s.adminTLSMode = "self-signed"
+	} else {
+		certFile, keyFile := cfg.CertFile, cfg.KeyFile
+		load = func() (tls.Certificate, error) { return tlscert.Load(certFile, keyFile) }
+		s.adminTLSMode = "certificate"
+	}
+	reloader, err := tlscert.NewReloader(load)
+	if err != nil {
+		return err
+	}
+	s.adminTLS = reloader
+	log.Printf("Admin TLS: enabled (%s), SHA-256 fingerprint %s", s.adminTLSMode, tlscert.Fingerprint(reloader.Certificate()))
+	return nil
+}
+
+func (s *Server) ReloadTLS() error {
+	if s.adminTLS == nil {
+		return nil
+	}
+	if err := s.adminTLS.Reload(); err != nil {
+		return err
+	}
+	log.Printf("Admin TLS: certificate reloaded, SHA-256 fingerprint %s", tlscert.Fingerprint(s.adminTLS.Certificate()))
+	return nil
+}
+
+func (s *Server) AdminTLSStatus() string {
+	if s.adminTLS == nil {
+		return "Disabled (plain HTTP)"
+	}
+	return fmt.Sprintf("Enabled (%s, SHA-256 %s)", s.adminTLSMode, tlscert.Fingerprint(s.adminTLS.Certificate()))
+}
+
+func (s *Server) AdminTLSEnabled() bool {
+	return s.adminTLS != nil
+}
+
+func httpsRedirectHandler(httpsPort int) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		target := url.URL{Scheme: "https", Host: net.JoinHostPort(host, strconv.Itoa(httpsPort)), Path: r.URL.Path, RawQuery: r.URL.RawQuery}
+		http.Redirect(w, r, target.String(), http.StatusMovedPermanently)
+	})
+}
+
+func (s *Server) startAdminRedirectServer() {
+	port := s.config.AdminTLS.RedirectPort
+	if s.adminTLS == nil || port == 0 {
+		return
+	}
+	addr := fmt.Sprintf(":%d", port)
+	s.adminRedirectServer = &http.Server{Addr: addr, Handler: httpsRedirectHandler(s.config.AdminPort)}
+	ln, err := netbind.Listen(s.config.BindInterface, "tcp", addr)
+	if err != nil {
+		log.Printf("Admin TLS: redirect listener on port %d failed: %v", port, err)
+		return
+	}
+	log.Printf("Admin TLS: redirecting plain HTTP on port %d to HTTPS", port)
+	go func() {
+		if err := s.adminRedirectServer.Serve(ln); err != nil && err != http.ErrServerClosed {
+			log.Printf("Admin TLS: redirect server error: %v", err)
+		}
+	}()
+}
+
 func (s *Server) startAdminServer() error {
-	log.Printf("Starting Admin server on port %d...", s.config.AdminPort)
+	if err := s.prepareAdminTLS(); err != nil {
+		return fmt.Errorf("Admin TLS: %w", err)
+	}
+	if s.adminTLS != nil {
+		log.Printf("Starting Admin server on port %d (HTTPS)...", s.config.AdminPort)
+	} else {
+		log.Printf("Starting Admin server on port %d...", s.config.AdminPort)
+	}
 
 	mux := http.NewServeMux()
 
@@ -1339,6 +1489,14 @@ func (s *Server) startAdminServer() error {
 	if err != nil {
 		return fmt.Errorf("Admin server failed: %w", err)
 	}
+	if s.adminTLS != nil {
+		s.adminServer.TLSConfig = s.adminTLS.Config()
+		s.startAdminRedirectServer()
+		if err := s.adminServer.ServeTLS(ln, "", ""); err != nil && err != http.ErrServerClosed {
+			return fmt.Errorf("Admin server failed: %w", err)
+		}
+		return nil
+	}
 	if err := s.adminServer.Serve(ln); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("Admin server failed: %w", err)
 	}
@@ -1350,12 +1508,14 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	log.Println("Setting up admin interface")
 
 	adminHandler := admin.NewHandler(s.config.Storage, s.config.DataDir, s.config.ISODir, s.config.BootDir, Version, s, s.toolsManager, s.config.WOLBroadcastAddr, s.config.ProfileManager, s.config.ProxyDHCPEnabled, s.config.HTTPPort, s.config.ServerAddr, s.config.WindowsSMBPort, s.smbManager, s.config.WindowsSMBEnabled, s.autoInstallLib)
+	adminHandler.AdminTLSStatus = s.AdminTLSStatus
 	if s.scheduler != nil {
 		adminHandler.SchedulerReload = s.scheduler.Reload
 		adminHandler.SchedulerRunNow = s.scheduler.RunNow
 	}
 	adminHandler.WebhookNotifier = s.webhookNotifier
 	adminHandler.Housekeeping = s.housekeeping
+	adminHandler.Catalogue = s.catalogue
 
 	staticFS, err := fs.Sub(web.Static, "static")
 	if err != nil {
@@ -1501,6 +1661,8 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/clients/promote", adminWrap(adminHandler.PromoteClient))
 	mux.HandleFunc("/api/clients/inventory", readWrap(adminHandler.GetClientInventory))
 	mux.HandleFunc("/api/clients/inventory/history", readWrap(adminHandler.GetClientInventoryHistory))
+	mux.HandleFunc("/api/clients/installs", readWrap(s.handleClientInstalls))
+	mux.HandleFunc("/api/installs", readWrap(s.handleRecentInstalls))
 
 	mux.HandleFunc("/api/bootloaders", readWrap(adminHandler.ListBootloaders))
 	mux.HandleFunc("/api/bootloaders/create", adminWrap(adminHandler.CreateBootloaderSet))
@@ -1537,6 +1699,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/profiles/update", adminWrap(adminHandler.UpdateDistroProfiles))
 	mux.HandleFunc("/api/iso-catalog", readWrap(adminHandler.GetISOCatalogue))
 	mux.HandleFunc("/api/images/boot-method", adminWrap(adminHandler.SetBootMethod))
+	mux.HandleFunc("/api/images/winpe", adminWrap(adminHandler.SetWinPEWIM))
 
 	mux.HandleFunc("/api/active-sessions", readWrap(s.handleActiveSessions))
 
@@ -1545,6 +1708,21 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/proxydhcp/events", readWrap(s.handleProxyDHCPEvents))
 	mux.HandleFunc("/api/proxydhcp/stream", readWrap(s.handleProxyDHCPStream))
 	mux.HandleFunc("/api/proxydhcp/events/clear", adminWrap(s.handleProxyDHCPEventsClear))
+
+	selfService := func(handler func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if s.config.Auth == nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte(`{"success":false,"error":"Authentication is disabled on this server"}`))
+				return
+			}
+			handler(w, r)
+		}
+	}
+	mux.HandleFunc("/api/me/totp/setup", selfService(func(w http.ResponseWriter, r *http.Request) { s.config.Auth.HandleTOTPSetup(w, r) }))
+	mux.HandleFunc("/api/me/totp/enable", selfService(func(w http.ResponseWriter, r *http.Request) { s.config.Auth.HandleTOTPEnable(w, r) }))
+	mux.HandleFunc("/api/me/totp/disable", selfService(func(w http.ResponseWriter, r *http.Request) { s.config.Auth.HandleTOTPDisable(w, r) }))
 
 	mux.HandleFunc("/api/users", adminWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -1561,8 +1739,11 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 		}
 	}))
 	mux.HandleFunc("/api/users/reset-password", adminWrap(adminHandler.ResetUserPassword))
+	mux.HandleFunc("/api/tokens", adminWrap(adminHandler.APITokens))
+	mux.HandleFunc("/api/users/totp/reset", adminWrap(adminHandler.ResetUserTOTP))
 
 	mux.HandleFunc("/api/images/download", adminWrap(adminHandler.DownloadISO))
+	mux.HandleFunc("/api/images/verify", adminWrap(adminHandler.VerifyImage))
 	mux.HandleFunc("/api/downloads", readWrap(adminHandler.ListDownloads))
 	mux.HandleFunc("/api/downloads/progress", readWrap(adminHandler.GetDownloadProgress))
 
@@ -1648,6 +1829,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 		}
 	}))
 	mux.HandleFunc("/api/housekeeping/run", adminWrap(adminHandler.RunHousekeeping))
+	mux.HandleFunc("/api/catalogue/check", adminWrap(adminHandler.CheckCatalogue))
 
 	mux.HandleFunc("/api/client-groups", readWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -1684,6 +1866,8 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/clients/power", adminWrap(adminHandler.PowerClient))
 	mux.HandleFunc("/api/clients/power/status", readWrap(adminHandler.PowerStatusClient))
 	mux.HandleFunc("/api/clients/menu-preview", readWrap(s.handleMenuPreview))
+	mux.HandleFunc("/api/clients/console", s.handleClientConsole)
+	mux.HandleFunc("/api/san-targets", readWrap(adminHandler.SANTargets))
 
 	mux.HandleFunc("/api/theme", readWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -1925,10 +2109,12 @@ func (s *Server) recordBootIfNew(mac, path, remoteAddr string) {
 	s.bootLogDedupMu.Unlock()
 
 	imageName := imageDir
+	var bootImage *models.Image
 	if images, err := s.config.Storage.ListImages(); err == nil {
 		for _, img := range images {
 			if strings.TrimSuffix(img.Filename, filepath.Ext(img.Filename)) == imageDir {
 				imageName = img.Name
+				bootImage = img
 				break
 			}
 		}
@@ -1942,8 +2128,13 @@ func (s *Server) recordBootIfNew(mac, path, remoteAddr string) {
 		s.config.Storage.UpdateImageBootStats(imageName)
 	}()
 	clientName := ""
+	var bootClient *models.Client
 	if c, err := s.config.Storage.GetClient(mac); err == nil {
 		clientName = c.Name
+		bootClient = c
+	}
+	if bootImage != nil {
+		s.noteImageBoot(mac, bootImage, bootClient)
 	}
 	ip := remoteAddr
 	if i := strings.LastIndex(ip, ":"); i > 0 {
@@ -2059,6 +2250,7 @@ func (s *Server) renderBootMenu(macAddress, remoteAddr string, commit bool) boot
 	result := bootMenuRender{MAC: macAddress, Kind: "menu"}
 
 	var nextBootImageID uint
+	var nextBootSANID uint
 	if s.config.Storage != nil {
 		client, err := s.config.Storage.GetClient(macAddress)
 		if err == nil {
@@ -2090,16 +2282,29 @@ func (s *Server) renderBootMenu(macAddress, remoteAddr string, commit bool) boot
 			}
 		}
 		if err == nil && client.NextBootImage != "" {
-			img, imgErr := s.config.Storage.GetImage(client.NextBootImage)
-			if imgErr == nil && img.Enabled {
-				if commit {
-					s.logAndBroadcast("Client %s: next boot action set - pre-selecting %s", macAddress, img.Name)
+			if sanID, ok := models.ParseNextBootSAN(client.NextBootImage); ok {
+				if target, tErr := s.config.Storage.GetSANTarget(sanID); tErr == nil {
+					if commit {
+						s.logAndBroadcast("Client %s: next boot action set - booting from SAN target %s", macAddress, target.Name)
+					}
+					nextBootSANID = sanID
+					result.NextBootImage = "SAN: " + target.Name
 				}
-				nextBootImageID = img.ID
-				result.NextBootImage = img.Name
-			}
-			if commit {
-				s.config.Storage.ClearNextBootImage(macAddress)
+				if commit {
+					s.config.Storage.ClearNextBootImage(macAddress)
+				}
+			} else {
+				img, imgErr := s.config.Storage.GetImage(client.NextBootImage)
+				if imgErr == nil && img.Enabled {
+					if commit {
+						s.logAndBroadcast("Client %s: next boot action set - pre-selecting %s", macAddress, img.Name)
+					}
+					nextBootImageID = img.ID
+					result.NextBootImage = img.Name
+				}
+				if commit {
+					s.config.Storage.ClearNextBootImage(macAddress)
+				}
 			}
 		}
 	}
@@ -2119,7 +2324,7 @@ func (s *Server) renderBootMenu(macAddress, remoteAddr string, commit bool) boot
 		images = convertISOsToImages(isos)
 	}
 
-	result.Script = s.generateIPXEMenuWithGroups(images, macAddress, nextBootImageID)
+	result.Script = s.generateIPXEMenuFor(images, macAddress, nextBootImageID, nextBootSANID)
 	return result
 }
 
@@ -2339,7 +2544,10 @@ func (s *Server) handleAutoInstallScript(w http.ResponseWriter, r *http.Request)
 	if i := strings.LastIndex(clientIP, ":"); i > 0 {
 		clientIP = clientIP[:i]
 	}
+	installToken := s.noteAutoInstallFetch(mac, image)
 	substitutions := map[string]string{
+		"{{CALLBACK_URL}}":   s.installCallbackURL(installToken),
+		"{{INSTALL_TOKEN}}":  installToken,
 		"{{MAC}}":            mac,
 		"{{CLIENT_NAME}}":    clientName,
 		"{{HOSTNAME}}":       clientName,

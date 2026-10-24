@@ -5,8 +5,10 @@ Complete guide for managing ISO images, extracting boot files, and handling spec
 ##  Table of Contents
 
 - [Adding Images](#adding-images)
+- [Checksums and Update Notifications](#checksums-and-update-notifications)
 - [Unified Kernel Images (UKI)](#unified-kernel-images-uki)
 - [OpenBSD and NetBSD](#openbsd-and-netbsd)
+- [WinPE and Rescue Media](#winpe-and-rescue-media)
 - [Kernel Extraction](#kernel-extraction)
 - [Netboot Support](#netboot-support)
 - [Ubuntu Desktop Optimisation](#ubuntu-desktop-optimisation)
@@ -62,6 +64,21 @@ curl -u admin:password -X POST http://localhost:8081/api/images/download \
 ```bash
 curl -u admin:password http://localhost:8081/api/downloads/progress?filename=ubuntu-24.04-live-server-amd64.iso
 ```
+
+### Checksums and Update Notifications
+
+**Verification on download.** When an ISO is fetched through **Get Images** (the built-in catalogue), Bootimus looks for a published checksum file next to it (`SHA256SUMS`, `sha256sum.txt` and similar) and hashes the download as it streams. A mismatch fails the download and removes the file, so a truncated or tampered image never reaches the boot menu. Downloads from a plain URL can be verified too by passing a `sha256` or a `checksum_url` to `/api/images/download`:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/images/download \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://releases.ubuntu.com/24.04.4/ubuntu-24.04.4-live-server-amd64.iso",
+       "checksum_url": "https://releases.ubuntu.com/24.04.4/SHA256SUMS"}'
+```
+
+Verified images show a **✓ Verified** badge in the image list and the recorded SHA-256 in the image properties panel. Images downloaded without a published checksum, or uploaded by hand, are marked **Unverified**; paste a SHA-256 or the URL of a checksum file into the properties panel and press **Verify** to hash the file in the background (`POST /api/images/verify?filename=…`, poll the same URL with `GET`).
+
+**Newer releases.** Once a day (and on **Settings → Housekeeping → Check now**, or `POST /api/catalogue/check`) Bootimus compares installed images with the catalogue. An image downloaded from the catalogue is matched by its distribution and release line, so `ubuntu-24.04.3-desktop-amd64.iso` is flagged when `24.04.4` appears; images added before this feature are matched by filename shape. Flagged images carry an **Update available** badge and a **Download newer version** button in the properties panel, tools show the same badge with **Download newer**, and the dashboard counts outstanding updates. The check uses the online catalogue when remote profile updates are allowed and falls back to the catalogue built into the binary when `--disable-remote-profiles` is set. Untick **Check the catalogue daily** under Housekeeping to turn it off.
 
 ### Organise with Folders
 
@@ -130,6 +147,28 @@ OpenBSD and NetBSD do not boot from a Linux-style kernel and initrd. Each ships 
 - NetBSD's `pxeboot_ia32.bin` performs its own DHCP exchange after it loads and reads the DHCP `filename` field to decide between NFS and TFTP. Without a `tftp:` prefix there it defaults to NFS, which Bootimus does not provide for this purpose. If the loader reports that it cannot open `boot.cfg` or the kernel, type `boot tftp:bsd/<image>/netbsd-INSTALL.gz` at its prompt, or give NetBSD clients `filename "tftp:boot.cfg";` on your DHCP server. OpenBSD's loaders always use TFTP and need no such step.
 - The per-client association is keyed by IP address, so two clients behind the same NAT address booting different BSD images within 15 minutes would receive the same configuration.
 - Autoinstall for the BSD installers is not wired up yet. The installers can still fetch sets from the extracted ISO tree over HTTP.
+
+## WinPE and Rescue Media
+
+Bootimus boots Windows installers through [wimboot](https://ipxe.org/wimboot), and the same path now covers WinPE-based rescue media such as Sergei Strelec's WinPE, Active@ Boot Disk and Hiren's BootCD PE.
+
+**Supported layouts**: any ISO that carries a `BCD` (under `boot/` or `efi/microsoft/boot/`), `boot/boot.sdi` and at least one `.wim` file. Installer media also has `sources/install.wim` or `install.esd`; media without one is classified as the **WinPE / Rescue Media** profile (`winpe`) instead of **Windows**, so no auto-install or SMB handling is applied to it. WIM files anywhere in the first four directory levels are found, so Strelec's `SSTR/*.wim` and similar layouts work without renaming anything.
+
+**Choosing the WIM**: after extraction, the image properties panel lists every WIM found with its size. Pick the one wimboot should load and, when a WIM holds several images, the image index. The index is only added to the wimboot line when it is greater than one, and an explicit `index=` in the boot parameters takes precedence. The same can be set through the API:
+
+```bash
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"wim_path":"SSTR/strelec10x64Eng.wim","wim_index":1}' \
+  "http://localhost:8081/api/images/winpe?filename=WinPE_Strelec.iso"
+```
+
+**How it boots**: only the selected WIM is sent to the client; wimboot synthesises the BCD and `boot.sdi` itself, which avoids the black screen some media produce when the DVD BCD is used. Boot parameters are limited to wimboot's own options (`rawbcd`, `rawwim`, `gui`, `linear`, `quiet`, `pause`, `index`, `initrdfile`), exactly as for Windows installers.
+
+**Limitations**:
+
+- Programs that the rescue environment expects to find on its own boot media (for example Strelec's `SSTR` folder of portable tools) are not inside the WIM, so they are missing after a PXE boot unless the environment can fetch them over the network itself. The core WinPE desktop and the tools built into the WIM work.
+- Media that needs its own BCD entries (custom `bootmgr` menus, multi-WIM chooser menus) boots straight into the chosen WIM instead of showing that menu.
+- Bare `.wim` files cannot be uploaded on their own yet; put them on an ISO with a `BCD` and `boot.sdi`, or use a complete rescue ISO.
 
 ## Kernel Extraction
 

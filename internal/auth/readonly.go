@@ -9,8 +9,10 @@ import (
 )
 
 var viewerRedactedFields = map[string]bool{
-	"ipmi_password": true,
-	"config_patch":  true,
+	"ipmi_password":         true,
+	"config_patch":          true,
+	"chap_password":         true,
+	"reverse_chap_password": true,
 }
 
 func (m *Manager) ReadMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -45,13 +47,25 @@ func (m *Manager) HandleMe(w http.ResponseWriter, r *http.Request) {
 	if claims.IsAdmin {
 		role = "admin"
 	}
+	principal := "user"
+	source := ""
+	totpEnabled := false
+	if IsTokenPrincipal(claims.Username) {
+		principal = "token"
+	} else if user, err := m.userStore.GetUser(claims.Username); err == nil {
+		source = user.AuthSource()
+		totpEnabled = user.TOTPEnabled
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"data": map[string]interface{}{
-			"username": claims.Username,
-			"is_admin": claims.IsAdmin,
-			"role":     role,
+			"username":     claims.Username,
+			"is_admin":     claims.IsAdmin,
+			"role":         role,
+			"principal":    principal,
+			"source":       source,
+			"totp_enabled": totpEnabled,
 		},
 	})
 }

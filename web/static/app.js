@@ -121,13 +121,16 @@ async function handleLogin(e) {
     const username = document.getElementById('login-username').value;
     const password = document.getElementById('login-password').value;
     const authMethod = document.getElementById('login-auth-method').value || 'local';
+    const totpGroup = document.getElementById('login-totp-group');
+    const codeInput = document.getElementById('login-totp-code');
+    const code = totpGroup.style.display !== 'none' ? codeInput.value.trim() : '';
     const errorDiv = document.getElementById('login-error');
 
     try {
         const res = await fetch(`${API_BASE}/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password, auth_method: authMethod })
+            body: JSON.stringify({ username, password, auth_method: authMethod, code })
         });
         const data = await res.json();
 
@@ -135,11 +138,19 @@ async function handleLogin(e) {
             setToken(data.data.token);
             localStorage.setItem('bootimus_username', data.data.username);
             localStorage.setItem('bootimus_is_admin', data.data.is_admin);
+            totpGroup.style.display = 'none';
+            codeInput.value = '';
             showApp();
             initApp();
+        } else if (data.totp_required) {
+            totpGroup.style.display = 'block';
+            errorDiv.textContent = data.message || 'Enter your two-factor code';
+            errorDiv.style.display = 'block';
+            codeInput.focus();
         } else {
             errorDiv.textContent = data.error || 'Login failed';
             errorDiv.style.display = 'block';
+            if (totpGroup.style.display !== 'none') codeInput.select();
         }
     } catch (err) {
         errorDiv.textContent = 'Connection error';
@@ -151,6 +162,7 @@ function logout() {
     clearToken();
     showLoginScreen();
     document.getElementById('login-form').reset();
+    document.getElementById('login-totp-group').style.display = 'none';
 }
 
 async function checkAuth() {
@@ -235,6 +247,7 @@ function openModal(modalId) {
 function closeModal(modalId) {
     document.getElementById(modalId).classList.remove('active');
     if (modalId === 'get-images-modal' && typeof clearGetISOPolling === 'function') clearGetISOPolling();
+    if (modalId === 'console-modal') disconnectClientConsole();
 }
 
 function injectModalCloseButtons() {
@@ -407,7 +420,8 @@ function initApp() {
     loadImages();
     loadPublicFiles();
     loadLogs();
-    if (!isReadOnly()) loadUsers();
+    if (!isReadOnly()) { loadUsers(); loadAPITokens(); }
+    loadTOTPStatus();
     loadActiveSessions();
 
     // Refresh every 30 seconds
@@ -494,6 +508,8 @@ async function loadStats() {
             document.getElementById('stat-images').textContent = data.data.total_images;
             document.getElementById('stat-enabled-images').textContent = data.data.enabled_images;
             document.getElementById('stat-boots').textContent = data.data.total_boots;
+            const updates = document.getElementById('stat-updates');
+            if (updates) updates.textContent = data.data.updates_available ?? 0;
         }
     } catch (err) {
         console.error('Failed to load stats:', err);
@@ -612,6 +628,103 @@ async function powerClient(action) {
         result.style.color = 'var(--danger)';
     }
 }
+
+let consoleSocket = null;
+let consoleTerm = null;
+let consoleFit = null;
+
+function consoleSetStatus(text, colour) {
+    const el = document.getElementById('console-status');
+    if (!el) return;
+    el.textContent = text;
+    el.style.color = colour || 'var(--text-secondary)';
+}
+
+function openClientConsole(mac) {
+    if (!mac) {
+        const form = document.getElementById('edit-client-form');
+        mac = form ? form.querySelector('[name="mac_address"]').value : '';
+    }
+    if (!mac) return;
+    disconnectClientConsole();
+    document.getElementById('console-title').textContent = mac;
+    showModal('console-modal');
+
+    const host = document.getElementById('console-terminal');
+    host.innerHTML = '';
+    consoleTerm = new Terminal({
+        cursorBlink: true,
+        fontSize: 13,
+        fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+        theme: { background: '#000000' },
+    });
+    consoleFit = new FitAddon.FitAddon();
+    consoleTerm.loadAddon(consoleFit);
+    consoleTerm.open(host);
+    consoleFit.fit();
+
+    const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const url = `${scheme}://${window.location.host}${API_BASE}/clients/console?mac=${encodeURIComponent(mac)}`;
+    const token = getToken();
+    const socket = token ? new WebSocket(url, ['bearer', token]) : new WebSocket(url);
+    socket.binaryType = 'arraybuffer';
+    consoleSocket = socket;
+    consoleSetStatus('Connecting…');
+
+    const encoder = new TextEncoder();
+    socket.onopen = () => {
+        consoleSetStatus('Opening console…');
+        socket.send(JSON.stringify({ type: 'resize', cols: consoleTerm.cols, rows: consoleTerm.rows }));
+    };
+    socket.onmessage = (ev) => {
+        if (!consoleTerm) return;
+        if (typeof ev.data === 'string') {
+            let msg = null;
+            try { msg = JSON.parse(ev.data); } catch (_) { }
+            if (!msg || !msg.type) {
+                consoleTerm.write(ev.data);
+                return;
+            }
+            const failed = msg.type === 'error' || msg.type === 'closed';
+            consoleSetStatus(msg.message || msg.type, failed ? 'var(--danger)' : 'var(--teal, green)');
+            if (failed) consoleTerm.writeln(`\r\n[${msg.message || msg.type}]`);
+            return;
+        }
+        consoleTerm.write(new Uint8Array(ev.data));
+    };
+    socket.onclose = () => {
+        if (consoleSocket === socket) {
+            consoleSocket = null;
+            const status = document.getElementById('console-status');
+            if (status && !status.textContent.startsWith('Console closed') && !status.textContent.startsWith('Intel') && status.style.color !== 'var(--danger)') {
+                consoleSetStatus('Disconnected');
+            }
+        }
+    };
+    socket.onerror = () => consoleSetStatus('Connection error', 'var(--danger)');
+    consoleTerm.onData((data) => {
+        if (socket.readyState === WebSocket.OPEN) socket.send(encoder.encode(data));
+    });
+    consoleTerm.focus();
+}
+
+function disconnectClientConsole() {
+    if (consoleSocket) {
+        const socket = consoleSocket;
+        consoleSocket = null;
+        socket.close();
+        consoleSetStatus('Disconnected');
+    }
+    if (consoleTerm) {
+        consoleTerm.dispose();
+        consoleTerm = null;
+        consoleFit = null;
+    }
+}
+
+window.addEventListener('resize', () => {
+    if (consoleFit) consoleFit.fit();
+});
 
 function updateBMCPortPlaceholder(select) {
     const port = select.form.querySelector('[name="ipmi_port"]');
@@ -798,6 +911,7 @@ async function loadWebhookConfig() {
         document.getElementById('webhook-on-client-discovered').checked = !!c.on_client_discovered;
         document.getElementById('webhook-on-inventory-updated').checked = !!c.on_inventory_updated;
         document.getElementById('webhook-on-admin-action').checked = !!c.on_admin_action;
+        document.getElementById('webhook-on-install').checked = !!c.on_install;
     } catch (err) {
         console.error('Failed to load webhook config:', err);
     }
@@ -812,6 +926,7 @@ async function saveWebhookConfig(e) {
         on_client_discovered: document.getElementById('webhook-on-client-discovered').checked,
         on_inventory_updated: document.getElementById('webhook-on-inventory-updated').checked,
         on_admin_action: document.getElementById('webhook-on-admin-action').checked,
+        on_install: document.getElementById('webhook-on-install').checked,
     };
     try {
         const res = await authFetch(`${API_BASE}/webhook`, {
@@ -847,6 +962,7 @@ const HOUSEKEEPING_TASK_LABELS = {
     inventory_history: 'Inventory history',
     discovered_clients: 'Discovered clients',
     audit_logs: 'Audit log',
+    catalogue_check: 'Catalogue check',
 };
 
 function renderHousekeeping(view) {
@@ -855,6 +971,7 @@ function renderHousekeeping(view) {
     document.getElementById('housekeeping-inventory-days').value = settings.inventory_history_days ?? 0;
     document.getElementById('housekeeping-discovered-days').value = settings.discovered_client_days ?? 0;
     document.getElementById('housekeeping-audit-days').value = settings.audit_log_days ?? 0;
+    document.getElementById('housekeeping-catalogue-check').checked = !settings.catalogue_check_off;
 
     const lastRun = document.getElementById('housekeeping-last-run');
     if (settings.last_run) {
@@ -874,6 +991,7 @@ function renderHousekeeping(view) {
             let result;
             if (t.error) result = `<span style="color: var(--danger);">${escapeHtml(t.error)}</span>`;
             else if (t.skipped) result = '<span style="color: var(--text-muted);">Disabled</span>';
+            else if (t.name === 'catalogue_check') result = `${t.affected} update${t.affected === 1 ? '' : 's'} available`;
             else result = `${t.affected} removed`;
             html += `<tr><td>${escapeHtml(label)}</td><td>${result}</td></tr>`;
         }
@@ -898,6 +1016,36 @@ function renderHousekeeping(view) {
     }
 }
 
+async function checkCatalogueNow() {
+    const btn = document.getElementById('catalogue-check-btn');
+    const out = document.getElementById('catalogue-check-result');
+    btn.disabled = true;
+    out.textContent = 'Checking the catalogue…';
+    try {
+        const res = await authFetch(`${API_BASE}/catalogue/check`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.success) {
+            out.innerHTML = `<span style="color: var(--danger);">${escapeHtml(data.error || 'Check failed')}</span>`;
+            return;
+        }
+        const r = data.data;
+        const parts = [];
+        for (const i of (r.images || [])) parts.push(`${escapeHtml(i.name)} → ${escapeHtml(i.version || i.filename)}`);
+        for (const t of (r.tools || [])) parts.push(`${escapeHtml(t.display_name || t.name)} (tool)`);
+        const source = r.remote ? 'online catalogue' : 'built-in catalogue';
+        out.innerHTML = parts.length
+            ? `${parts.length} update${parts.length === 1 ? '' : 's'} available (${source}): ${parts.join(', ')}`
+            : `Everything is current against the ${source}.`;
+        loadImages();
+        loadTools();
+        loadStats();
+    } catch (err) {
+        out.innerHTML = `<span style="color: var(--danger);">Check failed: ${escapeHtml(err.message)}</span>`;
+    } finally {
+        btn.disabled = false;
+    }
+}
+
 async function loadHousekeeping() {
     if (!document.getElementById('housekeeping-form')) return;
     try {
@@ -916,6 +1064,7 @@ async function saveHousekeeping(e) {
         inventory_history_days: parseInt(document.getElementById('housekeeping-inventory-days').value, 10) || 0,
         discovered_client_days: parseInt(document.getElementById('housekeeping-discovered-days').value, 10) || 0,
         audit_log_days: parseInt(document.getElementById('housekeeping-audit-days').value, 10) || 0,
+        catalogue_check_off: !document.getElementById('housekeeping-catalogue-check').checked,
     };
     try {
         const res = await authFetch(`${API_BASE}/housekeeping`, {
@@ -1042,7 +1191,7 @@ async function cancelRestore() {
 function downloadISOFromProperties() {
     const filename = document.getElementById('image-props-filename').value;
     if (!filename) return;
-    const url = `${window.location.protocol}//${window.location.hostname}:${cachedHTTPPort}/isos/${encodeURIComponent(filename)}`;
+    const url = `http://${window.location.hostname}:${cachedHTTPPort}/isos/${encodeURIComponent(filename)}`;
     const a = document.createElement('a');
     a.href = url;
     a.download = filename;
@@ -1440,12 +1589,14 @@ function clientRowHTML(client, includeGroupCell) {
                         <td>${client.boot_count || 0}</td>
                         <td>
                             ${client.last_boot ? new Date(client.last_boot).toLocaleString() : 'Never'}
-                            ${client.next_boot_image ? '<br><span class="badge badge-info" title="' + escapeHtml(client.next_boot_image) + '">Next: ' + escapeHtml(client.next_boot_image) + '</span>' : ''}
+                            ${client.next_boot_image ? '<br><span class="badge badge-info" title="' + escapeHtml(client.next_boot_image) + '">Next: ' + escapeHtml(nextBootLabel(client.next_boot_image)) + '</span>' : ''}
                         </td>
+                        <td>${installStateBadge(client)}</td>
                         <td onclick="event.stopPropagation()">
                             ${!client.static ? '<button class="btn btn-success btn-sm" onclick="promoteClient(\'' + client.mac_address + '\')">Make Static</button>' : ''}
                             <button class="btn btn-success btn-sm" onclick="wakeClient('${client.mac_address}')">Wake</button>
                             <button class="btn btn-primary btn-sm" onclick="showNextBoot('${client.mac_address}')">Next Boot</button>
+                            ${client.ipmi_host ? '<button class="btn btn-sm" onclick="openClientConsole(\'' + client.mac_address + '\')">Console</button>' : ''}
                             <button class="btn btn-sm" onclick="previewBootMenu('${client.mac_address}')">Preview Menu</button>
                         </td>
                     </tr>`;
@@ -1470,7 +1621,7 @@ function renderClientsTable() {
     let colspan;
 
     if (!clientGroupedView) {
-        colspan = 11;
+        colspan = 12;
         theadHtml = `
                 <tr>
                     <th class="col-check"><input type="checkbox" id="clients-select-all" onchange="toggleClientsSelectAll(this.checked)" title="Select all"></th>
@@ -1483,11 +1634,12 @@ function renderClientsTable() {
                     <th>Assigned Images</th>
                     <th>Boot Count</th>
                     <th>Last Boot</th>
+                    <th>Install</th>
                     <th>Quick Actions</th>
                 </tr>`;
         bodyHtml = filteredClients.map(c => clientRowHTML(c, true)).join('');
     } else {
-        colspan = 10;
+        colspan = 11;
         theadHtml = `
                 <tr>
                     <th class="col-check"><input type="checkbox" id="clients-select-all" onchange="toggleClientsSelectAll(this.checked)" title="Select all"></th>
@@ -1499,6 +1651,7 @@ function renderClientsTable() {
                     <th>Assigned Images</th>
                     <th>Boot Count</th>
                     <th>Last Boot</th>
+                    <th>Install</th>
                     <th>Quick Actions</th>
                 </tr>`;
 
@@ -1596,8 +1749,13 @@ async function editClient(mac) {
             form.querySelector('[name="ipmi_username"]').value = currentClient.ipmi_username || '';
             form.querySelector('[name="ipmi_password"]').value = currentClient.ipmi_password || '';
             form.querySelector('[name="ipmi_insecure"]').checked = !!currentClient.ipmi_insecure;
+            await populateSANTargetSelect('edit-client-san-select', currentClient.san_target_id, '(inherit from group, or none)');
+            form.querySelector('[name="boot_from_san"]').checked = !!currentClient.boot_from_san;
             const powerResult = document.getElementById('power-client-result');
             if (powerResult) powerResult.textContent = '';
+            const consoleBtn = document.getElementById('open-console-btn');
+            if (consoleBtn) consoleBtn.style.display = currentClient.ipmi_host ? '' : 'none';
+            loadClientInstallHistory(currentClient.mac_address || mac);
 
             // Populate bootloader set dropdown
             try {
@@ -1852,14 +2010,16 @@ async function showNextBoot(mac) {
     document.getElementById('next-boot-mac').dataset.mac = mac;
 
     const select = document.getElementById('next-boot-image-select');
+    await loadSANTargets(true);
     select.innerHTML = images.map(img =>
         `<option value="${img.filename}">${img.name}</option>`
+    ).join('') + sanTargets.map(t =>
+        `<option value="san:${t.id}">Boot from SAN: ${escapeHtml(t.name)}</option>`
     ).join('');
 
     const currentDiv = document.getElementById('next-boot-current');
     if (client && client.next_boot_image) {
-        const img = images.find(i => i.filename === client.next_boot_image);
-        document.getElementById('next-boot-current-image').textContent = img ? img.name : client.next_boot_image;
+        document.getElementById('next-boot-current-image').textContent = nextBootLabel(client.next_boot_image);
         currentDiv.style.display = 'block';
     } else {
         currentDiv.style.display = 'none';
@@ -2386,10 +2546,12 @@ function imageRowHTML(img, includeGroupCell, depth = 0) {
                         <td>${formatBytes(img.size)}</td>
                         <td>
                             ${img.extracted ?
-                                (img.distro ? '<span class="badge badge-info">'+img.distro+'</span>' : '<span class="badge badge-success">✓ Extracted</span>') :
+                                (img.distro ? '<span class="badge badge-info">'+(img.distro === 'winpe' ? 'WinPE' : img.distro)+'</span>' : '<span class="badge badge-success">✓ Extracted</span>') :
                                 (img.extraction_error ? '<span class="badge badge-danger" title="'+img.extraction_error+'">Error</span>' : '')
                             }
                             ${img.smb_install_enabled ? ' <span class="badge badge-warning" title="boot.wim patched to auto-mount SMB share and launch setup.exe">SMB</span>' : ''}
+                            ${img.update_available ? ' <span class="badge badge-warning" title="' + escapeHtml(img.update_filename || img.update_url || '') + '">Update available: ' + escapeHtml(img.update_version || 'newer release') + '</span>' : ''}
+                            ${img.checksum_verified ? ' <span class="badge badge-success" title="SHA-256 ' + escapeHtml(img.checksum || '') + '">✓ Verified</span>' : ''}
                         </td>${groupCell}
                         <td class="col-dot">
                             <span class="status-dot ${img.enabled ? 'on' : 'off'}" title="${img.enabled ? 'Enabled' : 'Disabled'}"></span>
@@ -2966,6 +3128,8 @@ function setupForms() {
             ipmi_password: formData.get('ipmi_password') || '',
             ipmi_insecure: formData.get('ipmi_insecure') === 'on',
             auto_install_file: formData.get('auto_install_file') || '',
+            san_target_id: formData.get('san_target_id') ? parseInt(formData.get('san_target_id'), 10) : null,
+            boot_from_san: formData.get('boot_from_san') === 'on',
         };
         console.log('Updating client:', mac, updates);
 
@@ -3398,6 +3562,7 @@ async function loadTools() {
             if (tool.custom) html += `<span class="badge badge-warning">Custom</span>`;
             if (tool.enabled) html += `<span class="badge badge-success">Enabled</span>`;
             if (tool.downloaded) html += `<span class="badge badge-info">Downloaded</span>`;
+            if (tool.update_available) html += `<span class="badge badge-warning" title="${escapeHtml(tool.update_url || '')}">Update available</span>`;
             html += `</div>`;
             html += `<p style="color: var(--text-secondary); font-size: 14px; margin: 0;">${escapeHtml(tool.description)}</p>`;
             html += `</div>`;
@@ -3418,6 +3583,9 @@ async function loadTools() {
                     html += `<button class="btn btn-success" onclick="toggleTool('${tool.name}', true)">Enable</button>`;
                 }
                 html += `<button class="btn btn-danger" onclick="deleteTool('${tool.name}')">Delete Files</button>`;
+                if (tool.update_available && tool.update_url) {
+                    html += `<button class="btn btn-primary" onclick="downloadNewerTool('${tool.name}', '${escapeHtml(tool.update_url)}')">Download newer</button>`;
+                }
             }
             if (tool.custom) {
                 html += `<button class="btn btn-danger" onclick="deleteCustomTool('${tool.name}')">Remove</button>`;
@@ -3446,6 +3614,25 @@ async function loadTools() {
 }
 
 const toolProgressIntervals = new Map();
+
+async function downloadNewerTool(name, url) {
+    try {
+        const res = await authFetch(`${API_BASE}/tools/url?name=${encodeURIComponent(name)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showNotification(data.error || 'Could not switch to the newer URL', 'error');
+            return;
+        }
+        await loadTools();
+        await downloadTool(name);
+    } catch (err) {
+        showNotification('Could not start the update: ' + err.message, 'error');
+    }
+}
 
 async function downloadTool(name) {
     try {
@@ -4314,6 +4501,7 @@ function renderUsersTable(users) {
                     <th>Role</th>
                     <th>Source</th>
                     <th>Status</th>
+                    <th>2FA</th>
                     <th>Last Login</th>
                     <th>Created</th>
                     <th>Actions</th>
@@ -4323,6 +4511,7 @@ function renderUsersTable(users) {
     `;
 
     users.forEach(user => {
+        const twoFactor = user.totp_enabled ? '<span class="badge badge-success">On</span>' : '<span style="color: var(--text-secondary);">Off</span>';
         const role = user.is_admin ? '<span class="badge badge-info">Admin</span>' : '<span class="badge badge-success">Read-only</span>';
         const source = { local: 'Local', ldap: 'LDAP', oidc: 'OIDC' }[user.source || 'local'] || user.source;
         const isLocal = !user.source || user.source === 'local';
@@ -4336,11 +4525,13 @@ function renderUsersTable(users) {
                 <td>${role}</td>
                 <td>${escapeHtml(source)}</td>
                 <td>${status}</td>
+                <td>${twoFactor}</td>
                 <td>${lastLogin}</td>
                 <td>${created}</td>
                 <td>
                     <button class="btn btn-info btn-sm" onclick='editUser(${JSON.stringify(user)})'>Edit</button>
                     ${isLocal ? `<button class="btn btn-sm" onclick='showResetPasswordModal(${JSON.stringify(user)})'>Reset Password</button>` : ''}
+                    ${isLocal && user.totp_enabled ? `<button class="btn btn-sm" onclick="resetUserTOTP(${user.id}, '${escapeHtml(user.username).replace(/'/g, "\\'")}')">Reset 2FA</button>` : ''}
                     ${user.username !== 'admin' ? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${user.username}')">Delete</button>` : ''}
                 </td>
             </tr>
@@ -4627,7 +4818,7 @@ function renderGetImagesList(filter) {
                 <select class="get-iso-mirror-sel" data-row="${escapeHtml(rowKey)}" data-path="${escapeHtml(r.path)}" onchange="updateGetISORowURL(this)">${mirrorOpts}</select>
                 <input type="text" id="get-iso-url-${escapeHtml(rowKey)}" class="get-iso-url" value="${escapeHtml(defaultURL)}">
                 <div id="get-iso-actions-${escapeHtml(rowKey)}" class="get-iso-actions">
-                    <button type="button" class="btn btn-sm" onclick="downloadFromGetISO('${escapeHtml(rowKey)}', '${escapeHtml(distro.name)}', '${escapeHtml(r.label)}')">
+                    <button type="button" class="btn btn-sm" onclick="downloadFromGetISO('${escapeHtml(rowKey)}', '${escapeHtml(distro.name)}', '${escapeHtml(r.label)}', '${escapeHtml(distro.id)}', '${escapeHtml(r.sha256 || '')}', '${escapeHtml(r.checksum_path || '')}')">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         Download
                     </button>
@@ -4654,7 +4845,7 @@ function jsAttrEscape(s) {
     return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
-async function downloadFromGetISO(rowKey, distroName, releaseLabel) {
+async function downloadFromGetISO(rowKey, distroName, releaseLabel, catalogueId, sha256, checksumPath) {
     const input = document.getElementById('get-iso-url-' + rowKey);
     if (!input) return;
     const url = input.value.trim();
@@ -4664,10 +4855,16 @@ async function downloadFromGetISO(rowKey, distroName, releaseLabel) {
     }
     renderGetISOProgress(rowKey, 'Starting…');
     try {
+        const body = { url, description: `${distroName} ${releaseLabel}` };
+        if (!catalogueId) catalogueId = (rowKey || '').replace(/-\d+$/, '');
+        body.catalogue_id = catalogueId;
+        body.catalogue_release = releaseLabel;
+        if (sha256) body.sha256 = sha256;
+        if (checksumPath) body.checksum_url = checksumPath;
         const res = await authFetch(`${API_BASE}/images/download`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url, description: `${distroName} ${releaseLabel}` }),
+            body: JSON.stringify(body),
         });
         const data = await res.json();
         if (res.status === 409 && data.data && data.data.filename) {
@@ -4722,11 +4919,11 @@ function startGetISOProgressPolling(rowKey, filename, distroName, releaseLabel) 
                 const fill = document.getElementById('get-iso-bar-fill-' + rowKey);
                 const status = document.getElementById('get-iso-status-' + rowKey);
                 if (fill) fill.style.width = pct + '%';
-                if (status) status.textContent = `${pct}% · ${p.speed || ''}`;
+                if (status) status.textContent = `${pct}% · ${p.speed || ''}${p.verification === 'pending' ? ' · verifying SHA-256' : ''}`;
 
                 if (p.status === 'completed') {
                     stop();
-                    renderGetISOComplete(rowKey, distroName, releaseLabel);
+                    renderGetISOComplete(rowKey, distroName, releaseLabel, p.verification === 'verified');
                     loadImages();
                 } else if (p.status === 'error') {
                     stop();
@@ -4754,12 +4951,12 @@ function renderGetISOError(rowKey, errorMsg, distroName, releaseLabel) {
         </div>`;
 }
 
-function renderGetISOComplete(rowKey, distroName, releaseLabel) {
+function renderGetISOComplete(rowKey, distroName, releaseLabel, verified) {
     const el = document.getElementById('get-iso-actions-' + rowKey);
     if (!el) return;
     el.innerHTML = `
         <div class="get-iso-progress">
-            <span class="get-iso-status-text" style="color: var(--success);">✓ Downloaded</span>
+            <span class="get-iso-status-text" style="color: var(--success);" title="${verified ? 'SHA-256 matched the published checksum' : 'No published checksum was found, so the file was not verified'}">✓ Downloaded${verified ? ' and verified' : ' (unverified)'}</span>
             <button type="button" class="btn btn-sm" onclick="downloadFromGetISO('${jsAttrEscape(rowKey)}', '${jsAttrEscape(distroName)}', '${jsAttrEscape(releaseLabel)}')">Again</button>
         </div>`;
 }
@@ -5466,9 +5663,108 @@ function getDefaultBootParams(img) {
             return '';
         case 'windows':
         case 'windows7':
+        case 'winpe':
             return '';
         default:
             return 'iso-url={{BASE_URL}}/isos/{{FILENAME}} ip=dhcp';
+    }
+}
+
+function renderImageIntegrity(img) {
+    const status = document.getElementById('image-props-checksum-status');
+    const input = document.getElementById('image-props-checksum-input');
+    const update = document.getElementById('image-props-update');
+    const updateText = document.getElementById('image-props-update-text');
+    if (!status) return;
+    input.value = '';
+    if (img.checksum_verified && img.checksum) {
+        status.innerHTML = `<span class="badge badge-success">✓ Verified</span> <code title="${escapeHtml(img.checksum)}">sha256 ${escapeHtml(img.checksum.slice(0, 16))}…</code>${img.checksum_checked_at ? ' · ' + new Date(img.checksum_checked_at).toLocaleString() : ''}`;
+        input.placeholder = 'Re-verify against the recorded checksum, or paste another';
+    } else if (img.checksum) {
+        status.innerHTML = `<span class="badge badge-warning">Unverified</span> <code title="${escapeHtml(img.checksum)}">sha256 ${escapeHtml(img.checksum.slice(0, 16))}…</code>`;
+        input.placeholder = 'SHA-256 or URL of a SHA256SUMS file to verify against';
+    } else {
+        status.innerHTML = '<span class="badge badge-warning">Unverified</span> No checksum recorded';
+        input.placeholder = 'SHA-256 or URL of a SHA256SUMS file to verify against';
+    }
+    if (img.update_available) {
+        update.style.display = 'flex';
+        updateText.textContent = `A newer release is in the catalogue: ${img.update_version || ''} (${img.update_filename || img.update_url}).`;
+    } else {
+        update.style.display = 'none';
+    }
+}
+
+async function verifyImageFromProperties() {
+    const filename = document.getElementById('image-props-filename').value;
+    const value = document.getElementById('image-props-checksum-input').value.trim();
+    const body = {};
+    if (/^https?:\/\//i.test(value)) body.checksum_url = value;
+    else if (value) body.sha256 = value;
+    const status = document.getElementById('image-props-checksum-status');
+    const btn = document.getElementById('image-props-verify-btn');
+    try {
+        const res = await authFetch(`${API_BASE}/images/verify?filename=${encodeURIComponent(filename)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Verification could not start', 'error');
+            return;
+        }
+        btn.disabled = true;
+        const poll = setInterval(async () => {
+            try {
+                const pr = await authFetch(`${API_BASE}/images/verify?filename=${encodeURIComponent(filename)}`);
+                const pd = await pr.json();
+                if (!pd.success) { clearInterval(poll); btn.disabled = false; return; }
+                const p = pd.data;
+                if (p.status === 'running') {
+                    status.textContent = `Hashing… ${(p.percent || 0).toFixed(0)}%`;
+                    return;
+                }
+                clearInterval(poll);
+                btn.disabled = false;
+                if (p.status === 'completed' && p.verified) {
+                    showAlert('Checksum verified', 'success');
+                } else {
+                    showAlert(p.error || 'Checksum mismatch', 'error');
+                }
+                await loadImages();
+                const img = images.find(i => i.filename === filename);
+                if (img && document.getElementById('image-props-filename').value === filename) renderImageIntegrity(img);
+            } catch (_) {
+                clearInterval(poll);
+                btn.disabled = false;
+            }
+        }, 1000);
+    } catch (err) {
+        showAlert('Verification could not start: ' + err.message, 'error');
+    }
+}
+
+async function downloadNewerImage() {
+    const filename = document.getElementById('image-props-filename').value;
+    const img = images.find(i => i.filename === filename);
+    if (!img || !img.update_url) return;
+    try {
+        const res = await authFetch(`${API_BASE}/images/download`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: img.update_url, description: img.description || '', catalogue_id: img.catalogue_id || '', catalogue_release: img.catalogue_release || '' }),
+        });
+        const data = await res.json();
+        if (data.success || res.status === 409) {
+            showAlert(`Downloading ${data.data && data.data.filename ? data.data.filename : 'newer release'} – progress is shown in the downloads list`, 'success');
+            closeModal('image-properties-modal');
+            if (typeof loadDownloads === 'function') loadDownloads();
+        } else {
+            showAlert(data.error || 'Download failed to start', 'error');
+        }
+    } catch (err) {
+        showAlert('Download failed to start: ' + err.message, 'error');
     }
 }
 
@@ -5514,8 +5810,10 @@ async function showImagePropertiesModal(filename, opts) {
     document.getElementById('image-props-redetect-btn').style.display = img.extracted ? '' : 'none';
     document.getElementById('image-props-enabled').checked = img.enabled;
     document.getElementById('image-props-public').checked = img.public;
+    renderImageIntegrity(img);
 
     await populateBootFileOverrides(img);
+    populateWIMSelector(img);
 
     applyBootParamsWindowsLock(distroSelect.value);
     distroSelect.onchange = () => applyBootParamsWindowsLock(distroSelect.value);
@@ -5599,7 +5897,7 @@ async function populateBootFileOverrides(img) {
     kernelSelect.innerHTML = autoOption;
     initrdSelect.innerHTML = autoOption;
 
-    if (!img.extracted || img.distro === 'windows') {
+    if (!img.extracted || isWindowsFamily(img.distro)) {
         row.style.display = 'none';
         return;
     }
@@ -5629,7 +5927,7 @@ function updateImagePropsWarnings() {
     if (!_imagePropsState) return;
     const img = _imagePropsState.img;
     const fname = img.filename || '';
-    const looksWindows = img.distro === 'windows' || filenameLooksWindows(fname);
+    const looksWindows = isWindowsFamily(img.distro) || filenameLooksWindows(fname);
 
     // 1. Not extracted but probably needs to be.
     const needsExtract = !img.extracted && filenameLikelyNeedsExtraction(fname);
@@ -5671,10 +5969,56 @@ async function saveAndRepatchFromProperties() {
     await patchSmbFromProperties();
 }
 
+function isWindowsFamily(distro) {
+    return distro === 'windows' || distro === 'windows7' || distro === 'winpe';
+}
+
+function populateWIMSelector(img) {
+    const row = document.getElementById('image-props-wim-row');
+    const select = document.getElementById('image-props-wim-path');
+    const index = document.getElementById('image-props-wim-index');
+    if (!row || !select || !index) return;
+    const wims = img.wim_files || [];
+    if (!img.extracted || !isWindowsFamily(img.distro) || wims.length === 0) {
+        row.style.display = 'none';
+        return;
+    }
+    select.innerHTML = wims.map(w =>
+        `<option value="${escapeHtml(w.path)}" ${w.path === img.wim_path ? 'selected' : ''}>${escapeHtml(w.path)} (${formatBytes(w.size || 0)})</option>`
+    ).join('');
+    if (img.wim_path && !wims.some(w => w.path === img.wim_path)) {
+        select.innerHTML += `<option value="${escapeHtml(img.wim_path)}" selected>${escapeHtml(img.wim_path)}</option>`;
+    }
+    index.value = img.wim_index || 1;
+    row.dataset.path = img.wim_path || '';
+    row.dataset.index = String(img.wim_index || 0);
+    row.style.display = '';
+}
+
+async function saveWIMSelection(filename) {
+    const row = document.getElementById('image-props-wim-row');
+    if (!row || row.style.display === 'none') return true;
+    const path = document.getElementById('image-props-wim-path').value;
+    const index = parseInt(document.getElementById('image-props-wim-index').value, 10) || 0;
+    const storedIndex = parseInt(row.dataset.index, 10) || 0;
+    if (path === row.dataset.path && (index === storedIndex || (index <= 1 && storedIndex <= 1))) return true;
+    const res = await authFetch(`${API_BASE}/images/winpe?filename=${encodeURIComponent(filename)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wim_path: path, wim_index: index <= 1 ? 0 : index })
+    });
+    const data = await res.json();
+    if (!data.success) {
+        showNotification('Failed to update boot WIM: ' + (data.error || 'Unknown error'), 'error');
+        return false;
+    }
+    return true;
+}
+
 function applyBootParamsWindowsLock(distro) {
     const input = document.getElementById('image-props-boot-params');
     const redetect = document.getElementById('image-props-redetect-btn');
-    const isWindows = distro === 'windows' || distro === 'windows7';
+    const isWindows = isWindowsFamily(distro);
     input.disabled = isWindows;
     input.style.opacity = isWindows ? '0.5' : '';
     input.style.cursor = isWindows ? 'not-allowed' : '';
@@ -5955,6 +6299,8 @@ async function saveImageProperties(opts) {
     }
 
     try {
+        if (!await saveWIMSelection(filename)) return false;
+
         // Update general image properties
         const res = await authFetch(`${API_BASE}/images?filename=${encodeURIComponent(filename)}`, {
             method: 'PUT',
@@ -6412,7 +6758,9 @@ function switchClientsSubtab(name) {
     document.querySelectorAll('#clients-tab .subtab').forEach(b => b.classList.toggle('active', b.dataset.subtab === name));
     document.getElementById('clients-subtab').style.display = name === 'clients' ? '' : 'none';
     document.getElementById('client-groups-subtab').style.display = name === 'client-groups' ? '' : 'none';
+    document.getElementById('san-targets-subtab').style.display = name === 'san-targets' ? '' : 'none';
     if (name === 'client-groups') loadClientGroups();
+    if (name === 'san-targets') loadSANTargets();
 }
 
 function switchImagesSubtab(name) {
@@ -6528,6 +6876,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 ipmi_password: fd.get('ipmi_password') || '',
                 ipmi_insecure: fd.get('ipmi_insecure') === 'on',
                 auto_install_file: fd.get('auto_install_file') || '',
+                san_target_id: fd.get('san_target_id') ? parseInt(fd.get('san_target_id'), 10) : null,
+                boot_from_san: fd.get('boot_from_san') === 'on',
             };
             try {
                 const res = await authFetch(`${API_BASE}/client-groups/update?id=${id}`, {
@@ -6616,6 +6966,8 @@ async function showEditClientGroupModal(id) {
         } catch (err) {}
 
         await populateAutoInstallFileDropdown('cg-autoinstall-select', g.auto_install_file);
+        await populateSANTargetSelect('cg-san-select', g.san_target_id, '(none)');
+        form.elements.boot_from_san.checked = !!g.boot_from_san;
 
         if (!images || images.length === 0) await loadImages();
         const allowedSel = document.getElementById('cg-allowed-images');
@@ -6990,6 +7342,64 @@ let clusterNodes = [];
 let nodeImages = [];
 let kubernetesProviders = [];
 let clusterConfigMode = 'edit';
+
+const INSTALL_STATE_LABELS = {
+    booted: ['Booted', 'badge-info'],
+    installing: ['Installing', 'badge-warning'],
+    completed: ['Installed', 'badge-success'],
+    failed: ['Failed', 'badge-danger'],
+};
+
+function relativeTime(iso) {
+    if (!iso) return '';
+    const diff = Date.now() - new Date(iso).getTime();
+    const mins = Math.round(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins} min ago`;
+    const hours = Math.round(mins / 60);
+    if (hours < 48) return `${hours} h ago`;
+    return `${Math.round(hours / 24)} d ago`;
+}
+
+function installStateBadge(client) {
+    const entry = INSTALL_STATE_LABELS[client.install_state];
+    if (!entry) return '<span style="color: var(--text-muted);">-</span>';
+    const title = `${escapeHtml(client.install_image || '')} ${client.install_updated_at ? new Date(client.install_updated_at).toLocaleString() : ''}`.trim();
+    return `<span class="badge ${entry[1]}" title="${title}">${entry[0]}</span><br><span style="font-size: 11px; color: var(--text-muted);">${relativeTime(client.install_updated_at)}</span>`;
+}
+
+async function loadClientInstallHistory(mac) {
+    const container = document.getElementById('client-install-history');
+    if (!container) return;
+    container.innerHTML = '<span style="color: var(--text-muted);">Loading…</span>';
+    try {
+        const res = await authFetch(`${API_BASE}/clients/installs?mac=${encodeURIComponent(mac)}&limit=20`);
+        const data = await res.json();
+        if (!data.success) {
+            container.innerHTML = `<span style="color: var(--danger);">${escapeHtml(data.error || 'Failed to load install history')}</span>`;
+            return;
+        }
+        const recs = data.data || [];
+        if (recs.length === 0) {
+            container.innerHTML = '<span style="color: var(--text-muted);">No unattended installs recorded for this client.</span>';
+            return;
+        }
+        container.innerHTML = `<div class="table-scroll"><table>
+            <thead><tr><th>Booted</th><th>Image</th><th>State</th><th>Finished</th><th>Message</th></tr></thead>
+            <tbody>${recs.map(r => {
+                const entry = INSTALL_STATE_LABELS[r.state] || [r.state, 'badge-info'];
+                return `<tr>
+                    <td style="white-space: nowrap;">${new Date(r.booted_at).toLocaleString()}</td>
+                    <td>${escapeHtml(r.image_name || r.image_filename || '')}</td>
+                    <td><span class="badge ${entry[1]}">${escapeHtml(entry[0])}</span></td>
+                    <td style="white-space: nowrap;">${r.finished_at ? new Date(r.finished_at).toLocaleString() : '-'}</td>
+                    <td>${escapeHtml(r.message || '')}</td>
+                </tr>`;
+            }).join('')}</tbody></table></div>`;
+    } catch (err) {
+        container.innerHTML = '<span style="color: var(--danger);">Failed to load install history</span>';
+    }
+}
 
 function enrollmentStateBadge(state) {
     const classes = {
@@ -7741,4 +8151,388 @@ function downloadMenuPreview() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(a.href);
+}
+
+let sanTargets = [];
+let sanTargetsLoaded = false;
+
+function nextBootLabel(value) {
+    if (!value) return '';
+    if (value.startsWith('san:')) {
+        const t = sanTargets.find(x => String(x.id) === value.slice(4));
+        return 'SAN: ' + (t ? t.name : value.slice(4));
+    }
+    const img = images.find(i => i.filename === value);
+    return img ? img.name : value;
+}
+
+async function loadSANTargets(quiet) {
+    try {
+        const res = await authFetch(`${API_BASE}/san-targets`);
+        const data = await res.json();
+        if (!data.success) {
+            if (!quiet) document.getElementById('san-targets-table').innerHTML = `<p class="alert alert-error">${escapeHtml(data.error || 'Failed to load SAN targets')}</p>`;
+            return;
+        }
+        sanTargets = data.data || [];
+        sanTargetsLoaded = true;
+        if (!quiet) renderSANTargetsTable();
+    } catch (err) {
+        console.error('Failed to load SAN targets:', err);
+    }
+}
+
+async function populateSANTargetSelect(selectId, selectedId, emptyLabel) {
+    if (!sanTargetsLoaded) await loadSANTargets(true);
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    select.innerHTML = `<option value="">${escapeHtml(emptyLabel)}</option>` + sanTargets.map(t =>
+        `<option value="${t.id}" ${selectedId === t.id ? 'selected' : ''}>${escapeHtml(t.name)} — ${escapeHtml(t.uri)}</option>`
+    ).join('');
+}
+
+function renderSANTargetsTable() {
+    const container = document.getElementById('san-targets-table');
+    container.classList.remove('loading');
+    if (sanTargets.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-secondary); padding: 20px;">No SAN targets yet. Click "Add SAN Target" to define an iSCSI, AoE or HTTP disk.</p>';
+        return;
+    }
+    const rows = sanTargets
+        .filter(t => rowMatchesFilter('san-targets', [t.name, t.description, t.uri, t.initiator_iqn]))
+        .map(t => `
+        <tr>
+            <td><strong>${escapeHtml(t.name)}</strong>${t.description ? '<br><span style="color: var(--text-secondary); font-size: 12px;">' + escapeHtml(t.description) + '</span>' : ''}</td>
+            <td><code>${escapeHtml(t.uri)}</code></td>
+            <td>${t.initiator_iqn ? '<code>' + escapeHtml(t.initiator_iqn) + '</code>' : '<span style="color: var(--text-secondary);">iPXE default</span>'}</td>
+            <td>${t.chap_username ? '<span class="badge badge-info">CHAP</span>' : '<span style="color: var(--text-secondary);">None</span>'}${t.reverse_chap_username ? ' <span class="badge badge-info">Mutual</span>' : ''}</td>
+            <td>${t.client_count || 0} client${t.client_count === 1 ? '' : 's'}, ${t.group_count || 0} group${t.group_count === 1 ? '' : 's'}</td>
+            <td>
+                <button type="button" class="btn btn-sm read-ok" onclick="previewSANTarget(${t.id})">Preview Menu</button>
+                <button type="button" class="btn btn-sm admin-only" onclick="showSANTargetModal(${t.id})">Edit</button>
+                <button type="button" class="btn btn-sm btn-danger admin-only" onclick="deleteSANTarget(${t.id})">Delete</button>
+            </td>
+        </tr>`).join('');
+    container.innerHTML = `
+        <div class="table-scroll">
+        <table>
+            <thead><tr><th>Name</th><th>URI</th><th>Initiator IQN</th><th>Auth</th><th>Used by</th><th>Actions</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>
+        </div>`;
+}
+
+function showSANTargetModal(id) {
+    const form = document.getElementById('san-target-form');
+    form.reset();
+    const target = id ? sanTargets.find(t => t.id === id) : null;
+    form.elements.id.value = target ? target.id : '';
+    document.getElementById('san-target-modal-title').textContent = target ? 'Edit SAN Target' : 'Add SAN Target';
+    if (target) {
+        for (const key of ['name', 'description', 'uri', 'initiator_iqn', 'chap_username', 'chap_password', 'reverse_chap_username', 'reverse_chap_password']) {
+            form.elements[key].value = target[key] || '';
+        }
+    }
+    showModal('san-target-modal');
+}
+
+async function saveSANTarget(e) {
+    e.preventDefault();
+    const form = e.target;
+    const fd = new FormData(form);
+    const id = fd.get('id');
+    const body = {};
+    for (const key of ['name', 'description', 'uri', 'initiator_iqn', 'chap_username', 'chap_password', 'reverse_chap_username', 'reverse_chap_password']) {
+        body[key] = fd.get(key) || '';
+    }
+    try {
+        const res = await authFetch(`${API_BASE}/san-targets${id ? '?id=' + id : ''}`, {
+            method: id ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Failed to save SAN target', 'error');
+            return;
+        }
+        closeModal('san-target-modal');
+        showAlert(data.message || 'SAN target saved', 'success');
+        sanTargetsLoaded = false;
+        await loadSANTargets();
+    } catch (err) {
+        showAlert('Failed to save SAN target: ' + err.message, 'error');
+    }
+}
+
+async function deleteSANTarget(id) {
+    const target = sanTargets.find(t => t.id === id);
+    if (!target) return;
+    const users = (target.client_count || 0) + (target.group_count || 0);
+    if (!confirm(`Delete SAN target "${target.name}"?` + (users ? ` It will be removed from ${users} client(s) and group(s).` : ''))) return;
+    try {
+        const res = await authFetch(`${API_BASE}/san-targets?id=${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Failed to delete SAN target', 'error');
+            return;
+        }
+        showAlert('SAN target deleted', 'success');
+        sanTargetsLoaded = false;
+        await loadSANTargets();
+        if (clients.length) loadClients();
+    } catch (err) {
+        showAlert('Failed to delete SAN target: ' + err.message, 'error');
+    }
+}
+
+async function previewSANTarget(id) {
+    if (!clients || clients.length === 0) {
+        try { await loadClients(); } catch (_) {}
+    }
+    const direct = clients.find(c => c.san_target_id === id);
+    let mac = direct ? direct.mac_address : '';
+    if (!mac) {
+        const groupIds = clientGroups.filter(g => g.san_target_id === id).map(g => g.id);
+        const viaGroup = clients.find(c => !c.san_target_id && groupIds.includes(c.client_group_id));
+        if (viaGroup) mac = viaGroup.mac_address;
+    }
+    if (!mac) {
+        showAlert('Assign this SAN target to a client or client group first, then preview that client\'s menu.', 'info');
+        return;
+    }
+    previewBootMenu(mac);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const form = document.getElementById('san-target-form');
+    if (form) form.addEventListener('submit', saveSANTarget);
+});
+let lastLoadedAPITokens = [];
+
+async function loadAPITokens() {
+    const container = document.getElementById('api-tokens-table');
+    if (!container) return;
+    try {
+        const res = await authFetch(`${API_BASE}/tokens`);
+        const data = await res.json();
+        if (!data.success) {
+            container.innerHTML = `<p class="alert alert-error">${escapeHtml(data.error || 'Failed to load tokens')}</p>`;
+            return;
+        }
+        lastLoadedAPITokens = data.data || [];
+        renderAPITokensTable();
+    } catch (err) {
+        container.innerHTML = '<p class="alert alert-error">Failed to load tokens</p>';
+    }
+}
+
+function renderAPITokensTable() {
+    const container = document.getElementById('api-tokens-table');
+    if (!container) return;
+    if (lastLoadedAPITokens.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-secondary);">No API tokens yet.</p>';
+        return;
+    }
+    const now = Date.now();
+    const rows = lastLoadedAPITokens.map(tok => {
+        const expired = tok.expires_at && new Date(tok.expires_at).getTime() <= now;
+        let status = '<span class="badge badge-success">Active</span>';
+        if (tok.revoked) status = '<span class="badge badge-danger">Revoked</span>';
+        else if (expired) status = '<span class="badge badge-warning">Expired</span>';
+        const scope = tok.scope === 'admin' ? '<span class="badge badge-info">Admin</span>' : '<span class="badge badge-success">Read-only</span>';
+        return `<tr>
+            <td><strong>${escapeHtml(tok.name)}</strong></td>
+            <td><code>${escapeHtml(tok.prefix)}…</code></td>
+            <td>${scope}</td>
+            <td>${escapeHtml(tok.created_by || '-')}</td>
+            <td>${new Date(tok.created_at).toLocaleString()}</td>
+            <td>${tok.last_used_at ? new Date(tok.last_used_at).toLocaleString() : 'Never'}</td>
+            <td>${tok.expires_at ? new Date(tok.expires_at).toLocaleDateString() : 'Never'}</td>
+            <td>${status}</td>
+            <td>${tok.revoked ? '' : `<button class="btn btn-danger btn-sm" onclick="revokeAPIToken(${tok.id}, '${escapeHtml(tok.name).replace(/'/g, "\\'")}')">Revoke</button>`}</td>
+        </tr>`;
+    }).join('');
+    container.innerHTML = `<div class="table-scroll"><table>
+        <thead><tr><th>Name</th><th>Prefix</th><th>Scope</th><th>Created by</th><th>Created</th><th>Last used</th><th>Expires</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>`;
+}
+
+async function createAPIToken(e) {
+    if (e) e.preventDefault();
+    const body = {
+        name: document.getElementById('api-token-name').value.trim(),
+        scope: document.getElementById('api-token-scope').value,
+        expires_in_days: parseInt(document.getElementById('api-token-expires').value, 10) || 0,
+    };
+    try {
+        const res = await authFetch(`${API_BASE}/tokens`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Failed to create token', 'error');
+            return;
+        }
+        document.getElementById('api-token-secret-value').textContent = data.data.secret;
+        document.getElementById('api-token-secret').style.display = '';
+        document.getElementById('api-token-name').value = '';
+        showAlert(data.message || 'Token created', 'success');
+        loadAPITokens();
+    } catch (err) {
+        showAlert('Failed to create token: ' + err.message, 'error');
+    }
+}
+
+async function copyAPITokenSecret() {
+    const secret = document.getElementById('api-token-secret-value').textContent;
+    try {
+        await navigator.clipboard.writeText(secret);
+        showAlert('Token copied', 'success');
+    } catch (err) {
+        showAlert('Copy failed: ' + err.message, 'error');
+    }
+}
+
+async function revokeAPIToken(id, name) {
+    if (!confirm(`Revoke the token "${name}"? Anything using it will stop working immediately.`)) return;
+    try {
+        const res = await authFetch(`${API_BASE}/tokens?id=${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Failed to revoke token', 'error');
+            return;
+        }
+        showAlert('Token revoked', 'success');
+        loadAPITokens();
+    } catch (err) {
+        showAlert('Failed to revoke token: ' + err.message, 'error');
+    }
+}
+
+async function loadTOTPStatus() {
+    const card = document.getElementById('totp-card');
+    const status = document.getElementById('totp-status');
+    if (!card || !status) return;
+    try {
+        const res = await authFetch(`${API_BASE}/me`);
+        const data = await res.json();
+        if (!data.success) return;
+        const me = data.data;
+        if (me.principal === 'token' || (me.source && me.source !== 'local')) {
+            card.style.display = 'none';
+            return;
+        }
+        card.style.display = '';
+        if (me.totp_enabled) {
+            status.innerHTML = `<span class="badge badge-success">Enabled</span> Two-factor authentication is on for <strong>${escapeHtml(me.username)}</strong>.
+                <button type="button" class="btn btn-sm" style="margin-left: 10px;" onclick="disableTOTP()">Disable</button>`;
+        } else {
+            status.innerHTML = `<span class="badge badge-warning">Off</span> Two-factor authentication is not enabled for <strong>${escapeHtml(me.username)}</strong>.
+                <button type="button" class="btn btn-sm btn-primary" style="margin-left: 10px;" onclick="startTOTPSetup()">Set up</button>`;
+        }
+    } catch (err) {
+        status.textContent = 'Could not load two-factor status';
+    }
+}
+
+async function startTOTPSetup() {
+    try {
+        const res = await authFetch(`${API_BASE}/me/totp/setup`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Could not start two-factor setup', 'error');
+            return;
+        }
+        document.getElementById('totp-qr').src = data.data.qr_code;
+        document.getElementById('totp-secret').textContent = data.data.secret;
+        document.getElementById('totp-confirm-code').value = '';
+        document.getElementById('totp-setup').style.display = '';
+        document.getElementById('totp-recovery').style.display = 'none';
+        document.getElementById('totp-confirm-code').focus();
+    } catch (err) {
+        showAlert('Could not start two-factor setup: ' + err.message, 'error');
+    }
+}
+
+function cancelTOTPSetup() {
+    document.getElementById('totp-setup').style.display = 'none';
+}
+
+async function enableTOTP() {
+    const code = document.getElementById('totp-confirm-code').value.trim();
+    if (!code) {
+        showAlert('Enter the code shown in your authenticator app', 'error');
+        return;
+    }
+    try {
+        const res = await authFetch(`${API_BASE}/me/totp/enable`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Could not enable two-factor authentication', 'error');
+            return;
+        }
+        document.getElementById('totp-setup').style.display = 'none';
+        document.getElementById('totp-recovery-codes').textContent = (data.data.recovery_codes || []).join('\n');
+        document.getElementById('totp-recovery').style.display = '';
+        showAlert('Two-factor authentication enabled', 'success');
+        loadTOTPStatus();
+        if (!isReadOnly()) loadUsers();
+    } catch (err) {
+        showAlert('Could not enable two-factor authentication: ' + err.message, 'error');
+    }
+}
+
+async function copyTOTPRecoveryCodes() {
+    try {
+        await navigator.clipboard.writeText(document.getElementById('totp-recovery-codes').textContent);
+        showAlert('Recovery codes copied', 'success');
+    } catch (err) {
+        showAlert('Copy failed: ' + err.message, 'error');
+    }
+}
+
+async function disableTOTP() {
+    const password = prompt('Enter your password to turn off two-factor authentication:');
+    if (password === null) return;
+    try {
+        const res = await authFetch(`${API_BASE}/me/totp/disable`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Could not disable two-factor authentication', 'error');
+            return;
+        }
+        showAlert('Two-factor authentication disabled', 'success');
+        loadTOTPStatus();
+        if (!isReadOnly()) loadUsers();
+    } catch (err) {
+        showAlert('Could not disable two-factor authentication: ' + err.message, 'error');
+    }
+}
+
+async function resetUserTOTP(id, username) {
+    if (!confirm(`Remove two-factor authentication from "${username}"? They will be able to sign in with just their password until they set it up again.`)) return;
+    try {
+        const res = await authFetch(`${API_BASE}/users/totp/reset?id=${id}`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Could not reset two-factor authentication', 'error');
+            return;
+        }
+        showAlert(data.message || 'Two-factor authentication removed', 'success');
+        loadUsers();
+        loadTOTPStatus();
+    } catch (err) {
+        showAlert('Could not reset two-factor authentication: ' + err.message, 'error');
+    }
 }
