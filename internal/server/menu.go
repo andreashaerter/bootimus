@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bootimus/internal/bsdboot"
 	"bootimus/internal/imagescan"
 	"bootimus/internal/models"
 	"bootimus/internal/profiles"
@@ -429,6 +430,10 @@ func (mb *MenuBuilder) buildKernelBootSection(img *models.Image, encodedFilename
 	}
 
 	switch {
+	case bsdboot.IsBSD(img.Distro):
+		sb.WriteString(fmt.Sprintf("echo %s boots through its own network loader served over TFTP\n", bsdboot.DisplayName(img.Distro)))
+		sb.WriteString(fmt.Sprintf("chain %s/bsd/%s/boot.ipxe?mac=%s&platform=${platform}&buildarch=${buildarch} || goto failed\n", baseURL, cacheDir, mb.macAddress))
+
 	case models.IsWindowsDistro(img.Distro):
 		bootParams = wimbootArgs(bootParams)
 		if img.WIMIndex > 0 && !hasParam(bootParams, "index") {

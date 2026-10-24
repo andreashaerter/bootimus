@@ -271,6 +271,21 @@ func TestBuildImageBootSectionsUKI(t *testing.T) {
 	}
 }
 
+func TestBuildKernelBootSectionBSDChainsTFTPHook(t *testing.T) {
+	mb := testMenuBuilder(nil)
+	for _, distro := range []string{"openbsd", "netbsd"} {
+		img := &models.Image{ID: 31, Name: "BSD", Filename: "lab/install77.iso", Enabled: true, BootMethod: "kernel", Distro: distro, BootParams: "stty com0 115200"}
+		out := mb.buildKernelBootSection(img, "lab/install77.iso", "lab/install77")
+		want := "chain http://10.0.0.1:8080/bsd/lab/install77/boot.ipxe?mac=aa:bb:cc:dd:ee:ff&platform=${platform}&buildarch=${buildarch} || goto failed\n"
+		if !strings.Contains(out, want) {
+			t.Errorf("%s: expected %q in:\n%s", distro, want, out)
+		}
+		if strings.Contains(out, "vmlinuz") || strings.Contains(out, "initrd") || strings.Contains(out, "stty") {
+			t.Errorf("%s: BSD entries must not emit Linux kernel lines or raw boot params:\n%s", distro, out)
+		}
+	}
+}
+
 func TestBuildWinPEBootSectionUsesSelectedWIM(t *testing.T) {
 	mb := testMenuBuilder(nil)
 	img := &models.Image{
