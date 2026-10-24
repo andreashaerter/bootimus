@@ -387,7 +387,7 @@ Import it into Postman, Insomnia, Swagger UI or an OpenAPI client generator to w
 
 ### Authentication
 
-All endpoints except `/api/login` and `/api/auth-info` need a token from `POST /api/login`, sent as `Authorization: Bearer <token>` (see [Authentication](authentication.md#obtain-a-token)). Log in with:
+All endpoints except `/api/login` and `/api/auth-info` need a bearer token, sent as `Authorization: Bearer <token>`. That is either a 24-hour JWT from `POST /api/login` (see [Authentication](authentication.md#obtain-a-token)) or a long-lived [API token](authentication.md#api-tokens) created under **Users** → **API Tokens**, which is the better choice for scripts. Log in with:
 - **Username**: `admin`
 - **Password**: Auto-generated on first run
 

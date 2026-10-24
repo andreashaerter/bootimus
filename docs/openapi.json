@@ -191,7 +191,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 138
+        "x-bootimus-order": 141
       }
     },
     "/api/auth-info": {
@@ -444,7 +444,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 128
+        "x-bootimus-order": 131
       }
     },
     "/api/backup/import": {
@@ -468,7 +468,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 131
+        "x-bootimus-order": 134
       },
       "get": {
         "tags": [
@@ -490,7 +490,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 130
+        "x-bootimus-order": 133
       },
       "post": {
         "tags": [
@@ -528,7 +528,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 129
+        "x-bootimus-order": 132
       }
     },
     "/api/bootloaders": {
@@ -2495,7 +2495,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 132
+        "x-bootimus-order": 135
       },
       "put": {
         "tags": [
@@ -2528,7 +2528,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 133
+        "x-bootimus-order": 136
       }
     },
     "/api/housekeeping/run": {
@@ -2552,7 +2552,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 134
+        "x-bootimus-order": 137
       }
     },
     "/api/images": {
@@ -3342,7 +3342,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 135
+        "x-bootimus-order": 138
       }
     },
     "/api/logs/buffer": {
@@ -3366,7 +3366,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 137
+        "x-bootimus-order": 140
       }
     },
     "/api/logs/stream": {
@@ -3390,7 +3390,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 136
+        "x-bootimus-order": 139
       }
     },
     "/api/me": {
@@ -3755,7 +3755,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 139
+        "x-bootimus-order": 142
       }
     },
     "/api/proxydhcp/events/clear": {
@@ -3779,7 +3779,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 141
+        "x-bootimus-order": 144
       }
     },
     "/api/proxydhcp/stream": {
@@ -3803,7 +3803,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 140
+        "x-bootimus-order": 143
       }
     },
     "/api/scan": {
@@ -4072,7 +4072,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 126
+        "x-bootimus-order": 129
       },
       "put": {
         "tags": [
@@ -4082,6 +4082,96 @@
         "operationId": "putApiTheme",
         "requestBody": {
           "description": "{title, menu_timeout, default_menu_item}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 130
+      }
+    },
+    "/api/tokens": {
+      "delete": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Revoke an API token.",
+        "operationId": "deleteApiTokens",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Token ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 128
+      },
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "List API tokens.",
+        "operationId": "getApiTokens",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 126
+      },
+      "post": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Create a scoped API token; the secret is returned once.",
+        "operationId": "postApiTokens",
+        "requestBody": {
+          "description": "{name, scope (read|admin), expires_in_days}",
           "required": true,
           "content": {
             "application/json": {
@@ -4764,7 +4854,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 143
+        "x-bootimus-order": 146
       }
     },
     "/autoinstall/{filename}": {
@@ -4799,7 +4889,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 147
+        "x-bootimus-order": 150
       }
     },
     "/boot/{cache_dir}/{path}": {
@@ -4843,7 +4933,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 146
+        "x-bootimus-order": 149
       }
     },
     "/bootenv/{filename}": {
@@ -4878,7 +4968,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 149
+        "x-bootimus-order": 152
       }
     },
     "/files/{filename}": {
@@ -4913,7 +5003,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 148
+        "x-bootimus-order": 151
       }
     },
     "/health": {
@@ -4972,7 +5062,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 144
+        "x-bootimus-order": 147
       }
     },
     "/isos/{filename}": {
@@ -5007,7 +5097,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 145
+        "x-bootimus-order": 148
       }
     },
     "/logout": {
@@ -5083,7 +5173,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 152
+        "x-bootimus-order": 155
       }
     },
     "/menu.ipxe": {
@@ -5117,7 +5207,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 142
+        "x-bootimus-order": 145
       }
     },
     "/metrics": {
@@ -5176,7 +5266,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 151
+        "x-bootimus-order": 154
       }
     },
     "/tools/{path}": {
@@ -5211,7 +5301,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 150
+        "x-bootimus-order": 153
       }
     }
   },
@@ -5238,7 +5328,8 @@
     },
     "securitySchemes": {
       "bearerAuth": {
-        "bearerFormat": "JWT",
+        "bearerFormat": "JWT or API token",
+        "description": "A JWT from POST /api/login, or a long-lived API token (btk_...) created under Users.",
         "scheme": "bearer",
         "type": "http"
       }

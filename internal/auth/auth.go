@@ -26,6 +26,7 @@ type Manager struct {
 	oidc        *oidcClient
 	loginLimit  *loginLimiter
 	limiterOnce sync.Once
+	touches     tokenTouches
 }
 
 func (m *Manager) limiter() *loginLimiter {
@@ -292,15 +293,25 @@ func (m *Manager) HandleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (m *Manager) authenticate(w http.ResponseWriter, r *http.Request) (*Claims, bool) {
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+	tokenString, ok := bearerToken(r)
+	if !ok {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Authentication required"})
 		return nil, false
 	}
 
-	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	if IsAPISecret(tokenString) {
+		claims, err := m.authenticateAPIToken(tokenString)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+			return nil, false
+		}
+		return claims, true
+	}
+
 	claims, err := m.ValidateToken(tokenString)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")

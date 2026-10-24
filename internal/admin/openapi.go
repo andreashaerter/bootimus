@@ -207,6 +207,9 @@ var APISections = []APISection{
 		{Method: "PUT", Path: "/api/users", Summary: "Update a user.", Params: []APIParam{qID("User ID")}, Body: "{enabled, is_admin}"},
 		{Method: "DELETE", Path: "/api/users", Summary: "Delete a user.", Params: []APIParam{qID("User ID")}},
 		{Method: "POST", Path: "/api/users/reset-password", Summary: "Reset a local user's password.", Params: []APIParam{qID("User ID")}, Body: "{new_password}"},
+		{Method: "GET", Path: "/api/tokens", Summary: "List API tokens."},
+		{Method: "POST", Path: "/api/tokens", Summary: "Create a scoped API token; the secret is returned once.", Body: "{name, scope (read|admin), expires_in_days}"},
+		{Method: "DELETE", Path: "/api/tokens", Summary: "Revoke an API token.", Params: []APIParam{qID("Token ID")}},
 	}},
 	{Tag: "Settings", Endpoints: []APIEndpoint{
 		{Method: "GET", Path: "/api/theme", Summary: "Boot menu theme and defaults.", ReadOnly: true},
@@ -327,7 +330,8 @@ func BuildOpenAPI(version, serverURL string) *OpenAPIDocument {
 				"bearerAuth": map[string]interface{}{
 					"type":         "http",
 					"scheme":       "bearer",
-					"bearerFormat": "JWT",
+					"bearerFormat": "JWT or API token",
+					"description":  "A JWT from POST /api/login, or a long-lived API token (btk_...) created under Users.",
 				},
 			},
 		},

@@ -8,6 +8,7 @@ Bootimus uses JWT (JSON Web Token) authentication for the admin panel. Optionall
 - [Login Flow](#login-flow)
 - [Roles](#roles)
 - [API Authentication](#api-authentication)
+  - [API Tokens](#api-tokens)
 - [LDAP / Active Directory](#ldap--active-directory)
 - [OIDC / Single Sign-On](#oidc--single-sign-on)
 - [Users from LDAP and OIDC](#users-from-ldap-and-oidc)
@@ -150,6 +151,33 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/images
 - **Expiry**: 24 hours from issue
 - **Secret**: Randomly generated on each server startup (all tokens are invalidated on restart)
 - **Claims**: Username, admin status, issue time, expiry
+
+### API Tokens
+
+For scripts, CI jobs and integrations, create a long-lived token under **Users** → **API Tokens** instead of logging in with a password. Tokens start with `btk_`, are shown once at creation, and are stored hashed. Each token has a scope:
+
+| Scope | What it can do |
+|-------|----------------|
+| `read` | `GET` requests to the same endpoints a read-only user can see |
+| `admin` | Everything an administrator can do, except create or revoke tokens |
+
+Tokens can be given an expiry in days and revoked at any time. The audit log records changes made with a token as `token:<name>`, and `/api/me` reports `"principal": "token"`.
+
+```bash
+# Create a token (as an admin user)
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"ansible","scope":"admin","expires_in_days":365}' \
+  http://localhost:8081/api/tokens
+
+# Use it exactly like a JWT
+curl -H "Authorization: Bearer btk_..." http://localhost:8081/api/clients
+
+# List and revoke
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/tokens
+curl -X DELETE -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/tokens?id=3"
+```
+
+Unlike JWTs, API tokens survive a restart of Bootimus.
 
 ### Check Available Auth Backends
 

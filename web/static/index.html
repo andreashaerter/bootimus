@@ -521,6 +521,40 @@
                     Loading users...
                 </div>
             </div>
+
+            <div class="card" style="margin-top: 20px;">
+                <h2>API Tokens</h2>
+                <p style="color: var(--text-secondary); margin: 0 12px 8px; font-size: 13px;">
+                    Long-lived tokens for scripts and integrations. Send one as <code>Authorization: Bearer btk_…</code>. Read tokens can only call GET endpoints available to read-only users; admin tokens can do everything except manage tokens.
+                </p>
+                <form id="api-token-form" style="padding: 0 12px 12px; display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;" onsubmit="createAPIToken(event)">
+                    <div class="form-group" style="margin: 0; flex: 1; min-width: 180px;">
+                        <label for="api-token-name">Name</label>
+                        <input type="text" id="api-token-name" maxlength="64" placeholder="e.g. ansible" required>
+                    </div>
+                    <div class="form-group" style="margin: 0; min-width: 140px;">
+                        <label for="api-token-scope">Scope</label>
+                        <select id="api-token-scope" class="form-control">
+                            <option value="read">Read-only</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin: 0; min-width: 140px;">
+                        <label for="api-token-expires">Expires after (days)</label>
+                        <input type="number" id="api-token-expires" min="0" step="1" value="0" placeholder="0 = never">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Create Token</button>
+                </form>
+                <div id="api-token-secret" style="display: none; margin: 0 12px 12px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input);">
+                    <div style="font-size: 13px; margin-bottom: 8px;">Copy this token now. It will not be shown again.</div>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <code id="api-token-secret-value" style="flex: 1; word-break: break-all;"></code>
+                        <button type="button" class="btn btn-sm" onclick="copyAPITokenSecret()">Copy</button>
+                        <button type="button" class="btn btn-sm" onclick="document.getElementById('api-token-secret').style.display = 'none'">Dismiss</button>
+                    </div>
+                </div>
+                <div id="api-tokens-table" style="padding: 0 12px 12px;"></div>
+            </div>
         </div>
 
         <!-- Audit Log Tab -->
