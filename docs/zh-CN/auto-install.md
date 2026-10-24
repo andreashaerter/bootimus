@@ -10,6 +10,9 @@
 - [挂载文件](#挂载文件)
 - [解析顺序](#解析顺序)
 - [占位符](#占位符)
+- [变量](#变量)
+- [预览](#预览)
+- [校验](#校验)
 - [示例](#示例)
 - [报告安装完成](#报告安装完成)
 - [Windows 注意事项](#windows-注意事项)
@@ -23,7 +26,8 @@
 - **在 UI 里管理文件** — 在 **Auto-Install** 标签页中创建、编辑、上传、下载、删除配置,无需触碰文件系统。
 - **为镜像设置默认值** — 引导该镜像的每个客户端都得到同一份配置。
 - **按客户端覆盖** 或 **按客户端组覆盖** — 当某台机器需要不同的配置时(不同的 hostname、磁盘布局、角色等)。
-- **模板化** — 使用类似 `{{HOSTNAME}}` 和 `{{IP}}` 的占位符,在分发时根据正在引导的客户端身份解析。
+- **模板化** — 使用类似 `{{HOSTNAME}}` 和 `{{IP}}` 的占位符,在分发时根据正在引导的客户端身份解析,还可以使用按客户端或按组设置的自定义 `{{VAR.name}}` 变量。
+- **预览** — 查看任意客户端和镜像的渲染结果,并在保存时对 YAML、XML 和 JSON 文件做格式校验。
 
 Bootimus 通过 HTTP 在无人值守安装端点上提供脚本;对 Windows 而言,还会把 `AutoUnattend.xml` 暂存到 SMB 安装共享上,这样 `setup.exe /unattend:` 就能自动取用。
 
@@ -118,14 +122,84 @@ Served auto-install script for ubuntu-24.04-live-server-amd64.iso \
 | `{{MAC}}` | 客户端 MAC 地址(小写,冒号分隔) |
 | `{{CLIENT_NAME}}` | Clients 表中的友好名称 |
 | `{{HOSTNAME}}` | 同 `{{CLIENT_NAME}}`(在配置中更清晰的别名) |
+| `{{CLIENT_GROUP}}` | 客户端所属组的名称,没有组时为空 |
 | `{{IP}}` | 发起请求的客户端 IP |
 | `{{SERVER_ADDR}}` | Bootimus 服务器地址 |
+| `{{SERVER_PORT}}` | Bootimus 的 HTTP 引导端口 |
+| `{{SERVER_URL}}` | `http://<SERVER_ADDR>:<SERVER_PORT>`,与引导菜单使用的基础 URL 相同 |
 | `{{IMAGE_NAME}}` | 正在引导的镜像的显示名 |
 | `{{IMAGE_FILENAME}}` | 正在引导的镜像的 ISO 文件名 |
+| `{{IMAGE_URL}}` | ISO 在 `/isos/` 下的访问 URL,与引导菜单作为 `iso-url=` 传递的值相同 |
 | `{{CALLBACK_URL}}` | 安装程序用来报告完成的完整 URL,包含一次性令牌(见[报告安装完成](#报告安装完成)) |
 | `{{INSTALL_TOKEN}}` | `{{CALLBACK_URL}}` 背后的裸令牌,用于构造你自己的请求 |
+| `{{VAR.<name>}}` | 名为 `<name>` 的客户端或组变量(见[变量](#变量)) |
 
-占位符是纯字符串替换 — 不做转义。请按目标格式(XML、YAML 等)适当地引用它们。
+占位符是纯字符串替换 — 不做转义。请按目标格式(XML、YAML 等)适当地引用它们。没有值的占位符会按原文保留,并在分发文件时记录为未解析;使用[预览](#预览)可以在机器引导前发现这些问题。
+
+## 变量
+
+内置占位符覆盖了客户端的身份信息,但大多数机群还需要 Bootimus 无从得知的值:角色、机架编号、磁盘设备、镜像源 URL。变量正是为此而设。每个客户端和每个客户端组都带有一组命名的字符串值,每一个都可以在无人值守安装文件中以 `{{VAR.<name>}}` 的形式使用。
+
+- 名称只能使用字母、数字和下划线(`role`、`rack_id`、`DISK`);保存客户端或组时,服务器会拒绝其他任何字符。
+- **组变量是默认值**,适用于所有成员。**客户端变量逐个名称覆盖**它们:组可以设置 `role: worker`,某台机器单独设置 `role: control-plane`,同时仍然继承组的 `rack`。
+- 两个层级都没有值的 `{{VAR.<name>}}` 保持未解析。
+
+在 UI 中设置:**Clients** → 打开客户端 → **自动安装变量**,或 **Groups** → 打开组 → **自动安装变量**:每行是一个名称和一个值,有 **添加变量** 按钮和每行的删除按钮。通过 API,`variables` 在客户端和组的 payload 中都是一个字符串对象:
+
+```bash
+# 组默认值
+curl -u admin:pw -X PUT "http://localhost:8081/api/client-groups/update?id=3" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"lab-3","variables":{"role":"worker","rack":"3","disk":"/dev/sda"}}'
+
+# 某台机器覆盖单个值
+curl -u admin:pw -X PUT "http://localhost:8081/api/clients?mac=b4:2e:99:01:5f:a3" \
+  -H "Content-Type: application/json" \
+  -d '{"variables":{"role":"control-plane"}}'
+```
+
+在客户端更新中发送 `"variables": null` 会清空变量;省略该键则保持不变。`GET /api/clients` 和 `GET /api/client-groups` 以同一个键返回它们。
+
+同时使用两个层级的 kickstart:
+
+```
+network --bootproto=dhcp --hostname={{HOSTNAME}}
+ignoredisk --only-use={{VAR.disk}}
+%post
+echo "{{VAR.role}} in rack {{VAR.rack}} ({{CLIENT_GROUP}})" > /etc/machine-role
+%end
+```
+
+**Clients** 下的 CSV 导入不携带变量;CSV 行更新客户端时,现有变量会保留。
+
+## 预览
+
+**Auto-Install** 下的编辑器为任何已保存的文件提供 **预览** 操作。选择一个客户端,并可选地选择一个镜像,面板会以只读方式显示 Bootimus 将发送给该机器的确切文本,并用警告列出所有仍未解析的占位符。不选客户端时,客户端和组的值渲染为空;不选镜像时,`IMAGE_*` 占位符保持未解析。`{{CALLBACK_URL}}` 和 `{{INSTALL_TOKEN}}` 使用固定令牌 `preview` 渲染,因为不会创建安装记录。
+
+同样的渲染也可以通过 API 获得:
+
+```bash
+curl -u admin:pw "http://localhost:8081/api/autoinstall-files/render?distro=ubuntu&filename=default.yaml&mac=b4:2e:99:01:5f:a3&image=ubuntu-24.04-live-server-amd64.iso"
+```
+
+```json
+{"success":true,"data":{"content":"#cloud-config\n...","unresolved":["VAR.disk"]}}
+```
+
+`mac` 和 `image` 都是可选的。渲染不会写入任何内容:不会创建安装记录,也不会改变安装的状态。
+
+## 校验
+
+从编辑器保存或上传文件时,Bootimus 会在写入之前按扩展名检查其格式是否正确:
+
+| 扩展名 | 检查 |
+|-----------|-------|
+| `.yaml`、`.yml` | 作为 YAML 解析(允许多文档文件) |
+| `.xml` | 格式正确的 XML |
+| `.json` | 有效的 JSON |
+| 其他 | 不检查 |
+
+每个占位符都会先被替换为无害的占位值,因此 `hostname: {{HOSTNAME}}` 可以通过,尽管单独的 `{{HOSTNAME}}` 本身不是有效的 YAML。校验失败返回 `400`,附带解析器的消息以及(解析器提供时的)行号;编辑器会在内容下方内联显示,并提供 **仍然保存**,供你比解析器更清楚的情况使用(例如一个故意写成片段的文件)。通过 API,在保存请求体中传 `"force": true`,或在上传时以 multipart 字段传 `force=true`,即可跳过检查。
 
 ## 示例
 
@@ -323,10 +397,13 @@ curl -u admin:pw http://localhost:8081/api/autoinstall-files
 # Read a file
 curl -u admin:pw "http://localhost:8081/api/autoinstall-files/get?distro=ubuntu&filename=default.yaml"
 
-# Create or overwrite a file
+# 创建或覆盖文件(YAML、XML 或 JSON 格式错误时返回 400;加上 "force":true 可仍然保存)
 curl -u admin:pw -X POST http://localhost:8081/api/autoinstall-files/save \
   -H "Content-Type: application/json" \
   -d '{"distro":"ubuntu","filename":"default.yaml","content":"#cloud-config\n..."}'
+
+# 为某个客户端和镜像渲染文件,并列出未解析的占位符
+curl -u admin:pw "http://localhost:8081/api/autoinstall-files/render?distro=ubuntu&filename=default.yaml&mac=b4:2e:99:01:5f:a3&image=ubuntu-24.04-live-server-amd64.iso"
 
 # Upload a file
 curl -u admin:pw -X POST http://localhost:8081/api/autoinstall-files/upload \
@@ -376,6 +453,8 @@ GET /autoinstall/<image-filename>/mac/<mac>/meta-data   # Ubuntu autoinstall
 ### 占位符按字面输出
 
 `{{HOSTNAME}}` 在已安装系统中显示为字面字符串,意味着文件在替换运行之前就被分发了 — 通常是因为客户端仅通过 IP 启动而请求未携带 `mac` 查询参数。确认引导菜单生成的 URL 形如 `/autoinstall/<iso>?mac=<mac>` 或 `/autoinstall/<iso>/mac/<mac>/`。
+
+`{{VAR.<name>}}` 保持字面值,意味着客户端及其组都没有定义该变量,或者名称拼写不同(名称区分大小写)。每个未解析的占位符都会在分发文件时记录到日志,编辑器的 **预览** 也会在引导前针对所选客户端列出它们。
 
 ### 分发了错误的文件
 

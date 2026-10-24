@@ -34,6 +34,7 @@ Bootimus uses MAC address-based access control to manage which clients can boot 
 - **Show Public Images**: When enabled alongside assigned images, client sees both assigned and public images
 - **Next Boot Action**: A one-time boot image override that auto-clears after use
 - **Bootloader Set**: An optional initial bootloader override for this client
+- **Auto-install variables**: Named values available to auto-install files as `{{VAR.<name>}}`; group variables are defaults, client variables override them (see [Auto-Install](auto-install.md#variables))
 
 ### Client Auto-Discovery
 

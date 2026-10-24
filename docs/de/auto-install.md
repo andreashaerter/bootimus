@@ -10,6 +10,9 @@ Unbeaufsichtigte Installationen für Windows, Ubuntu, Debian und die Red-Hat-Fam
 - [Dateien anhängen](#dateien-anhängen)
 - [Auflösungsreihenfolge](#auflösungsreihenfolge)
 - [Platzhalter](#platzhalter)
+- [Variablen](#variablen)
+- [Vorschau](#vorschau)
+- [Validierung](#validierung)
 - [Beispiele](#beispiele)
 - [Installationsabschluss melden](#installationsabschluss-melden)
 - [Windows-Hinweise](#windows-hinweise)
@@ -23,7 +26,8 @@ Auto-Install-Konfigurationen werden in einer Per-Distro-Bibliothek unter `data/a
 - **Dateien im UI verwalten** im Tab **Auto-Install** — Configs anlegen, editieren, hochladen, herunterladen und löschen, ohne das Dateisystem anzufassen.
 - **Default pro Image setzen** (jeder Client, der dieses Image bootet, bekommt dieselbe Config).
 - **Pro Client oder Client-Gruppe überschreiben**, wenn eine Maschine eine andere Config braucht (anderer Hostname, anderes Disk-Layout, andere Rolle etc.).
-- **Templates bauen** mit Platzhaltern wie `{{HOSTNAME}}` und `{{IP}}`, die beim Ausliefern anhand der Identität des bootenden Clients aufgelöst werden.
+- **Templates bauen** mit Platzhaltern wie `{{HOSTNAME}}` und `{{IP}}`, die beim Ausliefern anhand der Identität des bootenden Clients aufgelöst werden, plus eigenen `{{VAR.name}}`-Variablen pro Client oder pro Gruppe.
+- **Vorschau** des gerenderten Ergebnisses für jeden Client und jedes Image, und YAML-, XML- und JSON-Dateien werden beim Speichern auf Wohlgeformtheit geprüft.
 
 Bootimus liefert das Skript über HTTP am Auto-Install-Endpunkt aus — und für Windows wird `AutoUnattend.xml` auf der SMB-Installations-Freigabe bereitgestellt, sodass `setup.exe /unattend:` sie automatisch aufgreift.
 
@@ -118,14 +122,84 @@ Diese Tokens werden beim Ausliefern pro Client ersetzt:
 | `{{MAC}}` | Client-MAC-Adresse (lowercase, mit Doppelpunkten) |
 | `{{CLIENT_NAME}}` | Anzeigename aus der Clients-Tabelle |
 | `{{HOSTNAME}}` | Wie `{{CLIENT_NAME}}` (Alias zur Klarheit in Configs) |
+| `{{CLIENT_GROUP}}` | Name der Client-Gruppe, oder leer, wenn der Client keine hat |
 | `{{IP}}` | Client-IP, die den Request gestellt hat |
 | `{{SERVER_ADDR}}` | Adresse des Bootimus-Servers |
+| `{{SERVER_PORT}}` | HTTP-Boot-Port von Bootimus |
+| `{{SERVER_URL}}` | `http://<SERVER_ADDR>:<SERVER_PORT>`, dieselbe Basis-URL, die das Boot-Menü verwendet |
 | `{{IMAGE_NAME}}` | Anzeigename des bootenden Images |
 | `{{IMAGE_FILENAME}}` | ISO-Dateiname des bootenden Images |
+| `{{IMAGE_URL}}` | URL des ISO, wie es unter `/isos/` ausgeliefert wird; derselbe Wert, den das Boot-Menü als `iso-url=` übergibt |
 | `{{CALLBACK_URL}}` | Vollständige URL, die der Installer zum Melden des Abschlusses aufruft, inklusive Einmal-Token (siehe [Installationsabschluss melden](#installationsabschluss-melden)) |
 | `{{INSTALL_TOKEN}}` | Der nackte Token hinter `{{CALLBACK_URL}}`, um einen eigenen Request zu bauen |
+| `{{VAR.<name>}}` | Die Client- oder Gruppenvariable namens `<name>` (siehe [Variablen](#variablen)) |
 
-Platzhalter sind plain String-Substitution — kein Escaping. Quote sie passend zum Zielformat (XML, YAML etc.).
+Platzhalter sind plain String-Substitution — kein Escaping. Quote sie passend zum Zielformat (XML, YAML etc.). Ein Platzhalter ohne Wert bleibt genau so stehen, wie er geschrieben ist, und wird beim Ausliefern als unaufgelöst geloggt; mit der [Vorschau](#vorschau) findest du solche Fälle, bevor eine Maschine bootet.
+
+## Variablen
+
+Die eingebauten Platzhalter decken die Identität des Clients ab, aber die meisten Flotten brauchen auch Werte, die Bootimus nicht kennen kann: eine Rolle, eine Rack-Nummer, ein Disk-Device, eine Mirror-URL. Dafür gibt es Variablen. Jeder Client und jede Client-Gruppe trägt eine Menge benannter String-Werte, und jeder davon steht in Auto-Install-Dateien als `{{VAR.<name>}}` zur Verfügung.
+
+- Namen bestehen nur aus Buchstaben, Ziffern und Unterstrichen (`role`, `rack_id`, `DISK`); alles andere lehnt der Server beim Speichern des Clients oder der Gruppe ab.
+- **Gruppenvariablen sind Defaults** für jedes Mitglied. **Client-Variablen überschreiben** sie Name für Name: Eine Gruppe kann `role: worker` setzen und eine einzelne Maschine `role: control-plane`, während sie das `rack` der Gruppe weiterhin erbt.
+- Ein `{{VAR.<name>}}`-Token ohne Wert auf beiden Ebenen bleibt unaufgelöst.
+
+Gesetzt werden sie im UI unter **Clients** → Client öffnen → **Auto-Installations-Variablen** oder **Gruppen** → Gruppe öffnen → **Auto-Installations-Variablen**: Jede Zeile ist ein Name und ein Wert, mit **Variable hinzufügen** und einem Entfernen-Button pro Zeile. Über die API ist `variables` ein Objekt aus Strings sowohl im Client- als auch im Gruppen-Payload:
+
+```bash
+# Gruppen-Defaults
+curl -u admin:pw -X PUT "http://localhost:8081/api/client-groups/update?id=3" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"lab-3","variables":{"role":"worker","rack":"3","disk":"/dev/sda"}}'
+
+# Eine Maschine überschreibt einen einzelnen Wert
+curl -u admin:pw -X PUT "http://localhost:8081/api/clients?mac=b4:2e:99:01:5f:a3" \
+  -H "Content-Type: application/json" \
+  -d '{"variables":{"role":"control-plane"}}'
+```
+
+`"variables": null` in einem Client-Update löscht sie; fehlt der Schlüssel, bleiben sie unverändert. `GET /api/clients` und `GET /api/client-groups` liefern sie unter demselben Schlüssel zurück.
+
+Ein Kickstart, der beide Ebenen nutzt:
+
+```
+network --bootproto=dhcp --hostname={{HOSTNAME}}
+ignoredisk --only-use={{VAR.disk}}
+%post
+echo "{{VAR.role}} in rack {{VAR.rack}} ({{CLIENT_GROUP}})" > /etc/machine-role
+%end
+```
+
+Der CSV-Import unter **Clients** transportiert keine Variablen; bestehende Variablen bleiben erhalten, wenn eine CSV-Zeile einen Client aktualisiert.
+
+## Vorschau
+
+Der Editor unter **Auto-Install** hat eine **Vorschau**-Aktion für jede gespeicherte Datei. Wähle einen Client und optional ein Image, und das Panel zeigt genau den Text, den Bootimus an diese Maschine ausliefern würde — schreibgeschützt, mit einer Warnung, die jeden unaufgelöst gebliebenen Platzhalter auflistet. Ohne Client werden Client- und Gruppenwerte leer gerendert; ohne Image bleiben die `IMAGE_*`-Platzhalter unaufgelöst. `{{CALLBACK_URL}}` und `{{INSTALL_TOKEN}}` werden mit dem festen Token `preview` gerendert, weil kein Installations-Eintrag angelegt wird.
+
+Dasselbe Rendering gibt es über die API:
+
+```bash
+curl -u admin:pw "http://localhost:8081/api/autoinstall-files/render?distro=ubuntu&filename=default.yaml&mac=b4:2e:99:01:5f:a3&image=ubuntu-24.04-live-server-amd64.iso"
+```
+
+```json
+{"success":true,"data":{"content":"#cloud-config\n...","unresolved":["VAR.disk"]}}
+```
+
+`mac` und `image` sind optional. Rendern schreibt nie etwas: Es legt keinen Installations-Eintrag an und bewegt keine Installation durch ihre Zustände.
+
+## Validierung
+
+Wenn eine Datei aus dem Editor gespeichert oder hochgeladen wird, prüft Bootimus sie vor dem Schreiben anhand der Erweiterung auf Wohlgeformtheit:
+
+| Erweiterung | Prüfung |
+|-----------|-------|
+| `.yaml`, `.yml` | Parst als YAML (Multi-Dokument-Dateien sind erlaubt) |
+| `.xml` | Wohlgeformtes XML |
+| `.json` | Gültiges JSON |
+| alles andere | Nicht geprüft |
+
+Jeder Platzhalter wird zuerst durch einen harmlosen Dummy-Wert ersetzt, sodass `hostname: {{HOSTNAME}}` durchgeht, obwohl ein nacktes `{{HOSTNAME}}` für sich kein gültiges YAML ist. Ein Fehlschlag antwortet mit `400`, der Meldung des Parsers und — wo der Parser sie liefert — der Zeilennummer; der Editor zeigt sie inline unter dem Inhalt und bietet **Trotzdem speichern** für die Fälle, in denen du es besser weißt als der Parser (etwa eine Datei, die absichtlich ein Fragment ist). Über die API übergibst du `"force": true` im Save-Body oder `force=true` als Multipart-Feld beim Upload, um die Prüfung zu überspringen.
 
 ## Beispiele
 
@@ -323,10 +397,13 @@ curl -u admin:pw http://localhost:8081/api/autoinstall-files
 # Datei lesen
 curl -u admin:pw "http://localhost:8081/api/autoinstall-files/get?distro=ubuntu&filename=default.yaml"
 
-# Datei anlegen oder überschreiben
+# Datei anlegen oder überschreiben (antwortet 400 bei fehlerhaftem YAML, XML oder JSON; "force":true speichert trotzdem)
 curl -u admin:pw -X POST http://localhost:8081/api/autoinstall-files/save \
   -H "Content-Type: application/json" \
   -d '{"distro":"ubuntu","filename":"default.yaml","content":"#cloud-config\n..."}'
+
+# Datei für einen Client und ein Image rendern, unaufgelöste Platzhalter auflisten
+curl -u admin:pw "http://localhost:8081/api/autoinstall-files/render?distro=ubuntu&filename=default.yaml&mac=b4:2e:99:01:5f:a3&image=ubuntu-24.04-live-server-amd64.iso"
 
 # Datei hochladen
 curl -u admin:pw -X POST http://localhost:8081/api/autoinstall-files/upload \
@@ -376,6 +453,8 @@ Das Boot-Menü baut diese URLs mit der MAC-Adresse des Clients, damit Per-Client
 ### Platzhalter werden wörtlich ausgespielt
 
 Wenn `{{HOSTNAME}}` als literaler String im installierten System auftaucht, wurde die Datei vor dem Substitutions-Lauf ausgeliefert — meistens, weil der Client nur per IP gebootet hat und der Request keinen `mac`-Query-Parameter enthielt. Stelle sicher, dass das Boot-Menü URLs der Form `/autoinstall/<iso>?mac=<mac>` oder `/autoinstall/<iso>/mac/<mac>/` erzeugt.
+
+Ein literal gebliebenes `{{VAR.<name>}}` bedeutet, dass weder der Client noch seine Gruppe diese Variable definiert oder der Name anders geschrieben ist (Namen sind case-sensitive). Jeder unaufgelöste Platzhalter wird beim Ausliefern geloggt, und die **Vorschau** im Editor listet sie für einen gewählten Client auf, bevor irgendetwas bootet.
 
 ### Falsche Datei ausgeliefert
 
