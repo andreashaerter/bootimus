@@ -196,6 +196,17 @@ type WebhookConfig struct {
 	OnEnrollment       bool      `gorm:"default:true" json:"on_enrollment"`
 }
 
+type HousekeepingSettings struct {
+	ID                   uint       `gorm:"primarykey" json:"id"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+	BootLogDays          int        `json:"boot_log_days"`
+	InventoryHistoryDays int        `json:"inventory_history_days"`
+	DiscoveredClientDays int        `json:"discovered_client_days"`
+	LastRun              *time.Time `json:"last_run,omitempty"`
+	LastStatus           string     `json:"last_status,omitempty"`
+	LastReport           string     `gorm:"type:text" json:"last_report,omitempty"`
+}
+
 type ClientGroup struct {
 	ID                 uint           `gorm:"primarykey" json:"id"`
 	CreatedAt          time.Time      `json:"created_at"`

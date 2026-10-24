@@ -9,6 +9,7 @@ Complete guide for using the Bootimus admin interface and REST API.
 - [Client Management](#client-management)
 - [Image Management](#image-management)
 - [Boot Logs](#boot-logs)
+- [Housekeeping and Retention](#housekeeping-and-retention)
 - [REST API](#rest-api)
 - [Automation Examples](#automation-examples)
 - [Security Best Practises](#security-best-practises)
@@ -316,6 +317,32 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/logs?limit=10
 
 # Get last 500 logs (max 1000)
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/logs?limit=500
+```
+
+## Housekeeping and Retention
+
+Boot logs and hardware inventory submissions accumulate on every PXE boot. Housekeeping runs once a day (and a few minutes after start-up) and prunes records older than the retention periods set under **Settings** → **Housekeeping**. A period of `0` keeps those records forever.
+
+| Setting | Default | What it removes |
+|---------|---------|-----------------|
+| Boot log retention | 90 days | Boot attempt entries older than the period |
+| Inventory history retention | 90 days | Older inventory submissions; the most recent inventory for every client is always kept |
+| Remove discovered clients not seen for | 0 (off) | Auto-discovered clients whose last boot is older than the period. Static clients and cluster nodes are never touched |
+
+The card also shows the result of the last run per task and how much space each top-level entry of the data directory uses, so it is easy to spot which ISO group or cache is taking the room.
+
+**Via API**:
+```bash
+# Current settings, last report and data directory usage
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/housekeeping
+
+# Keep boot logs for 30 days, inventory history for a year, never prune clients
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"boot_log_days":30,"inventory_history_days":365,"discovered_client_days":0}' \
+  http://localhost:8081/api/housekeeping
+
+# Run housekeeping now
+curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/housekeeping/run
 ```
 
 ## REST API

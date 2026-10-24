@@ -29,6 +29,7 @@ import (
 	"bootimus/internal/bmc"
 	_ "bootimus/internal/bmc/amt"
 	_ "bootimus/internal/bmc/redfish"
+	"bootimus/internal/housekeeping"
 	"bootimus/internal/imagescan"
 	"bootimus/internal/metrics"
 	"bootimus/internal/models"
@@ -115,6 +116,7 @@ type Server struct {
 	proxyDHCPServer       *proxydhcp.Server
 	webhookNotifier       *webhook.Notifier
 	scheduler             *scheduler.Scheduler
+	housekeeping          *housekeeping.Runner
 	bootLogDedup          map[string]time.Time
 	bootLogDedupMu        sync.Mutex
 	wg                    sync.WaitGroup
@@ -321,6 +323,9 @@ func New(cfg *Config) *Server {
 		webhookNotifier: webhook.New(cfg.Storage),
 	}
 	s.scheduler = scheduler.New(cfg.Storage, s.executeScheduledTask)
+	if cfg.Storage != nil {
+		s.housekeeping = housekeeping.New(cfg.Storage)
+	}
 	s.loadBootloaderConfig()
 	return s
 }
@@ -720,6 +725,10 @@ func (s *Server) Start() error {
 		s.scheduler.Start()
 	}
 
+	if s.housekeeping != nil {
+		s.housekeeping.Start()
+	}
+
 	if s.config.ProxyDHCPEnabled {
 		pd, err := proxydhcp.NewServer(proxydhcp.Config{
 			ServerIP:         net.ParseIP(s.config.ServerAddr),
@@ -815,6 +824,11 @@ func (s *Server) Shutdown() error {
 	if s.scheduler != nil {
 		s.scheduler.Stop()
 		log.Println("Scheduler stopped")
+	}
+
+	if s.housekeeping != nil {
+		s.housekeeping.Stop()
+		log.Println("Housekeeping stopped")
 	}
 
 	if s.smbManager != nil {
@@ -1326,6 +1340,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 		adminHandler.SchedulerRunNow = s.scheduler.RunNow
 	}
 	adminHandler.WebhookNotifier = s.webhookNotifier
+	adminHandler.Housekeeping = s.housekeeping
 
 	staticFS, err := fs.Sub(web.Static, "static")
 	if err != nil {
@@ -1594,6 +1609,18 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 		}
 	}))
 	mux.HandleFunc("/api/webhook/test", adminWrap(adminHandler.TestWebhook))
+
+	mux.HandleFunc("/api/housekeeping", readWrap(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			adminHandler.GetHousekeeping(w, r)
+		case http.MethodPut, http.MethodPost:
+			adminHandler.UpdateHousekeeping(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	mux.HandleFunc("/api/housekeeping/run", adminWrap(adminHandler.RunHousekeeping))
 
 	mux.HandleFunc("/api/client-groups", readWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
