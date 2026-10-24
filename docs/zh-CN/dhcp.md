@@ -27,7 +27,7 @@ Bootimus 内置了一个 proxyDHCP 响应器(RFC 4578)。启用后,Bootimus 自�
 1. 客户端广播 `DHCPDISCOVER`。
 2. 局域网现有的 DHCP 服务器回复一个 IP 租约(无需 PXE 信息)。
 3. Bootimus 在同一广播上仅回复 PXE 引导信息 — 不分配 IP。
-4. 客户端的 PXE ROM 合并两个回复:IP 来自主 DHCP,bootfile 来自 Bootimus。
+4. 客户端的 PXE ROM 合并两个回复:IP 来自主 DHCP,bootfile 来自 Bootimus。大多数固件都会按 RFC 4578 的设计这样做,但部分 UEFI PXE ROM 不会 — 见下方的注意事项。
 
 由于 Bootimus 从不分配 IP,因此和现有 DHCP 服务器没有任何冲突,也没有租约池要协调。
 
@@ -46,6 +46,8 @@ proxy_dhcp:
   bootfile_bios: undionly.kpxe           # legacy BIOS PXE
   bootfile_uefi: bootimus.efi            # UEFI x64
   bootfile_arm64: bootimus-arm64.efi     # UEFI ARM64
+  no_bootfile_option: false              # true:为拒绝该选项的固件省略 option 67
+  no_vendor_option: false                # true:为会忽略带 option 43 的 Offer 的固件省略该选项
 ```
 
 默认关闭,以免让已经跑着 dnsmasq/ISC-DHCP/等的现有安装感到意外。
@@ -53,7 +55,8 @@ proxy_dhcp:
 ### 要求和注意事项
 
 - **绑定 UDP/67 和 UDP/4011。** UDP/67 需要 `CAP_NET_BIND_SERVICE` 或 root 权限;UDP/4011 是 PXE boot-server 发现端口,某些 UEFI ROM(尤其是 AMI/Supermicro)会在最初的 offer 之后从这个端口继续。Docker 中,默认镜像已经以 root 运行,所以无需额外 capability;仅在 rootless 设置中才需要 `--cap-add NET_BIND_SERVICE`。
-- **同一广播域。** proxyDHCP 依赖于看到客户端 DHCP 广播。它在扁平局域网或单个 VLAN 上工作。如果你的网络使用 DHCP 中继(`ip helper-address`)跨 VLAN 转发 DHCP,中继会转发到你的主 DHCP 但不转发到 Bootimus — 把 Bootimus 加为额外的中继目标,或把目标保持在与 Bootimus 同一个 VLAN。
+- **同一广播域。** proxyDHCP 依赖于看到客户端 DHCP 广播。它在扁平局域网或单个 VLAN 上工作。如果你的网络使用 DHCP 中继(`ip helper-address`)跨 VLAN 转发 DHCP,中继会转发到你的主 DHCP 但不转发到 Bootimus — 把 Bootimus 加为额外的中继目标,或把目标保持在与 Bootimus 同一个 VLAN。Bootimus 会按 RFC 2131 的要求,以单播方式把对中继请求的回复发送到中继地址(`giaddr`),由中继转交给客户端。
+- **并非所有固件都会合并两个 Offer。** 部分 UEFI PXE ROM 会忽略 Bootimus 的 Offer,或拒绝其中的 bootfile 选项,于是不断重发 `DHCPDISCOVER`,却始终不发送 `DHCPREQUEST`。先试试 `--proxy-dhcp-no-bootfile-option`(`BOOTIMUS_PROXY_DHCP_NO_BOOTFILE_OPTION=true`,或在 `proxy_dhcp` 下设置 `no_bootfile_option: true`):它会省略 option 67,只在传统 BOOTP `file` 字段中发送 bootfile,较旧或有缺陷的固件对此处理得更好。另一些固件(例如 Intel I219-V 的 UEFI PXE)则会忽略任何带有 option 43 的 Offer:设置 `--proxy-dhcp-no-vendor-option`(`BOOTIMUS_PROXY_DHCP_NO_VENDOR_OPTION=true`,或在 `proxy_dhcp` 下设置 `no_vendor_option: true`)可对所有客户端省略它,也可以只在受影响的客户端上勾选 **Omit PXE vendor option (43)**。如果客户端仍然循环,请关闭 proxyDHCP,改为在主 DHCP 服务器上设置 `next-server` 和 bootfile(option 66/67),具体见下方各服务器的章节。
 - **Docker 网络。** 使用 `macvlan`、`ipvlan` 或 `network_mode: host`,这样容器才是广播域里的一等参与者。默认桥接网络不行 — 广播会被困在 `docker0` 里。
 - **同一局域网上的两个 proxyDHCP 服务器是合法的,但调试是噩梦。** 如果你启用了 Bootimus 内置的 proxyDHCP,请在同一网络上禁用任何现有的、为 PXE 通告的 dnsmasq proxyDHCP。
 
@@ -124,7 +127,7 @@ TFTP: Client requesting file: bootimus.efi
 | UEFI (ARM64) | `bootimus-arm64.efi`(或 `ipxe-arm64.efi`) | 自定义构建的、内嵌脚本的 iPXE |
 | Legacy BIOS | `undionly.kpxe` | 标准 PXE bootloader |
 
-> **Secure Boot:** Bootimus 当前不附带微软签名的 Secure Boot 二进制。如果你的目标机器启用了 Secure Boot,要么在固件中关闭,要么将 Bootimus 的 iPXE 构建注册到固件的 Secure Boot 密钥库(MOK)。
+> **Secure Boot:** 对启用了 Secure Boot 的客户端,请激活内置的 `secureboot-official` bootloader 集,并改为通告 `ipxe-shimx64.efi`(x86_64)或 `ipxe-shimaa64.efi`(ARM64)作为 UEFI bootfile。该集处于激活状态时,内建 proxyDHCP 会自动完成这些。参见 [Secure Boot 指南](secure-boot.md)。
 
 ### 引导流程
 
@@ -293,7 +296,7 @@ MikroTik 路由器因其灵活性和性能,在网络引导中很受欢迎。
 #### 1. 定义 DHCP 选项
 * 进入 **IP** > **DHCP Server** > **Options**。
 * 为以下每一项点击 **Add New**(确保 **Value** 包含**单引号**):
-    * **Option 66 (Server)**:Name:`tftp-server` | Code:`66` | Value:`'<BOOT_SERVER_IP>'`。
+    * **Option 66 (Server)**:Name:`tftp-server` | Code:`66` | Value:`s'<BOOT_SERVER_IP>'`。前缀 `s` 让 RouterOS 以文本形式发送地址;不加前缀时,带引号的 IP 会作为四个原始字节发送,iPXE 无法使用。
     * **Option 67 (BIOS)**:Name:`boot-bios` | Code:`67` | Value:`'undionly.kpxe'`。
     * **Option 67 (UEFI)**:Name:`boot-uefi` | Code:`67` | Value:`'ipxe.efi'`。
 
@@ -325,7 +328,7 @@ MikroTik 路由器因其灵活性和性能,在网络引导中很受欢迎。
 ```routeros
 # 1. Define DHCP Options
 /ip dhcp-server option
-add code=66 name=tftp-server value="'<BOOT_SERVER_IP>'"
+add code=66 name=tftp-server value="s'<BOOT_SERVER_IP>'"
 add code=67 name=boot-bios value="'undionly.kpxe'"
 add code=67 name=boot-uefi value="'ipxe.efi'"
 
@@ -452,6 +455,8 @@ OPNsense 是 pfSense 的分支,具有现代化的界面。
 4. 点击 **Save**
 5. 点击 **Apply Changes**
 
+> **ARM64 / Raspberry Pi:** OPNsense 的 GUI 没有 ARM64 文件名字段,也无法表达 Raspberry Pi 固件的厂商选项。对于 Raspberry Pi 或混合架构的设备群,请在 OPNsense 之外同时启用 Bootimus 内建的 proxyDHCP — 由它自行应答这些客户端。参见 [Raspberry Pi 指南](raspberry-pi.md)。
+
 ### 高级配置
 
 1. 进入 **Services > DHCPv4 > [Interface]**
@@ -520,6 +525,14 @@ ping 192.168.1.10
 
 # Capture DHCP traffic
 sudo tcpdump -i eth0 port 67 or port 68
+```
+
+### 反复 DISCOVER 却没有 DHCPREQUEST(proxyDHCP)
+
+如果抓包显示客户端一次又一次发送 `DHCPDISCOVER`,同时收到了你的 DHCP 服务器和 Bootimus 的 Offer,却始终不发送 `DHCPREQUEST`(UDP/4011 上也没有任何流量),说明固件没有合并这两个 Offer。试试 `--proxy-dhcp-no-bootfile-option`,然后试 `--proxy-dhcp-no-vendor-option`(或在客户端上勾选 **Omit PXE vendor option (43)**);如果仍然无效,请关闭 proxyDHCP,并在主 DHCP 服务器上配置 option 66/67。
+
+```bash
+sudo tcpdump -i eth0 -n port 67 or port 68 or port 4011
 ```
 
 ### 客户端未下载 Bootloader

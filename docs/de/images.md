@@ -5,6 +5,7 @@ Kompletter Leitfaden zur Verwaltung von ISO-Images, zum Extrahieren von Boot-Dat
 ##  Inhaltsverzeichnis
 
 - [Images hinzufügen](#images-hinzufügen)
+- [Unified Kernel Images (UKI)](#unified-kernel-images-uki)
 - [Kernel-Extraktion](#kernel-extraktion)
 - [Netboot-Unterstützung](#netboot-unterstützung)
 - [Ubuntu-Desktop-Optimierung](#ubuntu-desktop-optimierung)
@@ -88,6 +89,22 @@ Wenn du ISOs manuell ins Daten-Verzeichnis (oder Unterverzeichnisse) kopierst:
 curl -u admin:password -X POST http://localhost:8081/api/scan
 ```
 
+## Unified Kernel Images (UKI)
+
+Ein Unified Kernel Image (UKI) ist eine einzelne EFI-Anwendung, die einen Linux-Kernel, seine initrd und seine Kernel-Kommandozeile bündelt. Bootimus bootet UKIs direkt, ganz ohne Extraktion.
+
+**UKI hinzufügen**: Lade die `.efi`-Datei hoch, lade sie von einer URL herunter oder kopiere sie nach `/data/isos/` und scanne, genau wie bei einer ISO. Bootimus registriert nur `.efi`-Dateien, die UKIs sind (EFI-Anwendungen mit einer `.linux`-Sektion); andere EFI-Programme werden abgelehnt, und Dateien im extrahierten Ordner einer ISO werden ignoriert.
+
+**Boot-Parameter**: Die in der `.cmdline`-Sektion des UKI eingebettete Kommandozeile wird beim ersten Hinzufügen in die Boot-Parameter des Images übernommen, sodass du sie in den Image-Eigenschaften sehen und ändern kannst. Bootimus bootet das Image mit:
+
+```
+kernel http://<server>:8080/isos/<image>.efi <boot parameters>
+```
+
+Bei deaktiviertem Secure Boot ersetzen diese Parameter die eingebettete Kommandozeile, deshalb ist die eingebettete vorausgefüllt. Bei aktiviertem Secure Boot ignoriert der systemd-stub in den meisten UKIs sie und verwendet immer die eingebettete Kommandozeile.
+
+**Nur UEFI**: UKIs sind EFI-Programme, daher können Legacy-BIOS-Clients sie nicht booten. Wählt man eines auf einem BIOS-Client, erscheint ein Hinweis, dass UEFI nötig ist.
+
 ## Kernel-Extraktion
 
 Die meisten modernen ISOs unterstützen direktes HTTP-Booten über iPXEs `sanboot`-Befehl, der das ganze ISO herunterlädt und bootet. Das Extrahieren von Kernel und initrd bringt aber deutliche Vorteile:
@@ -98,6 +115,7 @@ Die meisten modernen ISOs unterstützen direktes HTTP-Booten über iPXEs `sanboo
 - **Geringere Bandbreite**: Kritisch in Netzen mit mehreren Clients
 - **Bessere Kompatibilität**: Manche ISOs unterstützen `sanboot` nicht sauber
 - **Netzwerk-Installation**: Netboot-Dateien für Debian-/Ubuntu-Installer nutzen
+- **UEFI Secure Boot**: Die Extraktion erkennt den signierten shim des ISOs, sodass Secure-Boot-Clients den Kernel verifizieren können — siehe den [Secure-Boot-Leitfaden](secure-boot.md)
 
 ### Wie man extrahiert
 

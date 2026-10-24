@@ -66,7 +66,7 @@ func TestEffectiveBootloaderSetPrecedence(t *testing.T) {
 	server, store := newBootloaderSelectionTestServer(t)
 	server.SetActiveBootloaderSet("default")
 
-	group := &models.ClientGroup{Name: "rack-a", BootloaderSet: "secureboot"}
+	group := &models.ClientGroup{Name: "rack-a", BootloaderSet: "secureboot-official"}
 	if err := store.CreateClientGroup(group); err != nil {
 		t.Fatalf("CreateClientGroup: %v", err)
 	}
@@ -90,9 +90,9 @@ func TestEffectiveBootloaderSetPrecedence(t *testing.T) {
 		wantDirect bool
 	}{
 		{name: "client overrides group", mac: clients[0].MACAddress, wantSet: "se350", wantDirect: true},
-		{name: "group overrides global", mac: clients[1].MACAddress, wantSet: "secureboot", wantDirect: true},
+		{name: "group overrides global", mac: clients[1].MACAddress, wantSet: "secureboot-official", wantDirect: true},
 		{name: "global fallback", mac: clients[2].MACAddress, wantSet: "default", wantDirect: false},
-		{name: "invalid client set falls back to group", mac: clients[3].MACAddress, wantSet: "secureboot", wantDirect: true},
+		{name: "invalid client set falls back to group", mac: clients[3].MACAddress, wantSet: "secureboot-official", wantDirect: true},
 		{name: "unknown client", mac: "02:00:00:00:00:ff", wantSet: "default", wantDirect: false},
 	}
 	for _, tt := range tests {
@@ -111,7 +111,7 @@ func TestProxyDHCPBootfilesForClientQualifiesOverrides(t *testing.T) {
 
 	direct := &models.Client{MACAddress: "02:00:00:00:01:01", BootloaderSet: "se350"}
 	inherited := &models.Client{MACAddress: "02:00:00:00:01:02"}
-	secureBoot := &models.Client{MACAddress: "02:00:00:00:01:03", BootloaderSet: "secureboot"}
+	secureBoot := &models.Client{MACAddress: "02:00:00:00:01:03", BootloaderSet: "secureboot-official"}
 	defaultOverride := &models.Client{MACAddress: "02:00:00:00:01:04", BootloaderSet: "default"}
 	for _, client := range []*models.Client{direct, inherited, secureBoot, defaultOverride} {
 		if err := store.CreateClient(client); err != nil {
@@ -136,9 +136,9 @@ func TestProxyDHCPBootfilesForClientQualifiesOverrides(t *testing.T) {
 	}
 
 	bios, uefi, arm64 = server.proxyDHCPBootfilesForClient(mustParseMAC(t, secureBoot.MACAddress))
-	if bios != "bootloader-sets/secureboot/undionly.kpxe" ||
-		uefi != "bootloader-sets/secureboot/ipxe-shimx64.efi" ||
-		arm64 != "bootloader-sets/secureboot/ipxe-shimaa64.efi" {
+	if bios != "bootloader-sets/secureboot-official/undionly.kpxe" ||
+		uefi != "bootloader-sets/secureboot-official/ipxe-shimx64.efi" ||
+		arm64 != "bootloader-sets/secureboot-official/ipxe-shimaa64.efi" {
 		t.Fatalf("secure boot files = (%q, %q, %q), want qualified manifest files", bios, uefi, arm64)
 	}
 

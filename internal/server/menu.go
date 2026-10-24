@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bootimus/internal/imagescan"
 	"bootimus/internal/models"
 	"bootimus/internal/profiles"
 	"bootimus/internal/tools"
@@ -321,6 +322,16 @@ func (mb *MenuBuilder) buildImageBootSections() string {
 
 			sb.WriteString(mb.buildKernelBootSection(&img, encodedFilename, cacheDir))
 
+		case imagescan.BootMethodUKI:
+			baseURL := fmt.Sprintf("http://%s:%d", mb.serverAddr, mb.httpPort)
+			params := mb.resolveBootParams(&img, baseURL, encodedFilename, cacheDir)
+			if params != "" {
+				params = " " + params
+			}
+			sb.WriteString("iseq ${platform} efi || goto uki_needs_uefi\n")
+			sb.WriteString(fmt.Sprintf("kernel %s/isos/%s?mac=%s%s\n", baseURL, encodedFilename, mb.macAddress, params))
+			sb.WriteString("boot || goto failed\n")
+
 		default:
 			sb.WriteString(fmt.Sprintf("sanboot --no-describe --drive 0x80 http://%s:%d/isos/%s?mac=%s\n", mb.serverAddr, mb.httpPort, encodedFilename, mb.macAddress))
 		}
@@ -359,14 +370,7 @@ func (mb *MenuBuilder) buildKernelBootSection(img *models.Image, encodedFilename
 
 	switch img.Distro {
 	case "windows", "windows7":
-		fields := strings.Fields(bootParams)
-		flags := fields[:0]
-		for _, f := range fields {
-			if !strings.Contains(f, "/") {
-				flags = append(flags, f)
-			}
-		}
-		bootParams = strings.Join(flags, " ")
+		bootParams = wimbootArgs(bootParams)
 		if bootParams != "" {
 			bootParams = " " + bootParams
 		}
@@ -387,10 +391,13 @@ func (mb *MenuBuilder) buildKernelBootSection(img *models.Image, encodedFilename
 		initrdName := ""
 		if img.InitrdOverride != "" {
 			initrdPath = encodePathSegments(img.InitrdOverride)
-			initrdName = " initrd"
+			initrdName = "--name initrd "
 		}
 		sb.WriteString(fmt.Sprintf("kernel %s/boot/%s/%s%s%s\n", baseURL, cacheDir, kernelPath, autoInstallParam, bootParams))
-		sb.WriteString(fmt.Sprintf("initrd %s/boot/%s/%s%s\n", baseURL, cacheDir, initrdPath, initrdName))
+		sb.WriteString(fmt.Sprintf("initrd %s%s/boot/%s/%s\n", initrdName, baseURL, cacheDir, initrdPath))
+		if img.ShimPath != "" {
+			sb.WriteString(fmt.Sprintf("iseq ${platform} efi && shim %s/boot/%s/%s ||\n", baseURL, cacheDir, encodePathSegments(img.ShimPath)))
+		}
 		sb.WriteString("boot || goto failed\n")
 	}
 
@@ -419,6 +426,37 @@ func (mb *MenuBuilder) buildAutoInstallParam(img *models.Image, baseURL, encoded
 	}
 }
 
+var wimbootKeys = map[string]bool{
+	"rawbcd":     true,
+	"rawwim":     true,
+	"gui":        true,
+	"linear":     true,
+	"quiet":      true,
+	"pause":      true,
+	"index":      true,
+	"initrdfile": true,
+}
+
+func wimbootArgs(params string) string {
+	var kept []string
+	for _, f := range strings.Fields(params) {
+		key, _, _ := strings.Cut(f, "=")
+		if wimbootKeys[key] {
+			kept = append(kept, f)
+		}
+	}
+	return strings.Join(kept, " ")
+}
+
+func hasInitrdParam(params string) bool {
+	for _, f := range strings.Fields(params) {
+		if strings.HasPrefix(f, "initrd=") {
+			return true
+		}
+	}
+	return false
+}
+
 func (mb *MenuBuilder) resolveBootParams(img *models.Image, baseURL, encodedFilename, cacheDir string) string {
 	params := img.BootParams
 
@@ -427,7 +465,7 @@ func (mb *MenuBuilder) resolveBootParams(img *models.Image, baseURL, encodedFile
 		params = mb.profileManager.GetBootParams(img.Distro, hasSquashfs)
 	}
 
-	if params == "" && !strings.HasPrefix(img.Distro, "windows") {
+	if params == "" && !strings.HasPrefix(img.Distro, "windows") && img.BootMethod != imagescan.BootMethodUKI {
 		params = fmt.Sprintf("iso-url=%s/isos/%s ip=dhcp", baseURL, encodedFilename)
 	}
 
@@ -477,9 +515,13 @@ func (mb *MenuBuilder) buildFooter() string {
 			sb.WriteString(fmt.Sprintf("initrd %s\n", t.KernelURL))
 			sb.WriteString("chain memdisk raw || goto failed\n\n")
 		default:
-			sb.WriteString(fmt.Sprintf("kernel %s %s\n", t.KernelURL, t.BootParams))
+			params := t.BootParams
+			if t.InitrdURL != "" && !hasInitrdParam(params) {
+				params = strings.TrimSpace("initrd=initrd " + params)
+			}
+			sb.WriteString(fmt.Sprintf("kernel %s %s\n", t.KernelURL, params))
 			if t.InitrdURL != "" {
-				sb.WriteString(fmt.Sprintf("initrd %s\n", t.InitrdURL))
+				sb.WriteString(fmt.Sprintf("initrd --name initrd %s\n", t.InitrdURL))
 			}
 			sb.WriteString("boot || goto failed\n\n")
 		}
@@ -495,6 +537,10 @@ shell
 
 :reboot
 reboot
+
+:uki_needs_uefi
+echo This image is a unified kernel image and needs a UEFI client.
+goto failed
 
 :failed
 echo Boot failed, returning to menu in 5 seconds...

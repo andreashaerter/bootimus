@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -176,7 +177,26 @@ func runServe(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	authMgr, err := auth.NewManager(store, ldapConfig)
+	var oidcConfig *auth.OIDCConfig
+	if issuer := viper.GetString("oidc.issuer"); issuer != "" {
+		oidcConfig = &auth.OIDCConfig{
+			Issuer:        issuer,
+			ClientID:      viper.GetString("oidc.client_id"),
+			ClientSecret:  viper.GetString("oidc.client_secret"),
+			RedirectURL:   viper.GetString("oidc.redirect_url"),
+			Scopes:        splitList(viper.GetString("oidc.scopes")),
+			UsernameClaim: viper.GetString("oidc.username_claim"),
+			GroupsClaim:   viper.GetString("oidc.groups_claim"),
+			AdminGroups:   splitList(viper.GetString("oidc.admin_groups")),
+			AllowedGroups: splitList(viper.GetString("oidc.allowed_groups")),
+			AdminUsers:    splitList(viper.GetString("oidc.admin_users")),
+			AllowedUsers:  splitList(viper.GetString("oidc.allowed_users")),
+			DisplayName:   viper.GetString("oidc.display_name"),
+			SkipVerify:    viper.GetBool("oidc.skip_verify"),
+		}
+	}
+
+	authMgr, err := auth.NewManager(store, ldapConfig, oidcConfig)
 	if err != nil {
 		log.Fatalf("Failed to initialise authentication: %v", err)
 	}
@@ -187,7 +207,7 @@ func runServe(cmd *cobra.Command, args []string) {
 		log.Printf("Warning: Failed to seed distro profiles: %v", err)
 	}
 	if profileMgr.DisableRemoteCheck {
-		log.Println("Remote distro profile updates disabled")
+		log.Println("Remote distro profile and tool catalogue updates disabled")
 	}
 
 	cfg := &server.Config{
@@ -215,6 +235,7 @@ func runServe(cmd *cobra.Command, args []string) {
 		ProxyDHCPBootfileUEFI:     viper.GetString("proxy_dhcp.bootfile_uefi"),
 		ProxyDHCPBootfileARM:      viper.GetString("proxy_dhcp.bootfile_arm64"),
 		ProxyDHCPNoBootfileOption: viper.GetBool("proxy_dhcp.no_bootfile_option"),
+		ProxyDHCPNoVendorOption:   viper.GetBool("proxy_dhcp.no_vendor_option"),
 
 		WindowsSMBEnabled: viper.GetBool("windows_smb.enabled"),
 		WindowsSMBPort:    viper.GetInt("windows_smb.port"),
@@ -233,4 +254,14 @@ func runServe(cmd *cobra.Command, args []string) {
 	if err := srv.Shutdown(); err != nil {
 		log.Printf("Error during shutdown: %v", err)
 	}
+}
+
+func splitList(value string) []string {
+	var out []string
+	for _, item := range strings.Split(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }

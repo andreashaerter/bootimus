@@ -54,6 +54,10 @@ func (h *Handler) RebuildBootWim(imageID uint) error {
 
 	log.Printf("Rebuilding boot.wim for %s with %d driver pack(s)", imageName, len(driverPacks))
 
+	mu := h.bootWimLock(image.Filename)
+	mu.Lock()
+	defer mu.Unlock()
+
 	tempDir, err := os.MkdirTemp("", "bootimus-wim-*")
 	if err != nil {
 		return fmt.Errorf("failed to create temp directory: %w", err)
@@ -69,17 +73,33 @@ func (h *Handler) RebuildBootWim(imageID uint) error {
 		return fmt.Errorf("failed to create drivers directory: %w", err)
 	}
 
-	backupPath := bootWimPath + ".backup"
-	if _, err := os.Stat(backupPath); os.IsNotExist(err) {
-		log.Printf("Creating backup of boot.wim at %s", backupPath)
-		if err := copyFile(bootWimPath, backupPath); err != nil {
-			return fmt.Errorf("failed to backup boot.wim: %w", err)
-		}
-	} else {
-		if err := copyFile(backupPath, bootWimPath); err != nil {
-			return fmt.Errorf("failed to copy backup to boot.wim: %w", err)
+	origPath := bootWimPath + ".orig"
+	legacyBackupPath := bootWimPath + ".backup"
+	if _, err := os.Stat(origPath); os.IsNotExist(err) && !image.SMBInstallEnabled {
+		if _, err := os.Stat(legacyBackupPath); err == nil {
+			log.Printf("Adopting legacy driver backup %s as the pristine boot.wim", legacyBackupPath)
+			if err := os.Rename(legacyBackupPath, origPath); err != nil {
+				return fmt.Errorf("failed to adopt legacy boot.wim backup: %w", err)
+			}
 		}
 	}
+	pristineBase := false
+	if _, err := os.Stat(origPath); err == nil {
+		log.Printf("Restoring pristine boot.wim from %s before applying drivers", origPath)
+		if err := copyFile(origPath, bootWimPath); err != nil {
+			return fmt.Errorf("failed to restore pristine boot.wim: %w", err)
+		}
+		pristineBase = true
+	} else if !image.SMBInstallEnabled {
+		log.Printf("Backing up pristine boot.wim to %s", origPath)
+		if err := copyFile(bootWimPath, origPath); err != nil {
+			return fmt.Errorf("failed to back up pristine boot.wim: %w", err)
+		}
+		pristineBase = true
+	} else {
+		log.Printf("No pristine backup of boot.wim for %s; applying drivers in place - re-extract the image to enable clean rebuilds", imageName)
+	}
+	os.Remove(legacyBackupPath)
 
 	log.Printf("Extracting driver packs...")
 	for _, pack := range driverPacks {
@@ -121,6 +141,20 @@ func (h *Handler) RebuildBootWim(imageID uint) error {
 		pack.LastApplied = &now
 		if err := h.storage.UpdateDriverPack(pack.ID, pack); err != nil {
 			log.Printf("Warning: Failed to update driver pack %d LastApplied: %v", pack.ID, err)
+		}
+	}
+
+	if image.SMBInstallEnabled && pristineBase {
+		if h.patchWindowsBootWim(image.Filename) {
+			image.SMBPatchFingerprint = h.computeSMBPatchFingerprint(image)
+			log.Printf("Re-applied SMB patch to rebuilt boot.wim for %s", imageName)
+		} else {
+			image.SMBInstallEnabled = false
+			image.SMBPatchFingerprint = ""
+			log.Printf("Warning: failed to re-apply SMB patch to rebuilt boot.wim for %s", imageName)
+		}
+		if err := h.storage.UpdateImage(image.Filename, image); err != nil {
+			log.Printf("Warning: failed to update image %s after SMB re-patch: %v", imageName, err)
 		}
 	}
 

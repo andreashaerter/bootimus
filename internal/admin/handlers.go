@@ -9,9 +9,9 @@ import (
 	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -25,14 +25,18 @@ import (
 
 	"bootimus/bootloaders"
 	"bootimus/internal/autoinstall"
+	"bootimus/internal/bmc"
+	_ "bootimus/internal/bmc/amt"
+	_ "bootimus/internal/bmc/redfish"
 	"bootimus/internal/extractor"
+	"bootimus/internal/imagescan"
 	"bootimus/internal/models"
 	"bootimus/internal/profiles"
-	"bootimus/internal/redfish"
 	"bootimus/internal/smb"
 	"bootimus/internal/storage"
 	"bootimus/internal/sysstats"
 	"bootimus/internal/tools"
+	"bootimus/internal/uki"
 	"bootimus/internal/webhook"
 	"bootimus/internal/wim"
 	"bootimus/internal/wol"
@@ -63,6 +67,8 @@ type Handler struct {
 	autoInstallLib     *autoinstall.Library
 	extractionMu       sync.RWMutex
 	extractionStates   map[string]*extractionState
+	bootWimLocksMu     sync.Mutex
+	bootWimLocks       map[string]*sync.Mutex
 	SchedulerReload    func() error
 	SchedulerRunNow    func(id uint) error
 	WebhookNotifier    *webhook.Notifier
@@ -114,6 +120,10 @@ func (h *Handler) patchWindowsBootWim(isoFilename string) bool {
 	if h.smbManager == nil {
 		return false
 	}
+	if err := h.smbManager.Err(); err != nil {
+		log.Printf("Windows SMB: skipping boot.wim patch - smbd is not running: %v", err)
+		return false
+	}
 	if h.serverAddr == "" {
 		log.Printf("Windows SMB: skipping boot.wim patch - server address not configured")
 		return false
@@ -136,6 +146,15 @@ func (h *Handler) patchWindowsBootWim(isoFilename string) bool {
 	if err != nil {
 		log.Printf("Windows SMB: skipping boot.wim patch - %v", err)
 		return false
+	}
+
+	origPath := bootWimPath + ".orig"
+	if _, err := os.Stat(origPath); os.IsNotExist(err) {
+		log.Printf("Windows SMB: backing up pristine boot.wim to %s", origPath)
+		if err := copyFile(bootWimPath, origPath); err != nil {
+			log.Printf("Windows SMB: skipping boot.wim patch - failed to back up pristine boot.wim: %v", err)
+			return false
+		}
 	}
 
 	shareName := smb.SanitiseShareName(isoBase)
@@ -182,6 +201,45 @@ func findExtractedBootWim(extractedISODir string) string {
 		}
 	}
 	return ""
+}
+
+func (h *Handler) extractedBootWimPath(isoFilename string) string {
+	isoBase := strings.TrimSuffix(isoFilename, filepath.Ext(isoFilename))
+	return findExtractedBootWim(filepath.Join(h.isoDir, isoBase, "iso"))
+}
+
+func (h *Handler) bootWimLock(isoFilename string) *sync.Mutex {
+	h.bootWimLocksMu.Lock()
+	defer h.bootWimLocksMu.Unlock()
+	if h.bootWimLocks == nil {
+		h.bootWimLocks = make(map[string]*sync.Mutex)
+	}
+	mu, ok := h.bootWimLocks[isoFilename]
+	if !ok {
+		mu = &sync.Mutex{}
+		h.bootWimLocks[isoFilename] = mu
+	}
+	return mu
+}
+
+func (h *Handler) discardStaleBootWimBackup(isoFilename string) {
+	if bootWimPath := h.extractedBootWimPath(isoFilename); bootWimPath != "" {
+		if err := os.Remove(bootWimPath + ".orig"); err == nil {
+			log.Printf("Windows SMB: discarded stale boot.wim backup for %s", isoFilename)
+		}
+		if err := os.Remove(bootWimPath + ".backup"); err == nil {
+			log.Printf("Windows SMB: discarded stale legacy boot.wim driver backup for %s", isoFilename)
+		}
+	}
+}
+
+func (h *Handler) smbUnpatchAvailable(isoFilename string) bool {
+	bootWimPath := h.extractedBootWimPath(isoFilename)
+	if bootWimPath == "" {
+		return false
+	}
+	_, err := os.Stat(bootWimPath + ".orig")
+	return err == nil
 }
 
 func buildStartnetScript(serverAddr, shareName string, smbPort, httpPort int, isoFilename string, autoInstall bool) string {
@@ -280,7 +338,7 @@ if exist x:\drivers set SETUP_ARGS=!SETUP_ARGS! /installdrivers x:\drivers
 
 if exist Z:\AutoUnattend.xml (
 	copy /Y Z:\AutoUnattend.xml X:\AutoUnattend.xml >nul
- 	set SETUP_ARGS=!SETUP_ARGS! /unattend X:\AutoUnattend.xml
+ 	set SETUP_ARGS=!SETUP_ARGS! /unattend:X:\AutoUnattend.xml
 ) else (
 	echo WARNING: AutoUnattend.xml not on share, running interactive setup.
 )
@@ -425,13 +483,22 @@ func (h *Handler) CreateClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client.MACAddress = strings.ToLower(strings.ReplaceAll(client.MACAddress, "-", ":"))
+	client.MACAddress = normaliseMAC(client.MACAddress)
+	if client.MACAddress == "" {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "MAC address is required"})
+		return
+	}
 
 	client.Enabled = true
 	client.Static = true
 
 	if err := h.storage.CreateClient(&client); err != nil {
-		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
+		if errors.Is(err, storage.ErrClientExists) {
+			h.sendJSON(w, http.StatusConflict, Response{Success: false, Error: "A client with this MAC address already exists"})
+			return
+		}
+		log.Printf("Admin: Failed to create client %s: %v", client.MACAddress, err)
+		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: "Failed to create client"})
 		return
 	}
 
@@ -480,6 +547,27 @@ func (h *Handler) UpdateClient(w http.ResponseWriter, r *http.Request) {
 	}
 	if aif, ok := updates["auto_install_file"].(string); ok {
 		client.AutoInstallFile = aif
+	}
+	if protocol, ok := updates["bmc_protocol"].(string); ok {
+		client.BMCProtocol = protocol
+	}
+	if host, ok := updates["ipmi_host"].(string); ok {
+		client.IPMIHost = host
+	}
+	if port, ok := updates["ipmi_port"].(float64); ok {
+		client.IPMIPort = int(port)
+	}
+	if user, ok := updates["ipmi_username"].(string); ok {
+		client.IPMIUsername = user
+	}
+	if pass, ok := updates["ipmi_password"].(string); ok {
+		client.IPMIPassword = pass
+	}
+	if insecure, ok := updates["ipmi_insecure"].(bool); ok {
+		client.IPMIInsecure = insecure
+	}
+	if noVendor, ok := updates["proxy_dhcp_no_vendor_option"].(bool); ok {
+		client.ProxyDHCPNoVendorOption = noVendor
 	}
 	if groupID, ok := updates["client_group_id"]; ok {
 		if groupID == nil {
@@ -674,40 +762,7 @@ func (h *Handler) GetClientInventoryHistory(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *Handler) syncFilesystemToDatabase() {
-	var isoFiles []models.SyncFile
-
-	err := filepath.WalkDir(h.isoDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if !strings.HasSuffix(strings.ToLower(d.Name()), ".iso") {
-			return nil
-		}
-
-		info, err := d.Info()
-		if err != nil {
-			log.Printf("Failed to get file info for %s: %v", path, err)
-			return nil
-		}
-
-		relPath, _ := filepath.Rel(h.isoDir, path)
-		groupPath := filepath.Dir(relPath)
-		if groupPath == "." {
-			groupPath = ""
-		}
-
-		isoFiles = append(isoFiles, models.SyncFile{
-			Name:      strings.TrimSuffix(d.Name(), filepath.Ext(d.Name())),
-			Filename:  relPath,
-			Size:      info.Size(),
-			GroupPath: groupPath,
-		})
-
-		return nil
-	})
+	isoFiles, err := imagescan.Scan(h.isoDir)
 	if err != nil {
 		log.Printf("Failed to walk ISO directory for sync: %v", err)
 		return
@@ -814,6 +869,9 @@ func (h *Handler) ListImages(w http.ResponseWriter, r *http.Request) {
 		if img.SMBInstallEnabled && img.SMBPatchFingerprint != "" {
 			img.SMBNeedsRepatch = h.computeSMBPatchFingerprint(img) != img.SMBPatchFingerprint
 		}
+		if img.SMBInstallEnabled {
+			img.SMBUnpatchAvailable = h.smbUnpatchAvailable(img.Filename)
+		}
 	}
 
 	log.Printf("ListImages returning %d images", len(images))
@@ -843,6 +901,9 @@ func (h *Handler) GetImage(w http.ResponseWriter, r *http.Request) {
 
 	if image.SMBInstallEnabled && image.SMBPatchFingerprint != "" {
 		image.SMBNeedsRepatch = h.computeSMBPatchFingerprint(image) != image.SMBPatchFingerprint
+	}
+	if image.SMBInstallEnabled {
+		image.SMBUnpatchAvailable = h.smbUnpatchAvailable(image.Filename)
 	}
 
 	h.sendJSON(w, http.StatusOK, Response{Success: true, Data: image})
@@ -1122,10 +1183,10 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 		switch part.FormName() {
 		case "file":
 			filename = filepath.Base(part.FileName())
-			if !strings.HasSuffix(strings.ToLower(filename), ".iso") {
+			if !imagescan.IsSupportedFilename(filename) {
 				part.Close()
 				log.Printf("Upload rejected: invalid file type: %s", filename)
-				h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Only .iso files are allowed"})
+				h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Only .iso files and unified kernel images (.efi) are allowed"})
 				return
 			}
 
@@ -1181,6 +1242,16 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var ukiImage *uki.Image
+	if strings.EqualFold(filepath.Ext(filename), ".efi") {
+		if ukiImage, err = uki.Inspect(filePath); err != nil {
+			cleanup()
+			log.Printf("Upload rejected: %s is not a unified kernel image: %v", filename, err)
+			h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "This .efi file is not a unified kernel image"})
+			return
+		}
+	}
+
 	existingImage, err := h.storage.GetImage(filename)
 	if err == nil && existingImage != nil {
 		existingImage.Size = size
@@ -1192,7 +1263,9 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 			existingImage.Description = description
 		}
 
-		h.detectAndSetDistro(existingImage)
+		if ukiImage == nil {
+			h.detectAndSetDistro(existingImage)
+		}
 
 		if err := h.storage.UpdateImage(filename, existingImage); err != nil {
 			cleanup()
@@ -1218,7 +1291,12 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 		Description: description,
 	}
 
-	h.detectAndSetDistro(&image)
+	if ukiImage != nil {
+		image.BootMethod = imagescan.BootMethodUKI
+		image.BootParams = ukiImage.Cmdline
+	} else {
+		h.detectAndSetDistro(&image)
+	}
 
 	if err := h.storage.CreateImage(&image); err != nil {
 		cleanup()
@@ -1299,6 +1377,10 @@ func (h *Handler) ExtractImage(w http.ResponseWriter, r *http.Request) {
 		h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "Image not found"})
 		return
 	}
+	if image.BootMethod == imagescan.BootMethodUKI {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Unified kernel images boot directly and need no extraction"})
+		return
+	}
 
 	log.Printf("Admin: Starting kernel/initrd extraction - %s (re-extract: %v)", filename, image.Extracted)
 
@@ -1362,6 +1444,7 @@ func (h *Handler) ExtractImage(w http.ResponseWriter, r *http.Request) {
 	image.KernelPath = bootFiles.Kernel
 	image.InitrdPath = bootFiles.Initrd
 	image.SquashfsPath = bootFiles.SquashfsPath
+	image.ShimPath = bootFiles.ShimPath
 
 	if h.profileManager != nil && bootFiles.Distro != "" {
 		hasSquashfs := bootFiles.SquashfsPath != ""
@@ -1384,10 +1467,14 @@ func (h *Handler) ExtractImage(w http.ResponseWriter, r *http.Request) {
 	image.InstallWimPath = bootFiles.InstallWim
 
 	if bootFiles.Distro == "windows" {
+		mu := h.bootWimLock(filename)
+		mu.Lock()
+		h.discardStaleBootWimBackup(filename)
 		image.SMBInstallEnabled = h.patchWindowsBootWim(filename)
 		if image.SMBInstallEnabled {
 			image.SMBPatchFingerprint = h.computeSMBPatchFingerprint(image)
 		}
+		mu.Unlock()
 	}
 
 	log.Printf("Setting boot_method to 'kernel' for image ID=%d, filename=%s", image.ID, image.Filename)
@@ -1453,6 +1540,10 @@ func (h *Handler) PatchImageSMB(w http.ResponseWriter, r *http.Request) {
 		h.sendJSON(w, http.StatusPreconditionFailed, Response{Success: false, Error: "Windows SMB is not enabled on this server"})
 		return
 	}
+	if err := h.smbManager.Err(); err != nil {
+		h.sendJSON(w, http.StatusPreconditionFailed, Response{Success: false, Error: "Windows SMB server is not running: " + err.Error()})
+		return
+	}
 	if !wim.IsAvailable() {
 		h.sendJSON(w, http.StatusPreconditionFailed, Response{Success: false, Error: "wimlib-imagex not installed on the server. Install wimtools (e.g. apt install wimtools) to enable boot.wim patching."})
 		return
@@ -1472,7 +1563,10 @@ func (h *Handler) PatchImageSMB(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	mu := h.bootWimLock(filename)
+	mu.Lock()
 	ok := h.patchWindowsBootWim(filename)
+	mu.Unlock()
 	image.SMBInstallEnabled = ok
 	if ok {
 		image.SMBPatchFingerprint = h.computeSMBPatchFingerprint(image)
@@ -1487,6 +1581,87 @@ func (h *Handler) PatchImageSMB(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.sendJSON(w, http.StatusOK, Response{Success: true, Message: "boot.wim patched for SMB auto-install", Data: image})
+}
+
+func (h *Handler) UnpatchImageSMB(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		h.sendJSON(w, http.StatusMethodNotAllowed, Response{Success: false, Error: "Method not allowed"})
+		return
+	}
+
+	filename := r.URL.Query().Get("filename")
+	if filename == "" {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Missing filename parameter"})
+		return
+	}
+
+	image, err := h.storage.GetImage(filename)
+	if err != nil {
+		h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "Image not found"})
+		return
+	}
+	if image.Distro != "windows" {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Not a Windows image"})
+		return
+	}
+
+	mu := h.bootWimLock(filename)
+	mu.Lock()
+	defer mu.Unlock()
+
+	bootWimPath := h.extractedBootWimPath(filename)
+	if bootWimPath == "" {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "No extracted boot.wim found for this image"})
+		return
+	}
+
+	origPath := bootWimPath + ".orig"
+	if _, err := os.Stat(origPath); err != nil {
+		h.sendJSON(w, http.StatusPreconditionFailed, Response{Success: false, Error: "No pristine backup of boot.wim exists — this image was patched before backups were kept. Re-extract the image, then unpatch."})
+		return
+	}
+
+	if err := os.Rename(origPath, bootWimPath); err != nil {
+		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: fmt.Sprintf("Failed to restore original boot.wim: %v", err)})
+		return
+	}
+	os.Remove(bootWimPath + ".backup")
+	log.Printf("Windows SMB: restored pristine boot.wim for %s", filename)
+
+	isoBase := strings.TrimSuffix(filename, filepath.Ext(filename))
+	sharePath := filepath.Join(h.isoDir, isoBase, "iso")
+	if err := os.Remove(filepath.Join(sharePath, "AutoUnattend.xml")); err == nil {
+		log.Printf("Windows SMB: removed staged AutoUnattend.xml for %s", filename)
+	}
+
+	if h.smbManager != nil {
+		shareName := smb.SanitiseShareName(isoBase)
+		if h.smbManager.HasShare(shareName) {
+			h.smbManager.RemoveShare(shareName)
+			if err := h.smbManager.Reload(); err != nil {
+				log.Printf("Windows SMB: failed to reload smbd after removing share %q: %v", shareName, err)
+			}
+		}
+	}
+
+	image.SMBInstallEnabled = false
+	image.SMBPatchFingerprint = ""
+	if err := h.storage.UpdateImage(filename, image); err != nil {
+		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
+		return
+	}
+
+	message := "Original boot.wim restored"
+	if packs, err := h.storage.ListDriverPacksByImage(image.ID); err == nil && len(packs) > 0 {
+		message = "Original boot.wim restored; re-applying driver packs in the background"
+		go func(imageID uint) {
+			if err := h.RebuildBootWim(imageID); err != nil {
+				log.Printf("Windows SMB: failed to re-apply driver packs after unpatch of %s: %v", filename, err)
+			}
+		}(image.ID)
+	}
+
+	h.sendJSON(w, http.StatusOK, Response{Success: true, Message: message, Data: image})
 }
 
 func (h *Handler) RedetectImage(w http.ResponseWriter, r *http.Request) {
@@ -1872,41 +2047,11 @@ func (h *Handler) ScanImages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	existingFiles := make(map[string]bool)
-	var isoFiles []models.SyncFile
-
-	err := filepath.WalkDir(h.isoDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if !strings.HasSuffix(strings.ToLower(d.Name()), ".iso") {
-			return nil
-		}
-
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-
-		relPath, _ := filepath.Rel(h.isoDir, path)
-		groupPath := filepath.Dir(relPath)
-		if groupPath == "." {
-			groupPath = ""
-		}
-
-		existingFiles[relPath] = true
-		isoFiles = append(isoFiles, models.SyncFile{
-			Name:      strings.TrimSuffix(d.Name(), filepath.Ext(d.Name())),
-			Filename:  relPath,
-			Size:      info.Size(),
-			GroupPath: groupPath,
-		})
-
-		return nil
-	})
+	isoFiles, err := imagescan.Scan(h.isoDir)
+	existingFiles := make(map[string]bool, len(isoFiles))
+	for _, f := range isoFiles {
+		existingFiles[f.Filename] = true
+	}
 	if err != nil {
 		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
 		return
@@ -2028,6 +2173,10 @@ func (h *Handler) ListBootloaders(w http.ResponseWriter, r *http.Request) {
 	var sets []BootloaderSet
 
 	embeddedSets, _ := bootloaders.ListSets()
+	embeddedNames := make(map[string]bool, len(embeddedSets))
+	for _, setName := range embeddedSets {
+		embeddedNames[setName] = true
+	}
 	for _, setName := range embeddedSets {
 		entries, err := bootloaders.ListFiles(setName)
 		if err != nil {
@@ -2056,6 +2205,9 @@ func (h *Handler) ListBootloaders(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				setName := entry.Name()
+				if embeddedNames[setName] {
+					continue
+				}
 				setPath := filepath.Join(h.bootDir, setName)
 				fileEntries, err := os.ReadDir(setPath)
 				if err != nil {
@@ -2345,9 +2497,21 @@ func (h *Handler) DownloadTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	def := tools.GetDefinition(name)
-	if def == nil {
+	tool, err := h.storage.GetBootTool(name)
+	if err != nil || tool == nil {
 		h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "Unknown tool"})
+		return
+	}
+	displayName := tool.DisplayName
+	if def := tools.GetDefinition(name); def != nil {
+		displayName = def.DisplayName
+	} else if !tool.Custom {
+		h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "Unknown tool"})
+		return
+	}
+
+	if h.toolsManager.InProgress(name) {
+		h.sendJSON(w, http.StatusConflict, Response{Success: false, Error: fmt.Sprintf("%s is already downloading", displayName)})
 		return
 	}
 
@@ -2357,7 +2521,7 @@ func (h *Handler) DownloadTool(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	h.sendJSON(w, http.StatusOK, Response{Success: true, Message: fmt.Sprintf("Downloading %s...", def.DisplayName)})
+	h.sendJSON(w, http.StatusOK, Response{Success: true, Message: fmt.Sprintf("Downloading %s...", displayName)})
 }
 
 func (h *Handler) DeleteTool(w http.ResponseWriter, r *http.Request) {
@@ -2549,6 +2713,12 @@ func (h *Handler) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 				}
 				return "Disabled"
 			}(),
+			"oidc_enabled": func() string {
+				if os.Getenv("BOOTIMUS_OIDC_ISSUER") != "" {
+					return os.Getenv("BOOTIMUS_OIDC_ISSUER")
+				}
+				return "Disabled"
+			}(),
 			"proxy_dhcp": func() string {
 				if h.proxyDHCPEnabled {
 					return "Enabled (standalone — no external DHCP PXE config needed)"
@@ -2561,6 +2731,9 @@ func (h *Handler) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 				}
 				if h.smbManager == nil {
 					return "Requested but unavailable (install samba and ensure smbd is in PATH)"
+				}
+				if err := h.smbManager.Err(); err != nil {
+					return "Requested but not running: " + err.Error()
 				}
 				return fmt.Sprintf("Enabled (%d share(s) active, port %d)", h.smbManager.ShareCount(), h.smbManager.Port())
 			}(),
@@ -2587,6 +2760,7 @@ func (h *Handler) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 			"BOOTIMUS_SERVER_ADDR":      os.Getenv("BOOTIMUS_SERVER_ADDR"),
 			"BOOTIMUS_LDAP_HOST":        os.Getenv("BOOTIMUS_LDAP_HOST"),
 			"BOOTIMUS_LDAP_BASE_DN":     os.Getenv("BOOTIMUS_LDAP_BASE_DN"),
+			"BOOTIMUS_OIDC_ISSUER":      os.Getenv("BOOTIMUS_OIDC_ISSUER"),
 		},
 		"system_stats": sysStats,
 	}
@@ -2625,6 +2799,7 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		Username: req.Username,
 		IsAdmin:  req.IsAdmin,
 		Enabled:  req.Enabled,
+		Source:   models.UserSourceLocal,
 	}
 
 	if err := user.SetPassword(req.Password); err != nil {
@@ -2747,6 +2922,11 @@ func (h *Handler) ResetUserPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if user.AuthSource() != models.UserSourceLocal {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Passwords for " + strings.ToUpper(user.AuthSource()) + " users are managed by their identity provider"})
+		return
+	}
+
 	if err := user.SetPassword(req.NewPassword); err != nil {
 		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: "Failed to hash password"})
 		return
@@ -2780,6 +2960,21 @@ type DownloadManager struct {
 
 var downloadMgr = &DownloadManager{
 	downloads: make(map[string]*DownloadProgress),
+}
+
+func (dm *DownloadManager) TryBegin(url, filename string) bool {
+	dm.mu.Lock()
+	defer dm.mu.Unlock()
+	if p, ok := dm.downloads[filename]; ok && p.Status == "downloading" {
+		return false
+	}
+	dm.downloads[filename] = &DownloadProgress{
+		URL:       url,
+		Filename:  filename,
+		Status:    "downloading",
+		StartTime: time.Now(),
+	}
+	return true
 }
 
 func (dm *DownloadManager) Add(url, filename string, totalBytes int64) {
@@ -2858,6 +3053,23 @@ func formatBytes(bytes int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
+func isoDownloadFilename(rawURL, requested string) (string, error) {
+	if requested == "" {
+		filename := filepath.Base(rawURL)
+		if !imagescan.IsSupportedFilename(filename) {
+			return "", fmt.Errorf("URL must point to an .iso file or a unified kernel image (.efi)")
+		}
+		return filename, nil
+	}
+	if requested == "." || requested == ".." || strings.ContainsAny(requested, `/\`) {
+		return "", fmt.Errorf("filename must be a plain file name without directories")
+	}
+	if !imagescan.IsSupportedFilename(requested) {
+		return "", fmt.Errorf("filename must end in .iso or .efi")
+	}
+	return requested, nil
+}
+
 func (h *Handler) DownloadISO(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		URL         string `json:"url"`
@@ -2875,20 +3087,24 @@ func (h *Handler) DownloadISO(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var filename string
-	if req.Filename != "" {
-		filename = req.Filename
-	} else {
-		filename = filepath.Base(req.URL)
-	}
-	if !strings.HasSuffix(strings.ToLower(filename), ".iso") {
-		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "URL must point to an .iso file"})
+	filename, err := isoDownloadFilename(req.URL, req.Filename)
+	if err != nil {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: err.Error()})
 		return
 	}
 
 	destPath := filepath.Join(h.isoDir, filename)
 	if _, err := os.Stat(destPath); err == nil {
 		h.sendJSON(w, http.StatusConflict, Response{Success: false, Error: "File already exists"})
+		return
+	}
+
+	if !downloadMgr.TryBegin(req.URL, filename) {
+		h.sendJSON(w, http.StatusConflict, Response{
+			Success: false,
+			Error:   "Download already in progress",
+			Data:    map[string]string{"filename": filename},
+		})
 		return
 	}
 
@@ -2966,13 +3182,24 @@ func (h *Handler) downloadISO(url, filename, destPath, description string) {
 		}
 	}
 
+	syncFile := models.SyncFile{Name: strings.TrimSuffix(filename, filepath.Ext(filename)), Filename: filename, Size: downloaded}
+	if strings.EqualFold(filepath.Ext(filename), ".efi") {
+		img, err := uki.Inspect(destPath)
+		if err != nil {
+			log.Printf("Downloaded %s is not a unified kernel image: %v", filename, err)
+			downloadMgr.Error(filename, "not a unified kernel image")
+			os.Remove(destPath)
+			return
+		}
+		syncFile.BootMethod = imagescan.BootMethodUKI
+		syncFile.BootParams = img.Cmdline
+	}
+
 	downloadMgr.Complete(filename)
 	log.Printf("Completed ISO download: %s (%d bytes)", filename, downloaded)
 
 	if h.storage != nil {
-		isoFiles := []models.SyncFile{
-			{Name: strings.TrimSuffix(filename, filepath.Ext(filename)), Filename: filename, Size: downloaded},
-		}
+		isoFiles := []models.SyncFile{syncFile}
 
 		if err := h.storage.SyncImages(isoFiles); err != nil {
 			log.Printf("Failed to sync downloaded ISO to database: %v", err)
@@ -2984,9 +3211,11 @@ func (h *Handler) downloadISO(url, filename, destPath, description string) {
 				img.Description = description
 				changed = true
 			}
-			h.detectAndSetDistro(img)
-			if img.Distro != "" {
-				changed = true
+			if syncFile.BootMethod == "" {
+				h.detectAndSetDistro(img)
+				if img.Distro != "" {
+					changed = true
+				}
 			}
 			if changed {
 				if err := h.storage.UpdateImage(filename, img); err != nil {
@@ -3942,34 +4171,14 @@ func (h *Handler) DeleteImageGroup(w http.ResponseWriter, r *http.Request) {
 	h.sendJSON(w, http.StatusOK, Response{Success: true, Message: "Group deleted"})
 }
 
-func (h *Handler) resolveRedfish(c *models.Client) (string, int, string, string, bool, bool) {
-	host := c.IPMIHost
-	port := c.IPMIPort
-	user := c.IPMIUsername
-	pass := c.IPMIPassword
-	insecure := c.IPMIInsecure
-
+func (h *Handler) resolveBMC(c *models.Client) (bmc.Target, bool) {
+	var group *models.ClientGroup
 	if c.ClientGroupID != nil {
-		if g, err := h.storage.GetClientGroup(*c.ClientGroupID); err == nil && g != nil {
-			if port == 0 {
-				port = g.IPMIPort
-			}
-			if user == "" {
-				user = g.IPMIUsername
-			}
-			if pass == "" {
-				pass = g.IPMIPassword
-			}
-			if !insecure {
-				insecure = g.IPMIInsecure
-			}
+		if g, err := h.storage.GetClientGroup(*c.ClientGroupID); err == nil {
+			group = g
 		}
 	}
-
-	if host == "" || user == "" || pass == "" {
-		return "", 0, "", "", false, false
-	}
-	return host, port, user, pass, insecure, true
+	return bmc.Resolve(c, group)
 }
 
 func (h *Handler) PowerClient(w http.ResponseWriter, r *http.Request) {
@@ -3988,18 +4197,22 @@ func (h *Handler) PowerClient(w http.ResponseWriter, r *http.Request) {
 		h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "Client not found"})
 		return
 	}
-	host, port, user, pass, insecure, ok := h.resolveRedfish(c)
+	target, ok := h.resolveBMC(c)
 	if !ok {
 		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Client has no BMC host + credentials (set on client or group)"})
 		return
 	}
-	client := redfish.New(host, port, user, pass, insecure)
-	if err := client.SetPower(r.Context(), redfish.PowerAction(action)); err != nil {
-		log.Printf("Redfish %s on %s (%s) failed: %v", action, mac, host, err)
+	ctrl, err := bmc.New(target)
+	if err != nil {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: err.Error()})
+		return
+	}
+	if err := ctrl.SetPower(r.Context(), bmc.Action(action)); err != nil {
+		log.Printf("BMC %s %s on %s (%s) failed: %v", target.Protocol, action, mac, target.Host, err)
 		h.sendJSON(w, http.StatusOK, Response{Success: false, Error: err.Error()})
 		return
 	}
-	log.Printf("Redfish %s on %s (%s) succeeded", action, mac, host)
+	log.Printf("BMC %s %s on %s (%s) succeeded", target.Protocol, action, mac, target.Host)
 	h.sendJSON(w, http.StatusOK, Response{Success: true, Message: fmt.Sprintf("Power %s sent to %s", action, mac)})
 }
 
@@ -4014,13 +4227,17 @@ func (h *Handler) PowerStatusClient(w http.ResponseWriter, r *http.Request) {
 		h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "Client not found"})
 		return
 	}
-	host, port, user, pass, insecure, ok := h.resolveRedfish(c)
+	target, ok := h.resolveBMC(c)
 	if !ok {
 		h.sendJSON(w, http.StatusOK, Response{Success: true, Data: map[string]string{"state": "unconfigured"}})
 		return
 	}
-	client := redfish.New(host, port, user, pass, insecure)
-	state, err := client.PowerState(r.Context())
+	ctrl, err := bmc.New(target)
+	if err != nil {
+		h.sendJSON(w, http.StatusOK, Response{Success: false, Error: err.Error()})
+		return
+	}
+	state, err := ctrl.PowerState(r.Context())
 	if err != nil {
 		h.sendJSON(w, http.StatusOK, Response{Success: false, Error: err.Error()})
 		return
@@ -4059,21 +4276,25 @@ func (h *Handler) PowerClientGroup(w http.ResponseWriter, r *http.Request) {
 		if !c.Enabled {
 			continue
 		}
-		host, port, user, pass, insecure, ok := h.resolveRedfish(c)
+		target, ok := bmc.Resolve(c, group)
 		if !ok {
 			continue
 		}
+		ctrl, err := bmc.New(target)
+		if err != nil {
+			log.Printf("BMC bulk %s on %s (%s) skipped: %v", action, c.MACAddress, target.Host, err)
+			continue
+		}
 		dispatched++
-		go func(mac, host string, port int, user, pass string, insecure bool) {
+		go func(mac string, target bmc.Target, ctrl bmc.Controller) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			client := redfish.New(host, port, user, pass, insecure)
-			if err := client.SetPower(ctx, redfish.PowerAction(action)); err != nil {
-				log.Printf("Redfish bulk %s on %s (%s) failed: %v", action, mac, host, err)
+			if err := ctrl.SetPower(ctx, bmc.Action(action)); err != nil {
+				log.Printf("BMC %s bulk %s on %s (%s) failed: %v", target.Protocol, action, mac, target.Host, err)
 			} else {
-				log.Printf("Redfish bulk %s on %s (%s) ok", action, mac, host)
+				log.Printf("BMC %s bulk %s on %s (%s) ok", target.Protocol, action, mac, target.Host)
 			}
-		}(c.MACAddress, host, port, user, pass, insecure)
+		}(c.MACAddress, target, ctrl)
 		if stagger > 0 {
 			time.Sleep(stagger)
 		}
@@ -4473,7 +4694,21 @@ func (h *Handler) ImportClientsCSV(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		if _, err := h.storage.GetClient(mac); err == nil {
+		existing, existsErr := h.storage.GetClient(mac)
+		if v := get(row, "proxy_dhcp_no_vendor_option"); v != "" {
+			client.ProxyDHCPNoVendorOption = toBool(v)
+		} else if existsErr == nil {
+			client.ProxyDHCPNoVendorOption = existing.ProxyDHCPNoVendorOption
+		}
+
+		if existsErr == nil {
+			client.BMCProtocol = existing.BMCProtocol
+			client.IPMIHost = existing.IPMIHost
+			client.IPMIPort = existing.IPMIPort
+			client.IPMIUsername = existing.IPMIUsername
+			client.IPMIPassword = existing.IPMIPassword
+			client.IPMIInsecure = existing.IPMIInsecure
+			client.AutoInstallFile = existing.AutoInstallFile
 			if err := h.storage.UpdateClient(mac, client); err != nil {
 				errors = append(errors, fmt.Sprintf("row %d (%s): update failed: %v", rowNum, mac, err))
 				continue
@@ -5032,6 +5267,7 @@ func (h *Handler) DeleteImageFile(w http.ResponseWriter, r *http.Request) {
 		image.KernelPath = ""
 		image.InitrdPath = ""
 		image.SquashfsPath = ""
+		image.ShimPath = ""
 		image.Distro = ""
 		image.NetbootAvailable = false
 		image.NetbootRequired = false

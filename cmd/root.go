@@ -66,6 +66,20 @@ func init() {
 	rootCmd.PersistentFlags().String("ldap-group-filter", "", "LDAP group filter for admin access (optional)")
 	rootCmd.PersistentFlags().String("ldap-group-base-dn", "", "LDAP base DN for group search")
 
+	rootCmd.PersistentFlags().String("oidc-issuer", "", "OIDC issuer URL (enables OIDC single sign-on)")
+	rootCmd.PersistentFlags().String("oidc-client-id", "", "OIDC client ID")
+	rootCmd.PersistentFlags().String("oidc-client-secret", "", "OIDC client secret")
+	rootCmd.PersistentFlags().String("oidc-redirect-url", "", "OIDC redirect URL, e.g. https://bootimus.example.com/api/oidc/callback")
+	rootCmd.PersistentFlags().String("oidc-scopes", "openid,profile,email", "Comma-separated OIDC scopes to request")
+	rootCmd.PersistentFlags().String("oidc-username-claim", "preferred_username", "OIDC claim used as the Bootimus username")
+	rootCmd.PersistentFlags().String("oidc-groups-claim", "groups", "OIDC claim listing the user's groups")
+	rootCmd.PersistentFlags().String("oidc-admin-groups", "", "Comma-separated OIDC groups whose members are administrators")
+	rootCmd.PersistentFlags().String("oidc-allowed-groups", "", "Comma-separated OIDC groups allowed to sign in (empty allows anyone the provider authenticates)")
+	rootCmd.PersistentFlags().String("oidc-admin-users", "", "Comma-separated OIDC usernames, or @domain entries, who are administrators")
+	rootCmd.PersistentFlags().String("oidc-allowed-users", "", "Comma-separated OIDC usernames, or @domain entries, allowed to sign in")
+	rootCmd.PersistentFlags().String("oidc-display-name", "SSO", "Name shown on the OIDC sign-in button")
+	rootCmd.PersistentFlags().Bool("oidc-skip-verify", false, "Skip TLS certificate verification when talking to the OIDC provider")
+
 	rootCmd.PersistentFlags().Bool("disable-remote-profiles", false, "Disable remote distro profile updates")
 
 	rootCmd.PersistentFlags().Bool("proxy-dhcp", false, "Enable in-process proxyDHCP server (answers PXE requests without handing out IPs; requires root or CAP_NET_BIND_SERVICE)")
@@ -73,6 +87,7 @@ func init() {
 	rootCmd.PersistentFlags().String("proxy-dhcp-bootfile-uefi", proxydhcp.DefaultBootfileUEFI, "Bootfile advertised to UEFI x64 PXE clients (default follows the active bootloader set's manifest)")
 	rootCmd.PersistentFlags().String("proxy-dhcp-bootfile-arm64", proxydhcp.DefaultBootfileARM64, "Bootfile advertised to UEFI ARM64 PXE clients (default follows the active bootloader set's manifest)")
 	rootCmd.PersistentFlags().Bool("proxy-dhcp-no-bootfile-option", false, "Disable advertising the bootfile name using a DHCP option (for buggy/old clients)")
+	rootCmd.PersistentFlags().Bool("proxy-dhcp-no-vendor-option", false, "Omit the PXE vendor option (43) from proxyDHCP offers (for firmware that ignores offers carrying it)")
 
 	rootCmd.PersistentFlags().Bool("windows-smb", false, "Enable Samba share for unattended Windows PXE installs (requires smbd in PATH)")
 	rootCmd.PersistentFlags().Int("windows-smb-port", 445, "SMB port (Windows 'net use' always uses 445; override only for testing)")
@@ -107,6 +122,20 @@ func init() {
 	viper.BindPFlag("ldap.group_filter", rootCmd.PersistentFlags().Lookup("ldap-group-filter"))
 	viper.BindPFlag("ldap.group_base_dn", rootCmd.PersistentFlags().Lookup("ldap-group-base-dn"))
 
+	viper.BindPFlag("oidc.issuer", rootCmd.PersistentFlags().Lookup("oidc-issuer"))
+	viper.BindPFlag("oidc.client_id", rootCmd.PersistentFlags().Lookup("oidc-client-id"))
+	viper.BindPFlag("oidc.client_secret", rootCmd.PersistentFlags().Lookup("oidc-client-secret"))
+	viper.BindPFlag("oidc.redirect_url", rootCmd.PersistentFlags().Lookup("oidc-redirect-url"))
+	viper.BindPFlag("oidc.scopes", rootCmd.PersistentFlags().Lookup("oidc-scopes"))
+	viper.BindPFlag("oidc.username_claim", rootCmd.PersistentFlags().Lookup("oidc-username-claim"))
+	viper.BindPFlag("oidc.groups_claim", rootCmd.PersistentFlags().Lookup("oidc-groups-claim"))
+	viper.BindPFlag("oidc.admin_groups", rootCmd.PersistentFlags().Lookup("oidc-admin-groups"))
+	viper.BindPFlag("oidc.allowed_groups", rootCmd.PersistentFlags().Lookup("oidc-allowed-groups"))
+	viper.BindPFlag("oidc.admin_users", rootCmd.PersistentFlags().Lookup("oidc-admin-users"))
+	viper.BindPFlag("oidc.allowed_users", rootCmd.PersistentFlags().Lookup("oidc-allowed-users"))
+	viper.BindPFlag("oidc.display_name", rootCmd.PersistentFlags().Lookup("oidc-display-name"))
+	viper.BindPFlag("oidc.skip_verify", rootCmd.PersistentFlags().Lookup("oidc-skip-verify"))
+
 	viper.BindPFlag("disable_remote_profiles", rootCmd.PersistentFlags().Lookup("disable-remote-profiles"))
 
 	viper.BindPFlag("proxy_dhcp.enabled", rootCmd.PersistentFlags().Lookup("proxy-dhcp"))
@@ -114,6 +143,7 @@ func init() {
 	viper.BindPFlag("proxy_dhcp.bootfile_uefi", rootCmd.PersistentFlags().Lookup("proxy-dhcp-bootfile-uefi"))
 	viper.BindPFlag("proxy_dhcp.bootfile_arm64", rootCmd.PersistentFlags().Lookup("proxy-dhcp-bootfile-arm64"))
 	viper.BindPFlag("proxy_dhcp.no_bootfile_option", rootCmd.PersistentFlags().Lookup("proxy-dhcp-no-bootfile-option"))
+	viper.BindPFlag("proxy_dhcp.no_vendor_option", rootCmd.PersistentFlags().Lookup("proxy-dhcp-no-vendor-option"))
 
 	viper.BindPFlag("windows_smb.enabled", rootCmd.PersistentFlags().Lookup("windows-smb"))
 	viper.BindPFlag("windows_smb.port", rootCmd.PersistentFlags().Lookup("windows-smb-port"))

@@ -148,6 +148,67 @@ func TestExtractUbuntuCasperLayout(t *testing.T) {
 	}
 }
 
+func TestExtractDetectsSecureBootShim(t *testing.T) {
+	files := map[string]string{
+		"/casper/vmlinuz":             "casper-kernel",
+		"/casper/initrd":              "casper-initrd",
+		"/casper/filesystem.squashfs": "casper-squashfs",
+		"/EFI/BOOT/BOOTX64.EFI":       "distro-shim",
+		"/.disk/info":                 "Ubuntu 26.04 LTS",
+	}
+
+	bootFiles, dataDir := extractTestISO(t, "ubuntu-26.04-desktop-amd64.iso", files)
+
+	if !strings.EqualFold(bootFiles.ShimPath, "iso/EFI/BOOT/BOOTX64.EFI") {
+		t.Errorf("shim path = %q, want iso/EFI/BOOT/BOOTX64.EFI", bootFiles.ShimPath)
+	}
+
+	cacheDir := filepath.Join(dataDir, "ubuntu-26.04-desktop-amd64")
+	if got := readFileString(t, filepath.Join(cacheDir, filepath.FromSlash(bootFiles.ShimPath))); got != "distro-shim" {
+		t.Errorf("shim content = %q, want distro-shim", got)
+	}
+}
+
+func TestExtractNoShimLeavesPathEmpty(t *testing.T) {
+	files := map[string]string{
+		"/casper/vmlinuz": "casper-kernel",
+		"/casper/initrd":  "casper-initrd",
+		"/.disk/info":     "Ubuntu 26.04 LTS",
+	}
+
+	bootFiles, _ := extractTestISO(t, "ubuntu-26.04-live-server-amd64.iso", files)
+
+	if bootFiles.ShimPath != "" {
+		t.Errorf("shim path = %q, want empty", bootFiles.ShimPath)
+	}
+}
+
+func TestDetectShimPrefersX64AndFallsBackToARM64(t *testing.T) {
+	dir := t.TempDir()
+	efiBoot := filepath.Join(dir, "iso", "efi", "boot")
+	if err := os.MkdirAll(efiBoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := DetectShim(dir); got != "" {
+		t.Errorf("empty tree: shim path = %q, want empty", got)
+	}
+
+	if err := os.WriteFile(filepath.Join(efiBoot, "bootaa64.efi"), []byte("arm"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if got := DetectShim(dir); got != "iso/efi/boot/bootaa64.efi" {
+		t.Errorf("arm64 only: shim path = %q, want iso/efi/boot/bootaa64.efi", got)
+	}
+
+	if err := os.WriteFile(filepath.Join(efiBoot, "BOOTX64.EFI"), []byte("x64"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if got := DetectShim(dir); got != "iso/efi/boot/BOOTX64.EFI" {
+		t.Errorf("both arches: shim path = %q, want iso/efi/boot/BOOTX64.EFI", got)
+	}
+}
+
 func TestExtractFedoraLayout(t *testing.T) {
 	files := map[string]string{
 		"/images/pxeboot/vmlinuz":    "fedora-kernel",
@@ -162,5 +223,23 @@ func TestExtractFedoraLayout(t *testing.T) {
 	}
 	if got := readFileString(t, bootFiles.Kernel); got != "fedora-kernel" {
 		t.Errorf("extracted kernel content = %q, want fedora kernel", got)
+	}
+}
+
+func TestExtractSystemRescueLayout(t *testing.T) {
+	files := map[string]string{
+		"/sysresccd/boot/x86_64/vmlinuz":       "sysresccd-kernel",
+		"/sysresccd/boot/x86_64/sysresccd.img": "sysresccd-initrd",
+		"/sysresccd/boot/intel_ucode.img":      "intel-microcode",
+		"/sysresccd/boot/amd_ucode.img":        "amd-microcode",
+	}
+
+	bootFiles, _ := extractTestISO(t, "systemrescue-13.02-amd64.iso", files)
+
+	if bootFiles.Distro != "systemrescue" {
+		t.Errorf("distro = %q, want systemrescue", bootFiles.Distro)
+	}
+	if got := readFileString(t, bootFiles.Initrd); got != "sysresccd-initrd" {
+		t.Errorf("extracted initrd content = %q, want the sysresccd initramfs", got)
 	}
 }

@@ -27,7 +27,7 @@ Bootimus включает встроенный proxyDHCP-ответчик (RFC 4
 1. Клиент шлёт широковещательный `DHCPDISCOVER`.
 2. Существующий DHCP в LAN отвечает IP-лизой (PXE-инфо не нужна).
 3. Bootimus отвечает на тот же broadcast только PXE boot-инфой — без IP.
-4. PXE ROM клиента объединяет оба ответа: IP от основного DHCP, bootfile от Bootimus.
+4. PXE ROM клиента объединяет оба ответа: IP от основного DHCP, bootfile от Bootimus. Большинство прошивок так и делают, как предусматривает RFC 4578, но некоторые UEFI PXE ROM — нет; см. ограничения ниже.
 
 Поскольку Bootimus никогда не выдаёт IP, конфликта с существующим DHCP-сервером нет и пул лиз не нужно координировать.
 
@@ -46,6 +46,8 @@ proxy_dhcp:
   bootfile_bios: undionly.kpxe           # legacy BIOS PXE
   bootfile_uefi: bootimus.efi            # UEFI x64
   bootfile_arm64: bootimus-arm64.efi     # UEFI ARM64
+  no_bootfile_option: false              # true: не отправлять опцию 67 прошивкам, которые её отвергают
+  no_vendor_option: false                # true: не отправлять опцию 43 прошивкам, которые игнорируют такие офферы
 ```
 
 Выключено по умолчанию, чтобы существующие установки с dnsmasq/ISC-DHCP/etc. не получили сюрприза.
@@ -53,7 +55,8 @@ proxy_dhcp:
 ### Требования и оговорки
 
 - **Биндит UDP/67 и UDP/4011.** UDP/67 требует `CAP_NET_BIND_SERVICE` или root; UDP/4011 — порт обнаружения PXE boot-сервера, к которому некоторые UEFI ROM (особенно AMI/Supermicro) обращаются после первоначального оффера. В Docker дефолтный образ уже запускается от root, так что дополнительной capability не нужно; добавляйте `--cap-add NET_BIND_SERVICE` только для rootless-установок.
-- **Тот же широковещательный домен.** proxyDHCP опирается на то, что видит DHCP-бродкасты клиентов. Работает в плоской LAN или одной VLAN. Если ваша сеть использует DHCP relay (`ip helper-address`) для проброски DHCP через VLAN, relay перенаправляет к основному DHCP, но не к Bootimus — добавьте Bootimus как дополнительную цель relay или держите цели в той же VLAN, что и Bootimus.
+- **Тот же широковещательный домен.** proxyDHCP опирается на то, что видит DHCP-бродкасты клиентов. Работает в плоской LAN или одной VLAN. Если ваша сеть использует DHCP relay (`ip helper-address`) для проброски DHCP через VLAN, relay перенаправляет к основному DHCP, но не к Bootimus — добавьте Bootimus как дополнительную цель relay или держите цели в той же VLAN, что и Bootimus. Bootimus отвечает на ретранслированные запросы юникастом на адрес relay (`giaddr`), как требует RFC 2131, чтобы relay мог вернуть ответ клиенту.
+- **Не каждая прошивка объединяет два оффера.** Некоторые UEFI PXE ROM игнорируют оффер Bootimus или отвергают опцию bootfile в нём и снова и снова отправляют `DHCPDISCOVER`, так и не отправив `DHCPREQUEST`. Сначала попробуйте `--proxy-dhcp-no-bootfile-option` (`BOOTIMUS_PROXY_DHCP_NO_BOOTFILE_OPTION=true` или `no_bootfile_option: true` в разделе `proxy_dhcp`): опция 67 не отправляется, а bootfile передаётся только в классическом BOOTP-поле `file`, с которым старые или глючные прошивки справляются лучше. Некоторые прошивки, например UEFI PXE на Intel I219-V, наоборот игнорируют любой оффер с опцией 43: включите `--proxy-dhcp-no-vendor-option` (`BOOTIMUS_PROXY_DHCP_NO_VENDOR_OPTION=true` или `no_vendor_option: true` в разделе `proxy_dhcp`), чтобы не отправлять её никому, или отметьте **Omit PXE vendor option (43)** только у нужного клиента. Если клиент всё ещё зацикливается, отключите proxyDHCP и задайте `next-server` и bootfile (опции 66/67) на основном DHCP-сервере, как описано в разделах для конкретных серверов ниже.
 - **Сеть в Docker.** Используйте `macvlan`, `ipvlan` или `network_mode: host`, чтобы контейнер стал полноценным участником широковещательного домена. Дефолтная bridge-сеть не подойдёт — бродкасты застрянут внутри `docker0`.
 - **Два proxyDHCP-сервера в одной LAN — это законно, но отладка — кошмар.** Если вы включаете встроенный proxyDHCP Bootimus, отключите любой существующий dnsmasq proxyDHCP, раздающий PXE в той же сети.
 
@@ -124,7 +127,7 @@ TFTP: Client requesting file: bootimus.efi
 | UEFI (ARM64) | `bootimus-arm64.efi` (или `ipxe-arm64.efi`) | Кастомно собранный iPXE со встроенным скриптом |
 | Legacy BIOS | `undionly.kpxe` | Стандартный PXE-загрузчик |
 
-> **Secure Boot:** Bootimus сейчас не поставляет подписанные Microsoft Secure Boot-бинарники. Если на целевых машинах включён Secure Boot, либо выключите его в прошивке, либо зарегистрируйте сборку iPXE Bootimus в Secure Boot-хранилище ключей прошивки (MOK).
+> **Secure Boot:** для клиентов с включённым Secure Boot активируйте встроенный набор загрузчиков `secureboot-official` и анонсируйте вместо обычного UEFI-bootfile `ipxe-shimx64.efi` (x86_64) или `ipxe-shimaa64.efi` (ARM64). Встроенный proxyDHCP делает это автоматически, когда набор активен. См. [руководство по Secure Boot](secure-boot.md).
 
 ### Поток загрузки
 
@@ -293,7 +296,7 @@ MikroTik-роутеры популярны для сетевой загрузк�
 #### 1. Определите DHCP-опции
 * Откройте **IP** > **DHCP Server** > **Options**.
 * Нажмите **Add New** для каждого из следующих (значение **обязательно** в **одинарных кавычках**):
-    * **Option 66 (Server)**: Name: `tftp-server` | Code: `66` | Value: `'<BOOT_SERVER_IP>'`.
+    * **Option 66 (Server)**: Name: `tftp-server` | Code: `66` | Value: `s'<BOOT_SERVER_IP>'`. Префикс `s` заставляет RouterOS отправлять адрес как текст; без него IP в кавычках отправляется как четыре сырых байта, которые iPXE не может использовать.
     * **Option 67 (BIOS)**: Name: `boot-bios` | Code: `67` | Value: `'undionly.kpxe'`.
     * **Option 67 (UEFI)**: Name: `boot-uefi` | Code: `67` | Value: `'ipxe.efi'`.
 
@@ -325,7 +328,7 @@ MikroTik-роутеры популярны для сетевой загрузк�
 ```routeros
 # 1. Определить DHCP-опции
 /ip dhcp-server option
-add code=66 name=tftp-server value="'<BOOT_SERVER_IP>'"
+add code=66 name=tftp-server value="s'<BOOT_SERVER_IP>'"
 add code=67 name=boot-bios value="'undionly.kpxe'"
 add code=67 name=boot-uefi value="'ipxe.efi'"
 
@@ -452,6 +455,8 @@ OPNsense — форк pfSense с современным интерфейсом.
 4. Нажмите **Save**
 5. Нажмите **Apply Changes**
 
+> **ARM64 / Raspberry Pi:** в GUI OPNsense нет поля имени файла для ARM64, и он не может выразить vendor-опцию прошивки Raspberry Pi. Для Raspberry Pi или парка со смешанными архитектурами включите встроенный proxyDHCP Bootimus параллельно с OPNsense — он сам отвечает таким клиентам. См. [руководство по Raspberry Pi](raspberry-pi.md).
+
 ### Продвинутая конфигурация
 
 1. Откройте **Services > DHCPv4 > [Interface]**
@@ -520,6 +525,14 @@ ping 192.168.1.10
 
 # Захват DHCP-трафика
 sudo tcpdump -i eth0 port 67 or port 68
+```
+
+### Повторные DISCOVER без DHCPREQUEST (proxyDHCP)
+
+Если в дампе трафика видно, что клиент раз за разом отправляет `DHCPDISCOVER`, получает офферы и от вашего DHCP-сервера, и от Bootimus, но так и не отправляет `DHCPREQUEST` (а на UDP/4011 ничего не приходит), прошивка не объединяет два оффера. Попробуйте `--proxy-dhcp-no-bootfile-option`, затем `--proxy-dhcp-no-vendor-option` (или **Omit PXE vendor option (43)** у клиента); если не поможет, отключите proxyDHCP и настройте опции 66/67 на основном DHCP-сервере.
+
+```bash
+sudo tcpdump -i eth0 -n port 67 or port 68 or port 4011
 ```
 
 ### Клиент не скачивает загрузчик

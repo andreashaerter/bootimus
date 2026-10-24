@@ -150,10 +150,10 @@ autoinstall:
     - curtin in-target -- systemctl enable --now serial-getty@ttyS0.service
 ```
 
-Boot params (the relevant image already has these by default for Ubuntu):
+Bootimus adds the boot parameter itself whenever an auto-install file is attached, so there is nothing to add to the image's boot params. The generated parameter looks like this:
 
 ```
-autoinstall ds=nocloud-net;s=http://{{SERVER_ADDR}}:8080/autoinstall/{{IMAGE_FILENAME}}/
+autoinstall ds=nocloud-net;s=http://<server>:8080/autoinstall/<image-filename>/mac/<mac>/
 ```
 
 ### Debian (preseed)
@@ -216,7 +216,11 @@ Windows installs are SMB-driven. When an image has an autounattend file attached
 
 Without the per-image autounattend file, Setup runs interactively as before.
 
+**Data directory requirements.** Bootimus runs its own `smbd` with its state under `data/smb`. Samba refuses to start if that directory sits on a filesystem that cannot store Unix permissions (exFAT, NTFS, or a CIFS mount), because its lock directory then reads back as `0777` instead of `0755`. Keep the data directory on a native Linux filesystem such as ext4 or XFS, and make sure no other SMB server on the host is listening on port 445. Bootimus checks for both conditions at startup and reports them under **Server Info** → **Windows SMB**.
+
 **Reboot resilience.** WinPE reboots mid-install and reconnects from the same client IP. The bundled Samba config sets `reset on zero vc = yes` and disables oplocks so the second `net use` doesn't trip on stale session state. If you've replaced `data/smb/smb.conf` with your own, mirror these settings.
+
+**Undoing the patch.** The first SMB patch keeps a pristine copy of `boot.wim` as `boot.wim.orig` next to it. **Images** → **Unpatch SMB** restores that original and removes the image's SMB share, so the ISO boots exactly as uploaded. Images patched by older Bootimus versions have no backup — re-extract the image first (which produces a fresh pristine copy), then unpatch.
 
 ## REST API
 
@@ -266,10 +270,12 @@ curl -u admin:pw -X PUT http://localhost:8081/api/clients/b4:2e:99:01:5f:a3 \
 The auto-install endpoint clients hit at boot:
 
 ```
-GET /autoinstall/<image-filename>/?mac=<mac>
+GET /autoinstall/<image-filename>?mac=<mac>             # preseed, kickstart
+GET /autoinstall/<image-filename>/mac/<mac>/user-data   # Ubuntu autoinstall
+GET /autoinstall/<image-filename>/mac/<mac>/meta-data   # Ubuntu autoinstall
 ```
 
-The `mac` query param is appended automatically by the boot menu so per-client overrides resolve correctly.
+The boot menu builds these URLs with the client's MAC address so per-client overrides resolve correctly; for Ubuntu, cloud-init appends `user-data` and `meta-data` itself. Requests without the MAC address, or in another shape such as `/autoinstall/<image-filename>/user-data`, return 404.
 
 ## Troubleshooting
 
@@ -279,7 +285,7 @@ The `mac` query param is appended automatically by the boot menu so per-client o
 
 ### Placeholders rendered literally
 
-`{{HOSTNAME}}` showing up as the literal string in the installed system means the file was served before the substitution ran — usually because the client booted by IP only and the request didn't include a `mac` query param. Confirm the boot menu is generating URLs of the form `/autoinstall/<iso>/?mac=<mac>`.
+`{{HOSTNAME}}` showing up as the literal string in the installed system means the file was served before the substitution ran — usually because the client booted by IP only and the request didn't include a `mac` query param. Confirm the boot menu is generating URLs of the form `/autoinstall/<iso>?mac=<mac>` or `/autoinstall/<iso>/mac/<mac>/`.
 
 ### Wrong file served
 
@@ -300,6 +306,10 @@ The `source:` field tells you exactly which slot won.
 ### "AutoUnattend.xml not on share, running interactive setup"
 
 Logged by `startnet.cmd` when the file isn't where it expects. Either the staging step failed (check the Bootimus server log around the time of the patch) or the SMB share lost the file. Re-run the SMB patch from the image properties.
+
+### `Z:\setup.exe not found on the share`
+
+`startnet.cmd` mapped `Z:` but the listing it prints shows the image folder (`iso\`, `metadata.txt`) rather than the installer files. Bootimus always shares the image's `iso` subfolder, so the client has connected to a different SMB server on the same address. Check the Bootimus log for `SMB: smbd exited` and the **Windows SMB** line under **Server Info**. The usual cause is the data directory living on a filesystem without Unix permissions, which makes `smbd` exit with `invalid permissions on directory '.../smb/locks/msg.lock': has 0777 should be 0755`, leaving a system Samba to answer on port 445 instead. Move the data directory to ext4 or XFS, stop the other Samba, and restart Bootimus.
 
 ### `net use fails after VM reboot`
 

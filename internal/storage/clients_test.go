@@ -223,3 +223,63 @@ func TestUpdateClientGroupPersistsAutoInstallFile(t *testing.T) {
 		t.Fatalf("expected group auto install file to clear, got %q", got.AutoInstallFile)
 	}
 }
+
+func TestUpdateClientPersistsProxyDHCPNoVendorOption(t *testing.T) {
+	store := newTestStore(t)
+	mac := "aa:bb:cc:dd:ee:04"
+
+	if err := store.CreateClient(&models.Client{MACAddress: mac, Name: "i219"}); err != nil {
+		t.Fatalf("CreateClient: %v", err)
+	}
+
+	for _, want := range []bool{true, false} {
+		if err := store.UpdateClient(mac, &models.Client{Name: "i219", ProxyDHCPNoVendorOption: want}); err != nil {
+			t.Fatalf("UpdateClient(%v): %v", want, err)
+		}
+		client, err := store.GetClient(mac)
+		if err != nil {
+			t.Fatalf("GetClient: %v", err)
+		}
+		if client.ProxyDHCPNoVendorOption != want {
+			t.Fatalf("ProxyDHCPNoVendorOption = %v, want %v", client.ProxyDHCPNoVendorOption, want)
+		}
+	}
+}
+
+func TestSyncImagesSetsUKIDefaultsOnCreateOnly(t *testing.T) {
+	store := newTestStore(t)
+	files := []models.SyncFile{
+		{Name: "hello-world", Filename: "hello-world.efi", Size: 10, BootMethod: "uki", BootParams: "audit=0"},
+		{Name: "ubuntu", Filename: "ubuntu.iso", Size: 20},
+	}
+	if err := store.SyncImages(files); err != nil {
+		t.Fatal(err)
+	}
+
+	img, err := store.GetImage("hello-world.efi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if img.BootMethod != "uki" || img.BootParams != "audit=0" {
+		t.Errorf("UKI image = %q/%q, want uki/audit=0", img.BootMethod, img.BootParams)
+	}
+	iso, err := store.GetImage("ubuntu.iso")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if iso.BootMethod != "sanboot" {
+		t.Errorf("ISO boot method = %q, want sanboot", iso.BootMethod)
+	}
+
+	img.BootParams = "audit=0 console=ttyS0"
+	if err := store.UpdateImage(img.Filename, img); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SyncImages(files); err != nil {
+		t.Fatal(err)
+	}
+	img, _ = store.GetImage("hello-world.efi")
+	if img.BootParams != "audit=0 console=ttyS0" {
+		t.Errorf("rescan overwrote edited boot params: %q", img.BootParams)
+	}
+}

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"log"
 
 	"bootimus/internal/models"
@@ -24,6 +25,19 @@ func getClientBootloaderSets(db *gorm.DB, mac string) (clientSet, groupSet strin
 		return "", "", err
 	}
 	return selection.ClientBootloaderSet, selection.GroupBootloaderSet, nil
+}
+
+var ErrClientExists = errors.New("client already exists")
+
+func createClient(db *gorm.DB, client *models.Client) error {
+	err := db.Create(client).Error
+	if err == nil {
+		return nil
+	}
+	if translator, ok := db.Dialector.(gorm.ErrorTranslator); ok && errors.Is(translator.Translate(err), gorm.ErrDuplicatedKey) {
+		return ErrClientExists
+	}
+	return err
 }
 
 func hardDeleteClient(db *gorm.DB, client *models.Client) error {

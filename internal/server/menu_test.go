@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"bootimus/internal/models"
+	"bootimus/internal/tools"
 )
 
 func testMenuBuilder(types map[uint]string) *MenuBuilder {
@@ -119,6 +120,31 @@ func TestBuildKernelBootSectionStripsBareNocloudParam(t *testing.T) {
 	}
 }
 
+func TestBuildKernelBootSectionShimChain(t *testing.T) {
+	img := &models.Image{
+		ID:         7,
+		Filename:   "fedora.iso",
+		Enabled:    true,
+		BootMethod: "kernel",
+		Distro:     "fedora",
+		BootParams: "ip=dhcp",
+		ShimPath:   "iso/EFI/BOOT/BOOTX64.EFI",
+	}
+	mb := testMenuBuilder(nil)
+
+	out := mb.buildKernelBootSection(img, "fedora.iso", "fedora")
+	want := "iseq ${platform} efi && shim http://10.0.0.1:8080/boot/fedora/iso/EFI/BOOT/BOOTX64.EFI ||\nboot || goto failed\n"
+	if !strings.Contains(out, want) {
+		t.Errorf("expected shim chain line before boot, got:\n%s", out)
+	}
+
+	img.ShimPath = ""
+	out = mb.buildKernelBootSection(img, "fedora.iso", "fedora")
+	if strings.Contains(out, "shim ") {
+		t.Errorf("expected no shim line without a detected shim, got:\n%s", out)
+	}
+}
+
 func TestResolveBootParamsPlaceholders(t *testing.T) {
 	img := &models.Image{
 		BootParams: "url={{BASE_URL}} host={{SERVER_ADDR}} file={{IMAGE_FILENAME}} legacy={{FILENAME}} cache={{CACHE_DIR}} mac={{MAC}}",
@@ -155,6 +181,23 @@ func TestBuildWindowsBootSectionDropsPathTokens(t *testing.T) {
 	}
 }
 
+func TestBuildWindowsBootSectionDropsLinuxParams(t *testing.T) {
+	mb := testMenuBuilder(nil)
+	img := &models.Image{
+		ID:         9,
+		Filename:   "Win11_25H2.iso",
+		Enabled:    true,
+		BootMethod: "kernel",
+		Distro:     "windows",
+		BootParams: "iso-url={{BASE_URL}}/isos/{{FILENAME}} ip=dhcp gui index=2 pause=quiet",
+	}
+
+	out := mb.buildKernelBootSection(img, "Win11_25H2.iso", "Win11_25H2")
+	if !strings.Contains(out, "kernel http://10.0.0.1:8080/wimboot gui index=2 pause=quiet\n") {
+		t.Errorf("expected only wimboot arguments on the kernel line, got:\n%s", out)
+	}
+}
+
 func TestBuildWindowsBootSectionBareWimboot(t *testing.T) {
 	mb := testMenuBuilder(nil)
 	img := &models.Image{
@@ -168,5 +211,62 @@ func TestBuildWindowsBootSectionBareWimboot(t *testing.T) {
 	out := mb.buildKernelBootSection(img, "Win11_25H2.iso", "Win11_25H2")
 	if !strings.Contains(out, "kernel http://10.0.0.1:8080/wimboot\n") {
 		t.Errorf("expected a bare wimboot kernel line, got:\n%s", out)
+	}
+}
+
+func TestBuildFooterToolKernelGetsInitrdName(t *testing.T) {
+	mb := testMenuBuilder(nil)
+	mb.enabledTools = []tools.EnabledTool{
+		{
+			Name:        "clonezilla",
+			DisplayName: "Clonezilla",
+			KernelURL:   "http://10.0.0.1:8080/tools/clonezilla/live/vmlinuz",
+			InitrdURL:   "http://10.0.0.1:8080/tools/clonezilla/live/initrd.img",
+			BootParams:  "boot=live fetch=http://10.0.0.1:8080/tools/clonezilla/live/filesystem.squashfs",
+			BootMethod:  "kernel",
+		},
+		{
+			Name:        "memtest86plus",
+			DisplayName: "Memtest86+",
+			KernelURL:   "http://10.0.0.1:8080/tools/memtest86plus/memtest64.bin",
+			BootMethod:  "kernel",
+		},
+	}
+
+	out := mb.buildFooter()
+	if !strings.Contains(out, "kernel http://10.0.0.1:8080/tools/clonezilla/live/vmlinuz initrd=initrd boot=live ") {
+		t.Errorf("expected initrd=initrd on the tool kernel line, got:\n%s", out)
+	}
+	if !strings.Contains(out, "initrd --name initrd http://10.0.0.1:8080/tools/clonezilla/live/initrd.img\n") {
+		t.Errorf("expected the tool initrd to be named initrd, got:\n%s", out)
+	}
+	if strings.Contains(out, "memtest64.bin initrd=") {
+		t.Errorf("tools without an initrd must not get initrd=, got:\n%s", out)
+	}
+}
+
+func TestBuildImageBootSectionsUKI(t *testing.T) {
+	mb := testMenuBuilder(nil)
+	mb.images = []models.Image{
+		{ID: 21, Name: "Hello World", Filename: "hello-world.efi", Enabled: true, BootMethod: "uki", BootParams: "audit=0"},
+		{ID: 22, Name: "Bare", Filename: "lab/bare.efi", Enabled: true, BootMethod: "uki"},
+	}
+
+	out := mb.buildImageBootSections()
+	for _, want := range []string{
+		":iso21\n",
+		"iseq ${platform} efi || goto uki_needs_uefi\n",
+		"kernel http://10.0.0.1:8080/isos/hello-world.efi?mac=aa:bb:cc:dd:ee:ff audit=0\n",
+		"kernel http://10.0.0.1:8080/isos/lab/bare.efi?mac=aa:bb:cc:dd:ee:ff\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "iso-url=") || strings.Contains(out, "sanboot") {
+		t.Errorf("UKI sections must not fall back to ISO parameters or sanboot:\n%s", out)
+	}
+	if !strings.Contains(mb.buildFooter(), ":uki_needs_uefi\n") {
+		t.Error("footer must define the uki_needs_uefi label")
 	}
 }

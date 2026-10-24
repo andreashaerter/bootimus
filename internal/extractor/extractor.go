@@ -38,8 +38,10 @@ type BootFiles struct {
 	Distro          string
 	ExtractedDir    string
 	SquashfsPath    string
+	ShimPath        string
 	NetbootRequired bool
 	NetbootURL      string
+	NetbootArch     string
 	InstallWim      string
 }
 
@@ -59,6 +61,15 @@ func (e *Extractor) SetProgress(p *ProgressReporter) {
 }
 
 func (e *Extractor) Extract(isoPath string) (*BootFiles, error) {
+	bootFiles, err := e.extract(isoPath)
+	if err != nil {
+		return nil, err
+	}
+	e.detectShim(isoPath, bootFiles)
+	return bootFiles, nil
+}
+
+func (e *Extractor) extract(isoPath string) (*BootFiles, error) {
 	isUDF, err := detectISOFormat(isoPath)
 	if err != nil {
 		log.Printf("Warning: failed to detect ISO format, will try both methods: %v", err)
@@ -96,6 +107,26 @@ func (e *Extractor) Extract(isoPath string) (*BootFiles, error) {
 		return nil, fmt.Errorf("all extraction methods failed (ISO9660, UDF, bsdtar): %w", bsdtarErr)
 	}
 	return bootFiles, nil
+}
+
+func (e *Extractor) detectShim(isoPath string, files *BootFiles) {
+	if files == nil || strings.HasPrefix(files.Distro, "windows") {
+		return
+	}
+	bootFilesDir := filepath.Join(e.dataDir, relativeISOBase(e.dataDir, isoPath))
+	files.ShimPath = DetectShim(bootFilesDir)
+	if files.ShimPath != "" {
+		log.Printf("Detected Secure Boot shim in extracted ISO: %s", files.ShimPath)
+	}
+}
+
+func DetectShim(bootFilesDir string) string {
+	for _, name := range []string{"bootx64.efi", "bootaa64.efi"} {
+		if rel := resolveExtractedRelPath(bootFilesDir, "EFI/BOOT/"+name); rel != "" {
+			return rel
+		}
+	}
+	return ""
 }
 
 func relativeISOBase(dataDir, isoPath string) string {
@@ -262,7 +293,7 @@ func (e *Extractor) extractViaISO9660(isoPath string) (*BootFiles, error) {
 		return nil, fmt.Errorf("failed to read ISO image: %w", err)
 	}
 
-	reader := &ISO9660Reader{img: img, extract: e}
+	reader := &ISO9660Reader{img: img, isoPath: isoPath, extract: e}
 	bootFiles, err := e.detectAndExtractUnified(reader, isoPath)
 	if err != nil {
 		return nil, err
@@ -465,6 +496,7 @@ func (e *Extractor) detectUbuntuDebian(img *iso9660.Image) (*BootFiles, error) {
 		{"/install.amd/vmlinuz", "/install.amd/initrd.gz", "ubuntu-installer", ""},
 		{"/install/vmlinuz", "/install/initrd.gz", "debian", ""},
 		{"/install.amd/vmlinuz", "/install.amd/initrd.gz", "debian", ""},
+		{"/install.a64/vmlinuz", "/install.a64/initrd.gz", "debian", ""},
 		{"/live/vmlinuz", "/live/initrd.img", "debian", ""},
 		{"/live/vmlinuz1", "/live/initrd1.img", "debian", ""},
 		{"/live/vmlinuz-*", "/live/initrd.img-*", "debian", ""},
@@ -486,9 +518,13 @@ func (e *Extractor) detectUbuntuDebian(img *iso9660.Image) (*BootFiles, error) {
 				Distro:     p.distro,
 				BootParams: p.bootParams,
 			}
-			if p.distro == "debian" && (strings.Contains(p.kernel, "/install") || strings.Contains(p.kernel, "/install.amd")) {
+			if p.distro == "debian" && strings.Contains(p.kernel, "/install") {
 				bootFiles.NetbootRequired = true
-				bootFiles.NetbootURL = "http://ftp.debian.org/debian/dists/trixie/main/installer-amd64/current/images/netboot/netboot.tar.gz"
+				if strings.Contains(p.kernel, "/install.a64") {
+					bootFiles.NetbootURL = "http://ftp.debian.org/debian/dists/trixie/main/installer-arm64/current/images/netboot/netboot.tar.gz"
+				} else {
+					bootFiles.NetbootURL = "http://ftp.debian.org/debian/dists/trixie/main/installer-amd64/current/images/netboot/netboot.tar.gz"
+				}
 			}
 			if p.distro == "ubuntu-installer" && (strings.Contains(p.kernel, "/install") || strings.Contains(p.kernel, "/install.amd")) {
 				bootFiles.Distro = "ubuntu"
@@ -857,7 +893,7 @@ func (e *Extractor) cacheBootFiles(files *BootFiles, img *iso9660.Image, isoPath
 	}
 
 	log.Printf("Extracting full ISO contents to %s", extractedDir)
-	if err := e.extractISOContents(img, extractedDir); err != nil {
+	if err := e.extractISOContents(img, isoPath, extractedDir); err != nil {
 		return fmt.Errorf("failed to extract full ISO contents: %w", err)
 	}
 
@@ -866,7 +902,13 @@ func (e *Extractor) cacheBootFiles(files *BootFiles, img *iso9660.Image, isoPath
 	return nil
 }
 
-func (e *Extractor) extractISOContents(img *iso9660.Image, destDir string) error {
+func (e *Extractor) extractISOContents(img *iso9660.Image, isoPath, destDir string) error {
+	tarErr := extractWithBsdtar(isoPath, destDir, e.progress)
+	if tarErr == nil {
+		return nil
+	}
+	log.Printf("bsdtar extraction unavailable or failed (%v), using the built-in ISO9660 reader; long file names may be shortened", tarErr)
+
 	root, err := img.RootDir()
 	if err != nil {
 		return fmt.Errorf("failed to get root directory: %w", err)
@@ -977,6 +1019,7 @@ func (e *Extractor) GetCachedBootFiles(isoFilename string) (*BootFiles, error) {
 	metadataPath := filepath.Join(bootFilesDir, "metadata.txt")
 	distro := "unknown"
 	bootParams := ""
+	shimPath := ""
 
 	if data, err := os.ReadFile(metadataPath); err == nil {
 		lines := strings.Split(string(data), "\n")
@@ -987,6 +1030,9 @@ func (e *Extractor) GetCachedBootFiles(isoFilename string) (*BootFiles, error) {
 			if strings.HasPrefix(line, "boot_params=") {
 				bootParams = strings.TrimPrefix(line, "boot_params=")
 			}
+			if strings.HasPrefix(line, "shim_path=") {
+				shimPath = strings.TrimPrefix(line, "shim_path=")
+			}
 		}
 	}
 
@@ -995,6 +1041,7 @@ func (e *Extractor) GetCachedBootFiles(isoFilename string) (*BootFiles, error) {
 		Initrd:       initrdPath,
 		Distro:       distro,
 		BootParams:   bootParams,
+		ShimPath:     shimPath,
 		ExtractedDir: extractedDir,
 	}, nil
 }
@@ -1004,7 +1051,7 @@ func (e *Extractor) SaveMetadata(isoFilename string, files *BootFiles) error {
 	bootFilesDir := filepath.Join(e.dataDir, isoBase)
 	metadataPath := filepath.Join(bootFilesDir, "metadata.txt")
 
-	metadata := fmt.Sprintf("distro=%s\nboot_params=%s\n", files.Distro, files.BootParams)
+	metadata := fmt.Sprintf("distro=%s\nboot_params=%s\nshim_path=%s\n", files.Distro, files.BootParams, files.ShimPath)
 	return os.WriteFile(metadataPath, []byte(metadata), 0644)
 }
 
@@ -1193,6 +1240,7 @@ func (e *Extractor) detectAndExtractUnified(reader FileSystemReader, isoPath str
 			if distroName != "" {
 				files.Distro = distroName
 			}
+			resolveNetboot(files)
 			if err := e.cacheBootFilesUnified(files, reader, isoPath); err != nil {
 				return nil, err
 			}

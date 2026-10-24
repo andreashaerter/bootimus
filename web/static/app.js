@@ -41,17 +41,29 @@ async function showLoginScreen() {
     try {
         const res = await fetch(`${API_BASE}/auth-info`);
         const data = await res.json();
-        if (data.success && data.data && data.data.length > 1) {
+        const backends = (data.success && data.data) || [];
+        const passwordBackends = backends.filter(b => b.type !== 'redirect');
+        const redirectBackends = backends.filter(b => b.type === 'redirect');
+        if (passwordBackends.length > 1) {
             const select = document.getElementById('login-auth-method');
-            select.innerHTML = data.data.map(b =>
-                `<option value="${b.id}">${b.name}</option>`
+            select.innerHTML = passwordBackends.map(b =>
+                `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`
             ).join('');
             document.getElementById('login-auth-selector').style.display = 'block';
         } else {
             document.getElementById('login-auth-selector').style.display = 'none';
         }
+        renderSSOButtons(redirectBackends);
     } catch (e) {
         document.getElementById('login-auth-selector').style.display = 'none';
+        renderSSOButtons([]);
+    }
+
+    if (pendingLoginError) {
+        const errorDiv = document.getElementById('login-error');
+        errorDiv.textContent = pendingLoginError;
+        errorDiv.style.display = 'block';
+        pendingLoginError = null;
     }
 
     // Only auto-focus the username field if the user isn't already
@@ -64,7 +76,41 @@ async function showLoginScreen() {
     }
 }
 
+function renderSSOButtons(backends) {
+    const container = document.getElementById('login-sso-buttons');
+    container.innerHTML = backends.map(b =>
+        `<a class="login-sso-button" href="${escapeHtml(b.url)}">${escapeHtml(t('login.signin_with', { name: b.name }))}</a>`
+    ).join('');
+    document.getElementById('login-sso').style.display = backends.length ? 'block' : 'none';
+}
+
+let pendingLoginError = null;
+
+function decodeTokenClaims(token) {
+    try {
+        const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        return JSON.parse(atob(payload.padEnd(payload.length + (4 - payload.length % 4) % 4, '=')));
+    } catch {
+        return {};
+    }
+}
+
+function consumeOIDCRedirect() {
+    if (!location.hash.startsWith('#oidc_')) return;
+    const params = new URLSearchParams(location.hash.slice(1));
+    history.replaceState(null, '', location.pathname + location.search);
+    const token = params.get('oidc_token');
+    if (token) {
+        const claims = decodeTokenClaims(token);
+        setToken(token);
+        localStorage.setItem('bootimus_username', claims.username || '');
+        localStorage.setItem('bootimus_is_admin', claims.is_admin === true);
+    }
+    pendingLoginError = params.get('oidc_error');
+}
+
 function showApp() {
+    applyRole();
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('main-header').style.display = '';
     document.getElementById('main-app').style.display = '';
@@ -181,7 +227,9 @@ function escapeHtml(text) {
 }
 
 function openModal(modalId) {
-    document.getElementById(modalId).classList.add('active');
+    const modal = document.getElementById(modalId);
+    applyReadOnlyToModal(modal);
+    modal.classList.add('active');
 }
 
 function closeModal(modalId) {
@@ -234,9 +282,49 @@ document.addEventListener('click', (e) => {
 
 function loadCurrentUser() {
     const username = localStorage.getItem('bootimus_username') || 'admin';
-    const isAdmin = localStorage.getItem('bootimus_is_admin') === 'true';
     document.getElementById('current-username').textContent = username;
-    document.getElementById('current-user-role').textContent = isAdmin ? 'Administrator' : 'User';
+    document.getElementById('current-user-role').textContent = isReadOnly() ? 'Read-only' : 'Administrator';
+}
+
+function isReadOnly() {
+    return localStorage.getItem('bootimus_is_admin') !== 'true';
+}
+
+function applyRole() {
+    const readOnly = isReadOnly();
+    document.body.classList.toggle('read-only', readOnly);
+    loadCurrentUser();
+    const active = document.querySelector('.sidebar-nav .nav-item.active');
+    if (readOnly && active && active.classList.contains('admin-only')) {
+        document.querySelector('.sidebar-nav .nav-item[data-tab="server"]').click();
+    }
+}
+
+async function refreshRole() {
+    try {
+        const res = await authFetch(`${API_BASE}/me`);
+        const data = await res.json();
+        if (data.success) {
+            localStorage.setItem('bootimus_username', data.data.username);
+            localStorage.setItem('bootimus_is_admin', data.data.is_admin);
+            applyRole();
+        }
+    } catch (err) {
+        console.error('Failed to refresh role:', err);
+    }
+}
+
+function applyReadOnlyToModal(modal) {
+    const readOnly = isReadOnly();
+    modal.querySelectorAll('form input, form select, form textarea').forEach(el => {
+        if (readOnly && !el.disabled) {
+            el.disabled = true;
+            el.dataset.readOnlyDisabled = '1';
+        } else if (!readOnly && el.dataset.readOnlyDisabled) {
+            el.disabled = false;
+            delete el.dataset.readOnlyDisabled;
+        }
+    });
 }
 
 function showNotification(message, type = 'info') {
@@ -311,7 +399,7 @@ function initApp() {
     if (appInitialised) return;
     appInitialised = true;
 
-    loadCurrentUser();
+    refreshRole();
     loadStats();
     loadServerInfo();
     loadProfileCache();
@@ -319,7 +407,7 @@ function initApp() {
     loadImages();
     loadPublicFiles();
     loadLogs();
-    loadUsers();
+    if (!isReadOnly()) loadUsers();
     loadActiveSessions();
 
     // Refresh every 30 seconds
@@ -331,7 +419,7 @@ function initApp() {
         if (activeTab === 'images') loadImages();
         if (activeTab === 'public-files') loadPublicFiles();
         if (activeTab === 'logs') loadLogs();
-        if (activeTab === 'users') loadUsers();
+        if (activeTab === 'users' && !isReadOnly()) loadUsers();
     }, 30000);
 
     // Refresh server info more frequently for live stats (every 5 seconds)
@@ -351,6 +439,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupForms();
     setupUpload();
     document.getElementById('login-form').addEventListener('submit', handleLogin);
+    consumeOIDCRedirect();
     checkAuth();
 });
 
@@ -522,6 +611,12 @@ async function powerClient(action) {
     }
 }
 
+function updateBMCPortPlaceholder(select) {
+    const port = select.form.querySelector('[name="ipmi_port"]');
+    if (!port) return;
+    port.placeholder = select.value === 'amt' ? '16992 (16993 with TLS)' : '443';
+}
+
 async function powerStatusClient() {
     const form = document.getElementById('edit-client-form');
     const mac = form.querySelector('[name="mac_address"]').value;
@@ -559,7 +654,7 @@ function updateScheduleActionHint() {
     switch (action) {
         case 'power':
             wrap.style.display = '';
-            label.textContent = 'Redfish Action';
+            label.textContent = 'Power Action';
             input.placeholder = 'On';
             hint.textContent = 'On / ForceOff / ForceRestart / GracefulShutdown / GracefulRestart';
             break;
@@ -1313,8 +1408,11 @@ async function editClient(mac) {
             form.querySelector('[name="description"]').value = currentClient.description || '';
             form.querySelector('[name="enabled"]').checked = currentClient.enabled || false;
             form.querySelector('[name="show_public_images"]').checked = currentClient.show_public_images !== false;
+            form.querySelector('[name="proxy_dhcp_no_vendor_option"]').checked = !!currentClient.proxy_dhcp_no_vendor_option;
 
             // BMC / Redfish
+            form.querySelector('[name="bmc_protocol"]').value = currentClient.bmc_protocol || '';
+            updateBMCPortPlaceholder(form.querySelector('[name="bmc_protocol"]'));
             form.querySelector('[name="ipmi_host"]').value = currentClient.ipmi_host || '';
             form.querySelector('[name="ipmi_port"]').value = currentClient.ipmi_port || '';
             form.querySelector('[name="ipmi_username"]').value = currentClient.ipmi_username || '';
@@ -1383,20 +1481,20 @@ async function loadClientBootHistory(mac) {
     if (!container) return;
     container.innerHTML = '<p style="color: var(--text-secondary); margin: 0;">Loading…</p>';
     try {
-        const res = await authFetch(`${API_BASE}/boot-logs?mac=${encodeURIComponent(mac)}&limit=50`);
+        const res = await authFetch(`${API_BASE}/logs?mac=${encodeURIComponent(mac)}&limit=50`);
         const data = await res.json();
         if (!data.success || !data.data || data.data.length === 0) {
             container.innerHTML = '<p style="color: var(--text-secondary); margin: 0;">No boot history for this client yet.</p>';
             return;
         }
         const rows = data.data.map(entry => {
-            const when = entry.CreatedAt ? new Date(entry.CreatedAt).toLocaleString() : '-';
-            const img = entry.ImageName || '(unknown)';
-            const ok = entry.Success
+            const when = entry.created_at ? new Date(entry.created_at).toLocaleString() : '-';
+            const img = entry.image_name || '(unknown)';
+            const ok = entry.success
                 ? '<span class="status-dot on" title="Success"></span>'
                 : '<span class="status-dot off" title="Failed"></span>';
-            const err = entry.ErrorMsg ? `<div style="color: var(--danger); font-size: 12px;">${escapeHtml(entry.ErrorMsg)}</div>` : '';
-            const ip = entry.IPAddress ? `<span style="color: var(--text-muted); font-size: 12px;">${escapeHtml(entry.IPAddress)}</span>` : '';
+            const err = entry.error_msg ? `<div style="color: var(--danger); font-size: 12px;">${escapeHtml(entry.error_msg)}</div>` : '';
+            const ip = entry.ip_address ? `<span style="color: var(--text-muted); font-size: 12px;">${escapeHtml(entry.ip_address)}</span>` : '';
             return `
                 <div style="padding: 8px 0; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: center;">
                     <div style="width: 14px;">${ok}</div>
@@ -2124,6 +2222,8 @@ function imageRowHTML(img, includeGroupCell, depth = 0) {
                         <td style="white-space: nowrap;">
                             ${img.boot_method === 'kernel' ?
                                 '<span class="badge badge-success">Kernel</span>' :
+                                img.boot_method === 'uki' ?
+                                '<span class="badge badge-success">UKI</span>' :
                                 img.boot_method === 'nbd' ?
                                 '<span class="badge badge-warning">NBD</span>' :
                                 img.boot_method === 'nfs' ?
@@ -2406,7 +2506,7 @@ function updateImagePropsProgress(filename) {
     const percent = document.getElementById('image-props-progress-percent');
     const p = extractionProgress[filename];
 
-    const actionBtns = ['image-props-extract-btn', 'image-props-patch-smb-btn', 'image-props-netboot-btn', 'image-props-download-btn', 'image-props-delete-btn'];
+    const actionBtns = ['image-props-extract-btn', 'image-props-patch-smb-btn', 'image-props-unpatch-smb-btn', 'image-props-netboot-btn', 'image-props-download-btn', 'image-props-delete-btn'];
 
     if (p) {
         container.style.display = '';
@@ -2417,6 +2517,8 @@ function updateImagePropsProgress(filename) {
     } else {
         container.style.display = 'none';
         actionBtns.forEach(id => { const b = document.getElementById(id); if (b) b.disabled = false; });
+        const unpatchBtn = document.getElementById('image-props-unpatch-smb-btn');
+        if (unpatchBtn && _imagePropsState) unpatchBtn.disabled = !_imagePropsState.img.smb_unpatch_available;
     }
 }
 
@@ -2677,7 +2779,9 @@ function setupForms() {
             enabled: formData.get('enabled') === 'on',
             show_public_images: formData.get('show_public_images') === 'on',
             bootloader_set: formData.get('bootloader_set') || '',
+            proxy_dhcp_no_vendor_option: formData.get('proxy_dhcp_no_vendor_option') === 'on',
             client_group_id: groupIdRaw ? parseInt(groupIdRaw, 10) : null,
+            bmc_protocol: formData.get('bmc_protocol') || '',
             ipmi_host: formData.get('ipmi_host') || '',
             ipmi_port: ipmiPortRaw ? parseInt(ipmiPortRaw, 10) : 0,
             ipmi_username: formData.get('ipmi_username') || '',
@@ -2753,8 +2857,8 @@ const API_REFERENCE = [
         { method: 'POST',   path: '/api/clients/promote?mac={mac}', desc: 'Promote discovered client to static.' },
         { method: 'GET',    path: '/api/clients/inventory?mac={mac}', desc: 'Latest hardware inventory.' },
         { method: 'GET',    path: '/api/clients/inventory/history?mac={mac}', desc: 'Historical inventory submissions.' },
-        { method: 'POST',   path: '/api/clients/power?mac={mac}',  desc: 'IPMI/Redfish power control. Body: <code>{action}</code> (on/off/reset).' },
-        { method: 'GET',    path: '/api/clients/power/status?mac={mac}', desc: 'IPMI/Redfish power status.' },
+        { method: 'POST',   path: '/api/clients/power?mac={mac}',  desc: 'BMC (Redfish or Intel AMT) power control. Query: <code>action</code> (On/ForceOff/ForceRestart/GracefulShutdown/GracefulRestart).' },
+        { method: 'GET',    path: '/api/clients/power/status?mac={mac}', desc: 'BMC (Redfish or Intel AMT) power status.' },
         { method: 'POST',   path: '/api/clients/import',           desc: 'CSV import (multipart).' },
     ]},
     { category: 'Client Groups', endpoints: [
@@ -2779,6 +2883,7 @@ const API_REFERENCE = [
         { method: 'POST',   path: '/api/images/redetect?filename={fn}', desc: 'Re-run distro detection and boot-param resolution.' },
         { method: 'GET',    path: '/api/images/boot-candidates?filename={fn}', desc: 'List kernel/initrd files found in the extracted ISO for override selection.' },
         { method: 'POST',   path: '/api/images/patch-smb?filename={fn}', desc: 'Patch boot.wim for Windows SMB install.' },
+        { method: 'POST',   path: '/api/images/unpatch-smb?filename={fn}', desc: 'Restore the original boot.wim, removing the SMB patch.' },
         { method: 'POST',   path: '/api/images/boot-method?filename={fn}', desc: 'Body: <code>{method}</code> (sanboot/kernel/nbd/nfs).' },
         { method: 'POST',   path: '/api/images/netboot/download?filename={fn}', desc: 'Fetch netboot kernel/initrd from distro mirror.' },
         { method: 'GET',    path: '/api/images/autoinstall?filename={fn}', desc: 'Get auto-install script for image.' },
@@ -2830,16 +2935,16 @@ const API_REFERENCE = [
         { method: 'DELETE', path: '/api/autoinstall-files/delete?filename={fn}', desc: 'Delete file.' },
     ]},
     { category: 'Custom Files', endpoints: [
-        { method: 'GET',    path: '/api/files',                    desc: 'List files. Add <code>?image_id={id}</code> to filter.' },
-        { method: 'POST',   path: '/api/files/upload',             desc: 'Multipart: <code>file</code>, <code>image_id</code>, <code>description</code>.' },
+        { method: 'GET',    path: '/api/files',                    desc: 'List all custom files.' },
+        { method: 'POST',   path: '/api/files/upload',             desc: 'Multipart: <code>file</code>, <code>imageId</code>, <code>description</code>, <code>destinationPath</code>, <code>public</code>.' },
         { method: 'PUT',    path: '/api/files/update?id={id}',     desc: 'Update file metadata.' },
         { method: 'DELETE', path: '/api/files/delete?id={id}',     desc: 'Delete file.' },
     ]},
     { category: 'Driver Packs (Windows)', endpoints: [
-        { method: 'GET',    path: '/api/drivers?image_id={id}',    desc: 'List driver packs for image.' },
-        { method: 'POST',   path: '/api/drivers/upload',           desc: 'Multipart: <code>file</code>, <code>image_id</code>.' },
+        { method: 'GET',    path: '/api/drivers?imageId={id}',     desc: 'List driver packs for image.' },
+        { method: 'POST',   path: '/api/drivers/upload',           desc: 'Multipart: <code>file</code>, <code>imageId</code>.' },
         { method: 'DELETE', path: '/api/drivers/delete?id={id}',   desc: 'Delete pack.' },
-        { method: 'POST',   path: '/api/drivers/rebuild?image_id={id}', desc: 'Rebuild boot.wim with driver packs.' },
+        { method: 'POST',   path: '/api/drivers/rebuild?imageId={id}', desc: 'Rebuild boot.wim with driver packs.' },
     ]},
     { category: 'Webhooks', endpoints: [
         { method: 'GET',    path: '/api/webhook',                  desc: 'Get webhook config.' },
@@ -3247,60 +3352,93 @@ async function loadTools() {
         }
 
         container.innerHTML = html;
+
+        for (const tool of toolsList) {
+            if (!tool.downloaded) resumeToolProgress(tool.name);
+        }
     } catch (err) {
         document.getElementById('tools-list').innerHTML = `<p class="alert alert-error">Failed to load tools: ${err.message}</p>`;
     }
 }
 
+const toolProgressIntervals = new Map();
+
 async function downloadTool(name) {
     try {
         const res = await authFetch(`${API_BASE}/tools/download?name=${encodeURIComponent(name)}`, { method: 'POST' });
         const data = await res.json();
+        if (res.status === 409) {
+            showNotification(data.error || 'Download already in progress', 'info');
+            showToolProgress(name);
+            return;
+        }
         if (!data.success) {
             showNotification(data.error || 'Download failed', 'error');
             return;
         }
-
-        // Show progress bar, hide button
-        const btn = document.getElementById(`tool-dl-btn-${name}`);
-        const wrap = document.getElementById(`tool-progress-wrap-${name}`);
-        if (btn) btn.style.display = 'none';
-        if (wrap) wrap.style.display = 'block';
-
-        // Poll progress
-        const poll = setInterval(async () => {
-            try {
-                const r = await authFetch(`${API_BASE}/tools/progress?name=${encodeURIComponent(name)}`);
-                const d = await r.json();
-                if (!d.success) return;
-
-                const p = d.data;
-                const bar = document.getElementById(`tool-progress-${name}`);
-                const text = document.getElementById(`tool-progress-text-${name}`);
-                if (!bar || !text) return;
-
-                if (p.status === 'downloading') {
-                    bar.style.width = p.percent.toFixed(0) + '%';
-                    const dlMB = (p.downloaded / 1048576).toFixed(1);
-                    const totalMB = p.total > 0 ? (p.total / 1048576).toFixed(1) : '?';
-                    text.textContent = `Downloading... ${dlMB} MB / ${totalMB} MB (${p.percent.toFixed(0)}%)`;
-                } else if (p.status === 'extracting') {
-                    bar.style.width = '100%';
-                    text.textContent = 'Extracting...';
-                } else if (p.status === 'done') {
-                    clearInterval(poll);
-                    showNotification('Download complete', 'success');
-                    loadTools();
-                } else if (p.status === 'error') {
-                    clearInterval(poll);
-                    showNotification('Download failed: ' + (p.error || 'unknown error'), 'error');
-                    loadTools();
-                }
-            } catch (e) { /* ignore poll errors */ }
-        }, 1000);
+        showToolProgress(name);
     } catch (err) {
         showNotification('Download failed: ' + err.message, 'error');
     }
+}
+
+function showToolProgress(name) {
+    const btn = document.getElementById(`tool-dl-btn-${name}`);
+    const wrap = document.getElementById(`tool-progress-wrap-${name}`);
+    if (btn) btn.style.display = 'none';
+    if (wrap) wrap.style.display = 'block';
+    startToolProgressPolling(name);
+}
+
+async function resumeToolProgress(name) {
+    try {
+        const r = await authFetch(`${API_BASE}/tools/progress?name=${encodeURIComponent(name)}`);
+        const d = await r.json();
+        if (!d.success || !d.data) return;
+        const s = d.data.status;
+        if (s === 'starting' || s === 'downloading' || s === 'extracting') {
+            showToolProgress(name);
+        }
+    } catch (e) { /* ignore */ }
+}
+
+function startToolProgressPolling(name) {
+    const existing = toolProgressIntervals.get(name);
+    if (existing) clearInterval(existing);
+
+    const poll = setInterval(async () => {
+        try {
+            const r = await authFetch(`${API_BASE}/tools/progress?name=${encodeURIComponent(name)}`);
+            const d = await r.json();
+            if (!d.success) return;
+
+            const p = d.data;
+            const bar = document.getElementById(`tool-progress-${name}`);
+            const text = document.getElementById(`tool-progress-text-${name}`);
+            if (!bar || !text) return;
+
+            if (p.status === 'downloading') {
+                bar.style.width = p.percent.toFixed(0) + '%';
+                const dlMB = (p.downloaded / 1048576).toFixed(1);
+                const totalMB = p.total > 0 ? (p.total / 1048576).toFixed(1) : '?';
+                text.textContent = `Downloading... ${dlMB} MB / ${totalMB} MB (${p.percent.toFixed(0)}%)`;
+            } else if (p.status === 'extracting') {
+                bar.style.width = '100%';
+                text.textContent = 'Extracting...';
+            } else if (p.status === 'done') {
+                clearInterval(poll);
+                toolProgressIntervals.delete(name);
+                showNotification('Download complete', 'success');
+                loadTools();
+            } else if (p.status === 'error') {
+                clearInterval(poll);
+                toolProgressIntervals.delete(name);
+                showNotification('Download failed: ' + (p.error || 'unknown error'), 'error');
+                loadTools();
+            }
+        } catch (e) { /* ignore poll errors */ }
+    }, 1000);
+    toolProgressIntervals.set(name, poll);
 }
 
 async function toggleTool(name, enabled) {
@@ -3451,7 +3589,7 @@ async function loadBootloaders() {
             // Header row
             html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">`;
             html += `<div style="display: flex; align-items: center; gap: 12px;">`;
-            html += `<input type="radio" name="active-bootloader-set" value="${escapedName}" ${isActive ? 'checked' : ''} onchange="selectBootloaderSet('${escapedName}')" style="width: auto; accent-color: var(--success); transform: scale(1.3);">`;
+            html += `<input type="radio" name="active-bootloader-set" value="${escapedName}" ${isActive ? 'checked' : ''} ${isReadOnly() ? 'disabled' : ''} onchange="selectBootloaderSet('${escapedName}')" style="width: auto; accent-color: var(--success); transform: scale(1.3);">`;
             html += `<div>`;
             html += `<strong style="font-size: 16px;">${escapedName}</strong>`;
             if (isActive) html += ` <span class="badge badge-success">Active</span>`;
@@ -3720,7 +3858,7 @@ function setupUpload() {
         }
         pendingUploads.set(filename, {
             filename,
-            name: filename.replace(/\.iso$/i, ''),
+            name: filename.replace(/\.(iso|efi)$/i, ''),
             size: file.size,
             progress: 0,
             status: 'Starting…',
@@ -3798,7 +3936,9 @@ function showUploadModal() {
 
 // Utilities
 function showModal(id) {
-    document.getElementById(id).classList.add('active');
+    const modal = document.getElementById(id);
+    applyReadOnlyToModal(modal);
+    modal.classList.add('active');
 }
 
 function closeModal(id) {
@@ -3976,6 +4116,7 @@ function renderUsersTable(users) {
                 <tr>
                     <th>Username</th>
                     <th>Role</th>
+                    <th>Source</th>
                     <th>Status</th>
                     <th>Last Login</th>
                     <th>Created</th>
@@ -3986,7 +4127,9 @@ function renderUsersTable(users) {
     `;
 
     users.forEach(user => {
-        const role = user.is_admin ? '<span class="badge badge-info">Admin</span>' : '<span class="badge badge-success">User</span>';
+        const role = user.is_admin ? '<span class="badge badge-info">Admin</span>' : '<span class="badge badge-success">Read-only</span>';
+        const source = { local: 'Local', ldap: 'LDAP', oidc: 'OIDC' }[user.source || 'local'] || user.source;
+        const isLocal = !user.source || user.source === 'local';
         const status = user.enabled ? '<span class="badge badge-success">Enabled</span>' : '<span class="badge badge-danger">Disabled</span>';
         const lastLogin = user.last_login ? new Date(user.last_login).toLocaleString() : 'Never';
         const created = new Date(user.created_at).toLocaleString();
@@ -3995,12 +4138,13 @@ function renderUsersTable(users) {
             <tr>
                 <td><strong>${escapeHtml(user.username)}</strong></td>
                 <td>${role}</td>
+                <td>${escapeHtml(source)}</td>
                 <td>${status}</td>
                 <td>${lastLogin}</td>
                 <td>${created}</td>
                 <td>
                     <button class="btn btn-info btn-sm" onclick='editUser(${JSON.stringify(user)})'>Edit</button>
-                    <button class="btn btn-sm" onclick='showResetPasswordModal(${JSON.stringify(user)})'>Reset Password</button>
+                    ${isLocal ? `<button class="btn btn-sm" onclick='showResetPasswordModal(${JSON.stringify(user)})'>Reset Password</button>` : ''}
                     ${user.username !== 'admin' ? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${user.username}')">Delete</button>` : ''}
                 </td>
             </tr>
@@ -4034,6 +4178,14 @@ function editUser(user) {
     form.elements['is_admin'].title = lockTitle;
     form.elements['enabled'].disabled = lockOut;
     form.elements['enabled'].title = lockTitle;
+
+    const note = document.getElementById('edit-user-external-note');
+    if (user.source && user.source !== 'local') {
+        note.textContent = `This user signs in via ${user.source.toUpperCase()}. Administrator rights are reset from their groups at each sign-in.`;
+        note.style.display = 'block';
+    } else {
+        note.style.display = 'none';
+    }
 
     openModal('edit-user-modal');
 }
@@ -4322,7 +4474,10 @@ async function downloadFromGetISO(rowKey, distroName, releaseLabel) {
             body: JSON.stringify({ url, description: `${distroName} ${releaseLabel}` }),
         });
         const data = await res.json();
-        if (data.success && data.data && data.data.filename) {
+        if (res.status === 409 && data.data && data.data.filename) {
+            showNotification('Download already in progress — resuming progress display', 'info');
+            startGetISOProgressPolling(rowKey, data.data.filename, distroName, releaseLabel);
+        } else if (data.success && data.data && data.data.filename) {
             startGetISOProgressPolling(rowKey, data.data.filename, distroName, releaseLabel);
         } else {
             renderGetISOError(rowKey, data.error || 'Failed to start download', distroName, releaseLabel);
@@ -4447,12 +4602,17 @@ document.getElementById('download-form').addEventListener('submit', function(e) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(downloadData)
     })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
+    .then(response => response.json().then(data => ({ status: response.status, data })))
+    .then(({ status, data }) => {
+        if (status === 409 && data.data && data.data.filename) {
+            showNotification('Download already in progress — resuming progress display', 'info');
+            const filename = data.data.filename;
+            downloadProgressInterval = setInterval(() => {
+                checkDownloadProgress(filename);
+            }, 1000);
+        } else if (data.success) {
             showNotification('Download started: ' + data.data.filename, 'success');
 
-            // Start polling for progress
             const filename = data.data.filename;
             downloadProgressInterval = setInterval(() => {
                 checkDownloadProgress(filename);
@@ -5105,6 +5265,9 @@ function getDefaultBootParams(img) {
             return 'initrd=initrd ip=dhcp url={{BASE_URL}}/isos/{{FILENAME}}';
         case 'freebsd':
             return 'vfs.root.mountfrom=cd9660:/dev/md0 kernelname=/boot/kernel/kernel';
+        case 'windows':
+        case 'windows7':
+            return '';
         default:
             return 'iso-url={{BASE_URL}}/isos/{{FILENAME}} ip=dhcp';
     }
@@ -5128,7 +5291,11 @@ async function showImagePropertiesModal(filename, opts) {
     document.getElementById('image-props-display-name').value = img.name || '';
     document.getElementById('image-props-description').value = img.description || '';
     document.getElementById('image-props-order').value = img.order || 0;
-    document.getElementById('image-props-boot-method').value = img.boot_method || 'sanboot';
+    const bootMethodSelect = document.getElementById('image-props-boot-method');
+    const isUKI = img.boot_method === 'uki';
+    bootMethodSelect.querySelector('option[value="uki"]').hidden = !isUKI;
+    bootMethodSelect.disabled = isUKI;
+    bootMethodSelect.value = img.boot_method || 'sanboot';
 
     // Populate distro profile dropdown
     const distroSelect = document.getElementById('image-props-distro');
@@ -5171,7 +5338,10 @@ async function showImagePropertiesModal(filename, opts) {
     // Toggle action buttons based on image state
     const extractBtn = document.getElementById('image-props-extract-btn');
     const netbootBtn = document.getElementById('image-props-netboot-btn');
-    if (extractionProgress[filename]) {
+    if (isUKI) {
+        extractBtn.style.display = 'none';
+        netbootBtn.style.display = 'none';
+    } else if (extractionProgress[filename]) {
         extractBtn.style.display = 'inline-block';
         extractBtn.disabled = true;
         extractBtn.style.opacity = '0.5';
@@ -5195,6 +5365,14 @@ async function showImagePropertiesModal(filename, opts) {
     const smbEligible = cachedWindowsSMBActive && img.extracted && img.distro === 'windows';
     patchSmbBtn.style.display = smbEligible ? 'inline-block' : 'none';
     patchSmbBtn.textContent = img.smb_install_enabled ? t('props.action.re_patch_smb') : t('props.action.patch_smb');
+
+    const unpatchSmbBtn = document.getElementById('image-props-unpatch-smb-btn');
+    const unpatchVisible = img.extracted && img.distro === 'windows' && img.smb_install_enabled;
+    unpatchSmbBtn.style.display = unpatchVisible ? 'inline-block' : 'none';
+    unpatchSmbBtn.textContent = t('props.action.unpatch_smb');
+    unpatchSmbBtn.disabled = !img.smb_unpatch_available;
+    unpatchSmbBtn.style.opacity = img.smb_unpatch_available ? '' : '0.5';
+    unpatchSmbBtn.title = img.smb_unpatch_available ? t('props.action.unpatch_smb_tip') : t('props.action.unpatch_smb_unavailable');
 
     // Stash state used by the live warnings so onChange handlers can re-evaluate.
     _imagePropsState = {
@@ -5297,7 +5475,7 @@ async function saveAndRepatchFromProperties() {
 function applyBootParamsWindowsLock(distro) {
     const input = document.getElementById('image-props-boot-params');
     const redetect = document.getElementById('image-props-redetect-btn');
-    const isWindows = distro === 'windows';
+    const isWindows = distro === 'windows' || distro === 'windows7';
     input.disabled = isWindows;
     input.style.opacity = isWindows ? '0.5' : '';
     input.style.cursor = isWindows ? 'not-allowed' : '';
@@ -5322,6 +5500,26 @@ async function patchSmbFromProperties() {
     } finally {
         btn.disabled = false;
         btn.textContent = t('props.action.patch_smb');
+    }
+}
+
+async function unpatchSmbFromProperties() {
+    const filename = document.getElementById('image-props-filename').value;
+    const btn = document.getElementById('image-props-unpatch-smb-btn');
+    btn.disabled = true;
+    btn.textContent = t('props.action.unpatching');
+    try {
+        const res = await authFetch(`${API_BASE}/images/unpatch-smb?filename=${encodeURIComponent(filename)}`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || t('props.notify.unpatch_failed'));
+        showNotification(t('props.notify.unpatch_success'), 'success');
+        await loadImages();
+        refreshImagePropsIfOpenFor(filename);
+    } catch (err) {
+        showNotification(t('props.notify.unpatch_failed') + ': ' + err.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = t('props.action.unpatch_smb');
     }
 }
 
@@ -5525,7 +5723,8 @@ async function saveImageProperties(opts) {
     const order = parseInt(document.getElementById('image-props-order').value) || 0;
     const bootMethod = document.getElementById('image-props-boot-method').value;
     const distro = document.getElementById('image-props-distro').value;
-    const bootParams = document.getElementById('image-props-boot-params').value;
+    const bootParamsInput = document.getElementById('image-props-boot-params');
+    const bootParams = bootParamsInput.disabled ? '' : bootParamsInput.value;
     const enabled = document.getElementById('image-props-enabled').checked;
     const isPublic = document.getElementById('image-props-public').checked;
 
@@ -5943,6 +6142,7 @@ function exportClientsCSV() {
     const header = [
         'mac_address', 'name', 'description', 'enabled', 'show_public_images',
         'static', 'bootloader_set', 'client_group', 'allowed_images', 'next_boot_image',
+        'proxy_dhcp_no_vendor_option',
     ];
     const rows = clients.map(c => [
         c.mac_address,
@@ -5955,6 +6155,7 @@ function exportClientsCSV() {
         c.client_group_id ? (groupsById[c.client_group_id] || '') : '',
         (c.allowed_images || []).join('|'),
         c.next_boot_image || '',
+        c.proxy_dhcp_no_vendor_option ? 'true' : 'false',
     ]);
     const csv = [header, ...rows].map(r => r.map(csvEscape).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
@@ -6122,6 +6323,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 stagger_delay_millis: parseInt(fd.get('stagger_delay_millis') || '0', 10),
                 bootloader_set: fd.get('bootloader_set') || '',
                 allowed_images: allowed,
+                bmc_protocol: fd.get('bmc_protocol') || '',
                 ipmi_port: parseInt(fd.get('ipmi_port') || '0', 10),
                 ipmi_username: fd.get('ipmi_username') || '',
                 ipmi_password: fd.get('ipmi_password') || '',
@@ -6193,6 +6395,8 @@ async function showEditClientGroupModal(id) {
         form.elements.enabled.checked = !!g.enabled;
         form.elements.wol_broadcast_addr.value = g.wol_broadcast_addr || '';
         form.elements.stagger_delay_millis.value = g.stagger_delay_millis || 0;
+        form.elements.bmc_protocol.value = g.bmc_protocol || 'redfish';
+        updateBMCPortPlaceholder(form.elements.bmc_protocol);
         form.elements.ipmi_port.value = g.ipmi_port || '';
         form.elements.ipmi_username.value = g.ipmi_username || '';
         form.elements.ipmi_password.value = g.ipmi_password || '';

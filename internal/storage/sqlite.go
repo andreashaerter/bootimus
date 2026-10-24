@@ -81,13 +81,13 @@ func (s *SQLiteStore) GetClientBootloaderSets(mac string) (clientSet, groupSet s
 }
 
 func (s *SQLiteStore) CreateClient(client *models.Client) error {
-	return s.db.Create(client).Error
+	return createClient(s.db, client)
 }
 
 func (s *SQLiteStore) UpdateClient(mac string, client *models.Client) error {
 	return s.db.Model(&models.Client{}).Where("mac_address = ?", mac).
 		Select("Name", "Description", "Enabled", "ShowPublicImages", "BootloaderSet", "Static", "ClientGroupID",
-			"IPMIHost", "IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "UpdatedAt").
+			"BMCProtocol", "IPMIHost", "IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "ProxyDHCPNoVendorOption", "UpdatedAt").
 		Updates(client).Error
 }
 
@@ -611,6 +611,10 @@ func (s *SQLiteStore) SyncImages(isoFiles []models.SyncFile) error {
 				Public:   true,
 				GroupID:  groupID,
 			}
+			if iso.BootMethod != "" {
+				image.BootMethod = iso.BootMethod
+				image.BootParams = iso.BootParams
+			}
 			if err := s.db.Create(&image).Error; err != nil {
 				return fmt.Errorf("failed to create image %s: %w", iso.Name, err)
 			}
@@ -895,7 +899,7 @@ func (s *SQLiteStore) CreateClientGroup(group *models.ClientGroup) error {
 func (s *SQLiteStore) UpdateClientGroup(id uint, group *models.ClientGroup) error {
 	return s.db.Model(&models.ClientGroup{}).Where("id = ?", id).
 		Select("Name", "Description", "Enabled", "AllowedImages", "BootloaderSet", "WOLBroadcastAddr", "StaggerDelayMillis",
-			"IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "UpdatedAt").
+			"BMCProtocol", "IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "UpdatedAt").
 		Updates(group).Error
 }
 

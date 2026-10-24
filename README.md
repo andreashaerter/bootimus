@@ -28,10 +28,14 @@ I've used Claude CLI to help with some parts of this project - mostly making the
 - **Per-client access control**: Assign specific images per MAC address, toggle public image visibility per client
 - **Client auto-discovery**: Clients are automatically detected when they PXE boot, like DHCP leases - promote to static when ready
 - **Next boot action**: Set a one-time boot image for a client with optional Wake-on-LAN - auto-clears after use
+- **BMC power control**: Power clients on, off or restart them over Redfish or Intel AMT, per client or in bulk across a client group
 - **Hardware inventory**: Automatic collection of CPU, memory, manufacturer, serial number, and NIC info from PXE clients
 - **JWT authentication**: Secure token-based auth with a dedicated login page
 - **LDAP/Active Directory**: Optional LDAP backend with group-based admin access - local accounts always work as fallback
+- **OIDC single sign-on**: Sign in through Authentik, Keycloak, Microsoft Entra ID, Google or any OpenID Connect provider, with users created on first sign-in and admin rights mapped from groups or user lists
+- **Read-only role**: Non-admin users can view clients, images and boot activity without being able to change anything or see BMC passwords
 - **Swappable bootloaders**: Ship with embedded iPXE, or bring your own custom bootloader sets
+- **Raspberry Pi netboot**: Pi 3 and Pi 4 boards boot with no SD card — embedded UEFI firmware served over TFTP
 - **Modern admin UI**: Sidebar navigation, consistent toolbars, real-time colour-coded logs, REST API
 - **Multi-database**: SQLite out of the box, PostgreSQL for production
 - **Docker and bare metal**: Multi-arch images (amd64/arm64) or a single static binary
@@ -85,6 +89,8 @@ chmod +x bootimus-amd64
 # Admin panel: http://localhost:8081
 ```
 
+Install `bsdtar` (`libarchive-tools` on Debian/Ubuntu, `libarchive` on Arch and Fedora) alongside the binary. Bootimus uses it to extract ISOs with their full Rock Ridge and Joliet file names; without it, extraction falls back to a built-in reader that can shorten long names on some ISOs, which breaks RPM repositories. The Docker image already includes it.
+
 ### Docker Compose
 
 ```bash
@@ -123,7 +129,7 @@ $ systemctl start bootimus
 - **[DHCP Configuration](docs/en/dhcp.md)** - Configure your DHCP server
 - **[Auto-Install](docs/en/auto-install.md)** - autounattend.xml, cloud-init, kickstart, preseed
 - **[Client Management](docs/en/clients.md)** - MAC-based access control, auto-discovery, next boot
-- **[Authentication](docs/en/authentication.md)** - JWT auth, LDAP/Active Directory setup
+- **[Authentication](docs/en/authentication.md)** - JWT auth, LDAP/Active Directory and OIDC single sign-on setup
 - **[Distro Profiles](docs/en/distro-profiles.md)** - Data-driven distro detection and boot params
 
 ## Boot Tools
@@ -230,6 +236,7 @@ If `smbd` isn't in `PATH`, the feature self-disables with a clear log line and t
 
 - `wimlib-imagex` (already required for Windows driver injection).
 - Port 445 reachable from clients. Windows' `net use` ignores non-445 SMB ports, so `--windows-smb-port` is for testing only.
+- `smbd` listens on `--bind-interface` when it is set. Otherwise it binds to `--server-addr` if that address belongs to this host, and listens on all interfaces when it does not (for example under Kubernetes, where the advertised address is a node or service IP the pod does not own).
 - If running standalone with `setcap` instead of root, grant `smbd` the same capability so the forked child can bind 445:
 
   ```bash
@@ -282,7 +289,7 @@ services:
 | **Standalone PXE** | Built-in proxyDHCP — no DHCP reconfig needed | Requires external DHCP changes |
 | **Database** | SQLite / PostgreSQL | File-based |
 | **Web UI** | Modern sidebar UI with REST API | Basic HTML |
-| **Authentication** | JWT + LDAP/AD | None |
+| **Authentication** | JWT + LDAP/AD + OIDC SSO | None |
 | **Boot Logging** | Full tracking with live streaming | Limited |
 | **MAC-based ACL** | Granular per-client | No |
 | **ISO Upload** | Web upload + URL download | Manual copy |
@@ -367,7 +374,7 @@ Run `make help` for all available targets.
 - **Read-only TFTP**: TFTP server is read-only (no write operations)
 - **Path sanitisation**: All file paths sanitised to prevent directory traversal
 - **MAC address verification**: ISOs served only to authorised clients
-- **Admin authentication**: JWT token-based auth with bcrypt password hashing, optional LDAP/AD backend
+- **Admin authentication**: JWT token-based auth with bcrypt password hashing, optional LDAP/AD backend and OIDC single sign-on
 - **Separate admin port**: Admin interface isolated from boot network
 - **Audit logs**: All boot attempts logged with client/image/success tracking
 
@@ -432,9 +439,9 @@ curl -H "Authorization: Bearer $TOKEN" -X PUT http://localhost:8081/api/images?f
 
 ### UEFI Secure Boot Enabled on Target
 
-Bootimus does not currently ship Microsoft-signed bootloaders. On machines with Secure Boot enabled, PXE boot fails with a signature-verification error.
+Bootimus ships a built-in `secureboot-official` bootloader set — a Microsoft-signed shim chain that stock Secure Boot firmware trusts out of the box, with no certificate enrolment on clients.
 
-**Fix**: disable Secure Boot in the target's firmware, or enrol Bootimus's iPXE EFI binary into the firmware's MOK keystore.
+**Fix**: select the `secureboot-official` set on the Bootloaders page (external DHCP servers must advertise `ipxe-shimx64.efi` to UEFI clients), and use extracted kernel/initrd boot for your images. See the [Secure Boot guide](docs/en/secure-boot.md) for the full walkthrough and limitations (NBD/NFS boots and distros without Secure Boot support still need it disabled).
 
 ### Forgotten Admin Password
 

@@ -44,7 +44,21 @@ type User struct {
 	Password  string     `gorm:"not null" json:"-"`
 	Enabled   bool       `gorm:"default:true" json:"enabled"`
 	IsAdmin   bool       `gorm:"default:false" json:"is_admin"`
+	Source    string     `gorm:"default:local" json:"source"`
 	LastLogin *time.Time `json:"last_login,omitempty"`
+}
+
+const (
+	UserSourceLocal = "local"
+	UserSourceLDAP  = "ldap"
+	UserSourceOIDC  = "oidc"
+)
+
+func (u *User) AuthSource() string {
+	if u.Source == "" {
+		return UserSourceLocal
+	}
+	return u.Source
 }
 
 func (u *User) SetPassword(password string) error {
@@ -81,6 +95,7 @@ type Client struct {
 	ClientGroupID    *uint          `gorm:"index" json:"client_group_id,omitempty"`
 	ClientGroup      *ClientGroup   `gorm:"foreignKey:ClientGroupID" json:"client_group,omitempty"`
 
+	BMCProtocol  string `json:"bmc_protocol,omitempty"`
 	IPMIHost     string `json:"ipmi_host,omitempty"`
 	IPMIPort     int    `json:"ipmi_port,omitempty"`
 	IPMIUsername string `json:"ipmi_username,omitempty"`
@@ -88,6 +103,8 @@ type Client struct {
 	IPMIInsecure bool   `gorm:"default:false" json:"ipmi_insecure,omitempty"`
 
 	AutoInstallFile string `json:"auto_install_file,omitempty"`
+
+	ProxyDHCPNoVendorOption bool `gorm:"default:false" json:"proxy_dhcp_no_vendor_option"`
 
 	EnrollmentState string     `gorm:"default:'';index" json:"enrollment_state,omitempty"`
 	ClusterID       *uint      `gorm:"index" json:"cluster_id,omitempty"`
@@ -193,6 +210,7 @@ type ClientGroup struct {
 	StaggerDelayMillis int            `gorm:"default:0" json:"stagger_delay_millis"`
 	Clients            []Client       `gorm:"foreignKey:ClientGroupID" json:"clients,omitempty"`
 
+	BMCProtocol  string `json:"bmc_protocol,omitempty"`
 	IPMIPort     int    `json:"ipmi_port,omitempty"`
 	IPMIUsername string `json:"ipmi_username,omitempty"`
 	IPMIPassword string `json:"ipmi_password,omitempty"`
@@ -202,10 +220,12 @@ type ClientGroup struct {
 }
 
 type SyncFile struct {
-	Name      string
-	Filename  string
-	Size      int64
-	GroupPath string // relative directory path from isoDir, empty for root
+	Name       string
+	Filename   string
+	Size       int64
+	GroupPath  string // relative directory path from isoDir, empty for root
+	BootMethod string
+	BootParams string
 }
 
 type ImageGroup struct {
@@ -245,6 +265,7 @@ type Image struct {
 	InitrdPath            string         `json:"initrd_path,omitempty"`
 	BootParams            string         `json:"boot_params,omitempty"`
 	SquashfsPath          string         `json:"squashfs_path,omitempty"`
+	ShimPath              string         `json:"shim_path,omitempty"`
 	KernelOverride        string         `json:"kernel_override,omitempty"`
 	InitrdOverride        string         `json:"initrd_override,omitempty"`
 	ExtractionError       string         `json:"extraction_error,omitempty"`
@@ -261,6 +282,7 @@ type Image struct {
 	SMBInstallEnabled     bool           `gorm:"default:false" json:"smb_install_enabled"`
 	SMBPatchFingerprint   string         `json:"smb_patch_fingerprint,omitempty"`
 	SMBNeedsRepatch       bool           `gorm:"-" json:"smb_needs_repatch"`
+	SMBUnpatchAvailable   bool           `gorm:"-" json:"smb_unpatch_available"`
 
 	AutoInstallFile string `json:"auto_install_file,omitempty"`
 }

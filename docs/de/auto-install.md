@@ -150,10 +150,10 @@ autoinstall:
     - curtin in-target -- systemctl enable --now serial-getty@ttyS0.service
 ```
 
-Boot-Parameter (das passende Image hat diese für Ubuntu bereits als Default):
+Bootimus fügt den Boot-Parameter selbst hinzu, sobald eine Auto-Install-Datei angehängt ist; in den Boot-Parametern des Images musst du also nichts eintragen. Der erzeugte Parameter sieht so aus:
 
 ```
-autoinstall ds=nocloud-net;s=http://{{SERVER_ADDR}}:8080/autoinstall/{{IMAGE_FILENAME}}/
+autoinstall ds=nocloud-net;s=http://<server>:8080/autoinstall/<image-filename>/mac/<mac>/
 ```
 
 ### Debian (preseed)
@@ -216,7 +216,11 @@ Windows-Installationen laufen über SMB. Wenn an einem Image eine autounattend-D
 
 Ohne die Per-Image-autounattend-Datei läuft Setup wie gehabt interaktiv.
 
+**Anforderungen an das Datenverzeichnis.** Bootimus betreibt einen eigenen `smbd`, dessen Zustand unter `data/smb` liegt. Samba startet nicht, wenn dieses Verzeichnis auf einem Dateisystem liegt, das keine Unix-Berechtigungen speichern kann (exFAT, NTFS oder ein CIFS-Mount), weil sein Lock-Verzeichnis dann als `0777` statt `0755` zurückgemeldet wird. Lass das Datenverzeichnis auf einem nativen Linux-Dateisystem wie ext4 oder XFS liegen und stell sicher, dass kein anderer SMB-Server auf dem Host Port 445 belegt. Bootimus prüft beides beim Start und meldet es unter **Server Info** → **Windows SMB**.
+
 **Reboot-Resilienz.** WinPE startet mitten in der Installation neu und verbindet sich von derselben Client-IP wieder. Die mitgelieferte Samba-Config setzt `reset on zero vc = yes` und deaktiviert Oplocks, damit das zweite `net use` nicht an einem stale Session-State scheitert. Wenn du `data/smb/smb.conf` durch deine eigene ersetzt hast, übernimm diese Einstellungen.
+
+**Patch rückgängig machen.** Beim ersten SMB-Patch wird eine unveränderte Kopie der `boot.wim` als `boot.wim.orig` daneben abgelegt. **Images** → **SMB-Patch entfernen** stellt das Original wieder her und entfernt die SMB-Freigabe des Images — die ISO bootet dann exakt wie hochgeladen. Images, die von älteren Bootimus-Versionen gepatcht wurden, haben keine Sicherung: erst das Image neu extrahieren (das erzeugt eine frische unveränderte Kopie), dann den Patch entfernen.
 
 ## REST-API
 
@@ -266,10 +270,12 @@ curl -u admin:pw -X PUT http://localhost:8081/api/clients/b4:2e:99:01:5f:a3 \
 Den Auto-Install-Endpunkt, den Clients beim Boot ansprechen:
 
 ```
-GET /autoinstall/<image-filename>/?mac=<mac>
+GET /autoinstall/<image-filename>?mac=<mac>             # preseed, kickstart
+GET /autoinstall/<image-filename>/mac/<mac>/user-data   # Ubuntu autoinstall
+GET /autoinstall/<image-filename>/mac/<mac>/meta-data   # Ubuntu autoinstall
 ```
 
-Der Query-Parameter `mac` wird vom Boot-Menü automatisch angehängt, damit Per-Client-Overrides korrekt aufgelöst werden.
+Das Boot-Menü baut diese URLs mit der MAC-Adresse des Clients, damit Per-Client-Overrides korrekt aufgelöst werden; bei Ubuntu hängt cloud-init `user-data` und `meta-data` selbst an. Anfragen ohne MAC-Adresse oder in anderer Form, etwa `/autoinstall/<image-filename>/user-data`, liefern 404.
 
 ## Fehlersuche
 
@@ -279,7 +285,7 @@ Der Query-Parameter `mac` wird vom Boot-Menü automatisch angehängt, damit Per-
 
 ### Platzhalter werden wörtlich ausgespielt
 
-Wenn `{{HOSTNAME}}` als literaler String im installierten System auftaucht, wurde die Datei vor dem Substitutions-Lauf ausgeliefert — meistens, weil der Client nur per IP gebootet hat und der Request keinen `mac`-Query-Parameter enthielt. Stelle sicher, dass das Boot-Menü URLs der Form `/autoinstall/<iso>/?mac=<mac>` erzeugt.
+Wenn `{{HOSTNAME}}` als literaler String im installierten System auftaucht, wurde die Datei vor dem Substitutions-Lauf ausgeliefert — meistens, weil der Client nur per IP gebootet hat und der Request keinen `mac`-Query-Parameter enthielt. Stelle sicher, dass das Boot-Menü URLs der Form `/autoinstall/<iso>?mac=<mac>` oder `/autoinstall/<iso>/mac/<mac>/` erzeugt.
 
 ### Falsche Datei ausgeliefert
 
@@ -300,6 +306,10 @@ Das Feld `source:` sagt dir genau, welcher Slot gewonnen hat.
 ### "AutoUnattend.xml not on share, running interactive setup"
 
 Wird von `startnet.cmd` geloggt, wenn die Datei nicht dort ist, wo erwartet. Entweder ist der Staging-Schritt fehlgeschlagen (prüfe das Bootimus-Server-Log um den Patch-Zeitpunkt herum) oder die SMB-Freigabe hat die Datei verloren. SMB-Patch aus den Image-Eigenschaften erneut ausführen.
+
+### `Z:\setup.exe not found on the share`
+
+`startnet.cmd` hat `Z:` eingebunden, aber die ausgegebene Auflistung zeigt den Image-Ordner (`iso\`, `metadata.txt`) statt der Installationsdateien. Bootimus gibt immer den `iso`-Unterordner des Images frei, der Client hat sich also mit einem anderen SMB-Server unter derselben Adresse verbunden. Prüfe das Bootimus-Log auf `SMB: smbd exited` und die Zeile **Windows SMB** unter **Server Info**. Die übliche Ursache ist ein Datenverzeichnis auf einem Dateisystem ohne Unix-Berechtigungen; `smbd` beendet sich dann mit `invalid permissions on directory '.../smb/locks/msg.lock': has 0777 should be 0755`, und stattdessen antwortet ein System-Samba auf Port 445. Verschiebe das Datenverzeichnis auf ext4 oder XFS, stoppe das andere Samba und starte Bootimus neu.
 
 ### `net use fails after VM reboot`
 

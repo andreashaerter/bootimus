@@ -163,37 +163,40 @@ func (e *Extractor) detectUbuntuDebianUnified(reader FileSystemReader) (*BootFil
 	}
 
 	paths := []struct {
-		kernel     string
-		initrd     string
-		distro     string
-		bootParams string
-		netboot    bool
-		netbootURL string
+		kernel      string
+		initrd      string
+		distro      string
+		bootParams  string
+		netbootArch string
 	}{
-		{"/casper/vmlinuz", "/casper/initrd", "ubuntu", "", false, ""},
-		{"/casper/vmlinuz", "/casper/initrd.lz", "ubuntu", "", false, ""},
-		{"/casper/vmlinuz", "/casper/initrd.gz", "ubuntu", "", false, ""},
-		{"/casper/vmlinuz.efi", "/casper/initrd.lz", "ubuntu", "", false, ""},
-		{"/casper/vmlinuz.efi", "/casper/initrd", "ubuntu", "", false, ""},
-		{"/casper/vmlinuz.efi", "/casper/initrd.gz", "ubuntu", "", false, ""},
-		{"/install/vmlinuz", "/install/initrd.gz", "debian", "", true, "http://ftp.debian.org/debian/dists/trixie/main/installer-amd64/current/images/netboot/netboot.tar.gz"},
-		{"/install.amd/vmlinuz", "/install.amd/initrd.gz", "debian", "", true, "http://ftp.debian.org/debian/dists/trixie/main/installer-amd64/current/images/netboot/netboot.tar.gz"},
-		{"/live/vmlinuz", "/live/initrd.img", "debian", "", false, ""},
-		{"/live/vmlinuz1", "/live/initrd1.img", "debian", "", false, ""},
-		{"/vmlinuz", "/initrd.img", "debian", "", false, ""},
-		{"/boot/linux26", "/boot/initrd.img", "debian", "", false, ""},
+		{"/casper/vmlinuz", "/casper/initrd", "ubuntu", "", ""},
+		{"/casper/vmlinuz", "/casper/initrd.lz", "ubuntu", "", ""},
+		{"/casper/vmlinuz", "/casper/initrd.gz", "ubuntu", "", ""},
+		{"/casper/vmlinuz.efi", "/casper/initrd.lz", "ubuntu", "", ""},
+		{"/casper/vmlinuz.efi", "/casper/initrd", "ubuntu", "", ""},
+		{"/casper/vmlinuz.efi", "/casper/initrd.gz", "ubuntu", "", ""},
+		{"/install/netboot/ubuntu-installer/amd64/linux", "/install/netboot/ubuntu-installer/amd64/initrd.gz", "ubuntu", "", ""},
+		{"/install/netboot/ubuntu-installer/arm64/linux", "/install/netboot/ubuntu-installer/arm64/initrd.gz", "ubuntu", "", ""},
+		{"/install/netboot/ubuntu-installer/i386/linux", "/install/netboot/ubuntu-installer/i386/initrd.gz", "ubuntu", "", ""},
+		{"/install/vmlinuz", "/install/initrd.gz", "debian", "", "amd64"},
+		{"/install.amd/vmlinuz", "/install.amd/initrd.gz", "debian", "", "amd64"},
+		{"/install.a64/vmlinuz", "/install.a64/initrd.gz", "debian", "", "arm64"},
+		{"/live/vmlinuz", "/live/initrd.img", "debian", "", ""},
+		{"/live/vmlinuz1", "/live/initrd1.img", "debian", "", ""},
+		{"/vmlinuz", "/initrd.img", "debian", "", ""},
+		{"/boot/linux26", "/boot/initrd.img", "debian", "", ""},
 	}
 
 	for _, p := range paths {
 		if reader.FileExists(p.kernel) && reader.FileExists(p.initrd) {
 			bootFiles := &BootFiles{
-				Kernel:          p.kernel,
-				Initrd:          p.initrd,
-				Distro:          p.distro,
-				BootParams:      p.bootParams,
-				NetbootRequired: p.netboot,
-				NetbootURL:      p.netbootURL,
+				Kernel:      p.kernel,
+				Initrd:      p.initrd,
+				Distro:      p.distro,
+				BootParams:  p.bootParams,
+				NetbootArch: p.netbootArch,
 			}
+			resolveNetboot(bootFiles)
 			squashfs := parentDir(p.kernel) + "/filesystem.squashfs"
 			if reader.FileExists(squashfs) {
 				bootFiles.SquashfsPath = squashfs
@@ -203,6 +206,23 @@ func (e *Extractor) detectUbuntuDebianUnified(reader FileSystemReader) (*BootFil
 	}
 
 	return nil, fmt.Errorf("kernel/initrd not found in common Ubuntu/Debian paths")
+}
+
+var netbootSources = map[string]string{
+	"debian": "http://ftp.debian.org/debian/dists/trixie/main/installer-%s/current/images/netboot/netboot.tar.gz",
+	"kali":   "http://http.kali.org/dists/kali-rolling/main/installer-%s/current/images/netboot/netboot.tar.gz",
+}
+
+func resolveNetboot(files *BootFiles) {
+	if files.NetbootArch == "" {
+		return
+	}
+	source, ok := netbootSources[files.Distro]
+	files.NetbootRequired = ok
+	files.NetbootURL = ""
+	if ok {
+		files.NetbootURL = fmt.Sprintf(source, files.NetbootArch)
+	}
 }
 
 func (e *Extractor) detectFedoraRHELUnified(reader FileSystemReader) (*BootFiles, error) {
@@ -435,7 +455,7 @@ func (e *Extractor) detectClearLinuxUnified(reader FileSystemReader) (*BootFiles
 
 func (e *Extractor) detectSystemRescueUnified(reader FileSystemReader) (*BootFiles, error) {
 	kernel := "/sysresccd/boot/x86_64/vmlinuz"
-	initrd := "/sysresccd/boot/intel_ucode.img"
+	initrd := "/sysresccd/boot/x86_64/sysresccd.img"
 
 	if reader.FileExists(kernel) && reader.FileExists(initrd) {
 		return &BootFiles{

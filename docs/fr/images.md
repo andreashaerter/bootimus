@@ -5,6 +5,7 @@ Guide complet pour gérer les images ISO, extraire les fichiers de boot, et gér
 ##  Table des matières
 
 - [Ajouter des images](#ajouter-des-images)
+- [Images noyau unifiées (UKI)](#images-noyau-unifiées-uki)
 - [Extraction du kernel](#extraction-du-kernel)
 - [Support netboot](#support-netboot)
 - [Optimisation Ubuntu Desktop](#optimisation-ubuntu-desktop)
@@ -88,6 +89,22 @@ Si tu copies manuellement des ISOs dans le répertoire data (y compris dans des 
 curl -u admin:password -X POST http://localhost:8081/api/scan
 ```
 
+## Images noyau unifiées (UKI)
+
+Une image noyau unifiée (UKI) est un exécutable EFI unique qui regroupe un noyau Linux, son initrd et sa ligne de commande noyau. Bootimus démarre les UKI directement, sans extraction.
+
+**Ajouter une UKI** : téléverse le fichier `.efi`, télécharge-le depuis une URL ou copie-le dans `/data/isos/` puis lance un scan, exactement comme pour une ISO. Bootimus n'enregistre que les fichiers `.efi` qui sont des UKI (exécutables EFI avec une section `.linux`) ; les autres programmes EFI sont refusés et les fichiers situés dans le dossier extrait d'une ISO sont ignorés.
+
+**Paramètres de boot** : la ligne de commande intégrée dans la section `.cmdline` de l'UKI est copiée dans les paramètres de boot de l'image lors de son premier ajout, pour que tu puisses la voir et la modifier dans les propriétés de l'image. Bootimus démarre l'image avec :
+
+```
+kernel http://<server>:8080/isos/<image>.efi <boot parameters>
+```
+
+Avec Secure Boot désactivé, ces paramètres remplacent la ligne de commande intégrée, c'est pourquoi celle-ci est pré-remplie. Avec Secure Boot activé, le systemd-stub de la plupart des UKI les ignore et utilise toujours la ligne de commande intégrée.
+
+**UEFI uniquement** : les UKI sont des programmes EFI, les clients en BIOS legacy ne peuvent donc pas les démarrer. En choisir une sur un client BIOS affiche un message indiquant qu'UEFI est nécessaire.
+
 ## Extraction du kernel
 
 La plupart des ISOs modernes supportent le boot HTTP direct via la commande `sanboot` d'iPXE, qui télécharge et boote l'ISO entier. Cependant, extraire le kernel et l'initrd apporte des bénéfices significatifs :
@@ -98,6 +115,7 @@ La plupart des ISOs modernes supportent le boot HTTP direct via la commande `san
 - **Bande passante réduite** : critique pour les réseaux avec plusieurs clients
 - **Meilleure compatibilité** : certains ISOs ne supportent pas correctement `sanboot`
 - **Installation réseau** : utilise les fichiers netboot pour les installeurs Debian/Ubuntu
+- **UEFI Secure Boot** : l'extraction détecte le shim signé de l'ISO, ce qui permet aux clients Secure Boot de vérifier le kernel — voir le [guide Secure Boot](secure-boot.md)
 
 ### Comment extraire
 
