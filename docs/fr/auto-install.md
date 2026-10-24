@@ -11,6 +11,7 @@ Lance des installations sans surveillance sur Windows, Ubuntu, Debian et les dis
 - [Ordre de résolution](#ordre-de-résolution)
 - [Placeholders](#placeholders)
 - [Exemples](#exemples)
+- [Signaler la fin de l'installation](#signaler-la-fin-de-linstallation)
 - [Notes Windows](#notes-windows)
 - [API REST](#api-rest)
 - [Dépannage](#dépannage)
@@ -121,6 +122,8 @@ Ces tokens sont substitués par client au moment du service :
 | `{{SERVER_ADDR}}` | Adresse du serveur Bootimus |
 | `{{IMAGE_NAME}}` | Nom d'affichage de l'image qui boote |
 | `{{IMAGE_FILENAME}}` | Nom de fichier ISO de l'image qui boote |
+| `{{CALLBACK_URL}}` | URL complète que l'installeur appelle pour signaler la fin, avec un token à usage unique (voir [Signaler la fin de l'installation](#signaler-la-fin-de-linstallation)) |
+| `{{INSTALL_TOKEN}}` | Le token brut derrière `{{CALLBACK_URL}}`, pour construire ta propre requête |
 
 Les placeholders sont de la substitution de chaîne brute — pas d'échappement. Quote-les correctement pour le format cible (XML, YAML, etc.).
 
@@ -204,6 +207,93 @@ openssh-server
 
 ```xml
 <ComputerName>{{HOSTNAME}}</ComputerName>
+```
+
+## Signaler la fin de l'installation
+
+Bootimus suit chaque installation automatique dès l'instant où le client charge le kernel de l'image. L'enregistrement passe par quatre états :
+
+| État | Défini quand |
+|------|--------------|
+| `booted` | Le client a récupéré les fichiers de boot de l'image et l'image a un fichier d'auto-installation ou un script inline |
+| `installing` | L'installeur a récupéré le fichier d'auto-installation |
+| `completed` | Le système installé a appelé `{{CALLBACK_URL}}` |
+| `failed` | Le callback a signalé `status=failed`, ou rien n'a été signalé dans le délai imparti |
+
+L'état courant s'affiche dans la colonne **Install** de la table Clients et l'historique complet se trouve sous **Install History** dans l'éditeur de client. Les installations qui ne signalent jamais rien sont marquées en échec après six heures ; modifie ce délai avec `--install-timeout-hours` ou `install_timeout_hours` dans `bootimus.yaml`. Chaque passage à `completed` ou `failed` déclenche un événement webhook `install.completed` ou `install.failed` quand cet événement est activé dans **Settings → Webhook**.
+
+Le callback est une simple requête HTTP, `GET` ou `POST`, vers le port de boot :
+
+```
+http://<server>:8080/install/callback?token=<token>&status=completed|failed&message=<optional text>
+```
+
+`{{CALLBACK_URL}}` contient déjà le token, il suffit donc à un script d'ajouter `&status=failed&message=...`. Seul le premier signalement pour un token compte ; les appels suivants répondent `already recorded`.
+
+### Kickstart (`%post`)
+
+```
+%post --log=/root/ks-post.log
+curl -fsS "{{CALLBACK_URL}}" || curl -fsS "{{CALLBACK_URL}}&status=failed&message=post-script"
+%end
+```
+
+### Preseed (`late_command`)
+
+```
+d-i preseed/late_command string in-target sh -c 'wget -qO- "{{CALLBACK_URL}}" || curl -fsS "{{CALLBACK_URL}}"'
+```
+
+### Ubuntu autoinstall / cloud-init
+
+Le module `phone_home` envoie la requête après le premier boot, ce qui est le signal le plus fiable :
+
+```yaml
+#cloud-config
+autoinstall:
+  version: 1
+  user-data:
+    phone_home:
+      url: "{{CALLBACK_URL}}"
+      post: [instance_id, hostname]
+      tries: 10
+```
+
+Ou signale depuis l'environnement de l'installeur avec `late-commands` :
+
+```yaml
+  late-commands:
+    - curtin in-target --target=/target -- curl -fsS "{{CALLBACK_URL}}"
+```
+
+### Windows (`autounattend.xml`)
+
+Ajoute une commande de première ouverture de session sous `Microsoft-Windows-Shell-Setup` :
+
+```xml
+<FirstLogonCommands>
+  <SynchronousCommand wcm:action="add">
+    <Order>1</Order>
+    <CommandLine>powershell -NoProfile -Command "Invoke-WebRequest -UseBasicParsing '{{CALLBACK_URL}}'"</CommandLine>
+    <Description>Report install to Bootimus</Description>
+  </SynchronousCommand>
+</FirstLogonCommands>
+```
+
+N'oublie pas que `&` dans les attributs ou le texte XML doit s'écrire `&amp;` si tu ajoutes des paramètres `status` ou `message`.
+
+### Nœuds Talos et Flatcar
+
+Les nœuds Kubernetes enrôlés via l'onglet **Kubernetes** signalent déjà leur état via le flux de machine config et les événements `node.install_started` / `node.install_completed`. Ils n'ont pas besoin de callback.
+
+### Consulter l'historique
+
+```bash
+# History for one client
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/clients/installs?mac=b4:2e:99:01:5f:a3"
+
+# Recent installs across the fleet
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/installs?limit=50"
 ```
 
 ## Notes Windows
