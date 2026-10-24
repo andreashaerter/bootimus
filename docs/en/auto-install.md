@@ -216,6 +216,8 @@ Windows installs are SMB-driven. When an image has an autounattend file attached
 
 Without the per-image autounattend file, Setup runs interactively as before.
 
+**Data directory requirements.** Bootimus runs its own `smbd` with its state under `data/smb`. Samba refuses to start if that directory sits on a filesystem that cannot store Unix permissions (exFAT, NTFS, or a CIFS mount), because its lock directory then reads back as `0777` instead of `0755`. Keep the data directory on a native Linux filesystem such as ext4 or XFS, and make sure no other SMB server on the host is listening on port 445. Bootimus checks for both conditions at startup and reports them under **Server Info** → **Windows SMB**.
+
 **Reboot resilience.** WinPE reboots mid-install and reconnects from the same client IP. The bundled Samba config sets `reset on zero vc = yes` and disables oplocks so the second `net use` doesn't trip on stale session state. If you've replaced `data/smb/smb.conf` with your own, mirror these settings.
 
 **Undoing the patch.** The first SMB patch keeps a pristine copy of `boot.wim` as `boot.wim.orig` next to it. **Images** → **Unpatch SMB** restores that original and removes the image's SMB share, so the ISO boots exactly as uploaded. Images patched by older Bootimus versions have no backup — re-extract the image first (which produces a fresh pristine copy), then unpatch.
@@ -304,6 +306,10 @@ The `source:` field tells you exactly which slot won.
 ### "AutoUnattend.xml not on share, running interactive setup"
 
 Logged by `startnet.cmd` when the file isn't where it expects. Either the staging step failed (check the Bootimus server log around the time of the patch) or the SMB share lost the file. Re-run the SMB patch from the image properties.
+
+### `Z:\setup.exe not found on the share`
+
+`startnet.cmd` mapped `Z:` but the listing it prints shows the image folder (`iso\`, `metadata.txt`) rather than the installer files. Bootimus always shares the image's `iso` subfolder, so the client has connected to a different SMB server on the same address. Check the Bootimus log for `SMB: smbd exited` and the **Windows SMB** line under **Server Info**. The usual cause is the data directory living on a filesystem without Unix permissions, which makes `smbd` exit with `invalid permissions on directory '.../smb/locks/msg.lock': has 0777 should be 0755`, leaving a system Samba to answer on port 445 instead. Move the data directory to ext4 or XFS, stop the other Samba, and restart Bootimus.
 
 ### `net use fails after VM reboot`
 
