@@ -31,6 +31,7 @@ I've used Claude CLI to help with some parts of this project - mostly making the
 - **Hardware inventory**: Automatic collection of CPU, memory, manufacturer, serial number, and NIC info from PXE clients
 - **JWT authentication**: Secure token-based auth with a dedicated login page
 - **LDAP/Active Directory**: Optional LDAP backend with group-based admin access - local accounts always work as fallback
+- **OIDC single sign-on**: Sign in through Authentik, Keycloak or any OpenID Connect provider, with users created on first sign-in and admin rights mapped from groups
 - **Swappable bootloaders**: Ship with embedded iPXE, or bring your own custom bootloader sets
 - **Raspberry Pi netboot**: Pi 3 and Pi 4 boards boot with no SD card — embedded UEFI firmware served over TFTP
 - **Modern admin UI**: Sidebar navigation, consistent toolbars, real-time colour-coded logs, REST API
@@ -126,7 +127,7 @@ $ systemctl start bootimus
 - **[DHCP Configuration](docs/en/dhcp.md)** - Configure your DHCP server
 - **[Auto-Install](docs/en/auto-install.md)** - autounattend.xml, cloud-init, kickstart, preseed
 - **[Client Management](docs/en/clients.md)** - MAC-based access control, auto-discovery, next boot
-- **[Authentication](docs/en/authentication.md)** - JWT auth, LDAP/Active Directory setup
+- **[Authentication](docs/en/authentication.md)** - JWT auth, LDAP/Active Directory and OIDC single sign-on setup
 - **[Distro Profiles](docs/en/distro-profiles.md)** - Data-driven distro detection and boot params
 
 ## Boot Tools
@@ -280,7 +281,7 @@ services:
 | **Standalone PXE** | Built-in proxyDHCP — no DHCP reconfig needed | Requires external DHCP changes |
 | **Database** | SQLite / PostgreSQL | File-based |
 | **Web UI** | Modern sidebar UI with REST API | Basic HTML |
-| **Authentication** | JWT + LDAP/AD | None |
+| **Authentication** | JWT + LDAP/AD + OIDC SSO | None |
 | **Boot Logging** | Full tracking with live streaming | Limited |
 | **MAC-based ACL** | Granular per-client | No |
 | **ISO Upload** | Web upload + URL download | Manual copy |
@@ -365,7 +366,7 @@ Run `make help` for all available targets.
 - **Read-only TFTP**: TFTP server is read-only (no write operations)
 - **Path sanitisation**: All file paths sanitised to prevent directory traversal
 - **MAC address verification**: ISOs served only to authorised clients
-- **Admin authentication**: JWT token-based auth with bcrypt password hashing, optional LDAP/AD backend
+- **Admin authentication**: JWT token-based auth with bcrypt password hashing, optional LDAP/AD backend and OIDC single sign-on
 - **Separate admin port**: Admin interface isolated from boot network
 - **Audit logs**: All boot attempts logged with client/image/success tracking
 
