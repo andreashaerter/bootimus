@@ -1473,20 +1473,20 @@ async function loadClientBootHistory(mac) {
     if (!container) return;
     container.innerHTML = '<p style="color: var(--text-secondary); margin: 0;">Loading…</p>';
     try {
-        const res = await authFetch(`${API_BASE}/boot-logs?mac=${encodeURIComponent(mac)}&limit=50`);
+        const res = await authFetch(`${API_BASE}/logs?mac=${encodeURIComponent(mac)}&limit=50`);
         const data = await res.json();
         if (!data.success || !data.data || data.data.length === 0) {
             container.innerHTML = '<p style="color: var(--text-secondary); margin: 0;">No boot history for this client yet.</p>';
             return;
         }
         const rows = data.data.map(entry => {
-            const when = entry.CreatedAt ? new Date(entry.CreatedAt).toLocaleString() : '-';
-            const img = entry.ImageName || '(unknown)';
-            const ok = entry.Success
+            const when = entry.created_at ? new Date(entry.created_at).toLocaleString() : '-';
+            const img = entry.image_name || '(unknown)';
+            const ok = entry.success
                 ? '<span class="status-dot on" title="Success"></span>'
                 : '<span class="status-dot off" title="Failed"></span>';
-            const err = entry.ErrorMsg ? `<div style="color: var(--danger); font-size: 12px;">${escapeHtml(entry.ErrorMsg)}</div>` : '';
-            const ip = entry.IPAddress ? `<span style="color: var(--text-muted); font-size: 12px;">${escapeHtml(entry.IPAddress)}</span>` : '';
+            const err = entry.error_msg ? `<div style="color: var(--danger); font-size: 12px;">${escapeHtml(entry.error_msg)}</div>` : '';
+            const ip = entry.ip_address ? `<span style="color: var(--text-muted); font-size: 12px;">${escapeHtml(entry.ip_address)}</span>` : '';
             return `
                 <div style="padding: 8px 0; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: center;">
                     <div style="width: 14px;">${ok}</div>
