@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -320,12 +321,26 @@ func (m *Manager) authenticate(w http.ResponseWriter, r *http.Request) (*Claims,
 	return claims, true
 }
 
+type contextKey string
+
+const usernameContextKey contextKey = "username"
+
+func withUsername(r *http.Request, username string) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), usernameContextKey, username))
+}
+
+func UsernameFromContext(ctx context.Context) string {
+	username, _ := ctx.Value(usernameContextKey).(string)
+	return username
+}
+
 func (m *Manager) JWTMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := m.authenticate(w, r); !ok {
+		claims, ok := m.authenticate(w, r)
+		if !ok {
 			return
 		}
-		next(w, r)
+		next(w, withUsername(r, claims.Username))
 	}
 }
 
@@ -341,7 +356,7 @@ func (m *Manager) AdminMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Administrator privileges required"})
 			return
 		}
-		next(w, r)
+		next(w, withUsername(r, claims.Username))
 	}
 }
 
