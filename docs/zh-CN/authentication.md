@@ -6,8 +6,10 @@ Bootimus 使用 JWT (JSON Web Token) 对管理面板进行身份认证。你也�
 
 - [本地认证](#本地认证)
 - [登录流程](#登录流程)
+  - [双因素认证](#双因素认证)
 - [角色](#角色)
 - [API 认证](#api-认证)
+  - [API 令牌](#api-令牌)
 - [LDAP / Active Directory](#ldap--active-directory)
 - [OIDC / 单点登录](#oidc--单点登录)
 - [来自 LDAP 和 OIDC 的用户](#来自-ldap-和-oidc-的用户)
@@ -82,6 +84,32 @@ docker exec bootimus /bootimus serve --reset-admin-password
 6. token 存储在浏览器,并随所有 API 请求一起发送
 7. 退出登录或 token 过期后,再次显示登录页
 
+### 双因素认证
+
+本地账号可以添加基于时间的一次性密码(TOTP)作为第二因素。此处不向 LDAP 和 OIDC 用户提供该功能;第二因素由它们的身份提供商负责。
+
+**启用。** 打开 **Users** → **Two-Factor Authentication**,点击 **Set up**,用身份验证器应用扫描二维码(或手动输入密钥),然后用应用生成的验证码确认。随后 Bootimus 会显示十个一次性恢复码。请妥善保存,它们不会再次显示。
+
+**登录。** 密码正确后,登录页会要求输入六位验证码。恢复码可以代替验证码使用,每个只能用一次。错误的验证码会与错误密码一样计入[暴力破解防护](#暴力破解防护)。
+
+**丢失设备。** 管理员可以点击该用户旁边的 **Reset 2FA**,或调用 `POST /api/users/totp/reset?id=<id>`。如果唯一的管理员被锁在外面,请在服务器上运行:
+
+```bash
+bootimus user reset-totp admin
+```
+
+**通过 API。** 脚本应使用 [API 令牌](#api-令牌),而不是密码加 TOTP。如果确实要用受 TOTP 保护的账号登录,`POST /api/login` 会先返回 `401` 和 `{"error":"totp_required","totp_required":true}`;用相同的凭据加上 `"code":"123456"` 重复该请求即可。
+
+### 暴力破解防护
+
+密码登录(本地和 LDAP)在内存中进行速率限制:
+
+- 同一用户名在 15 分钟内 **失败 5 次** 后,该用户名被锁定 1 分钟。只要近期的失败仍在窗口内,之后每再失败一次,锁定时间就翻倍,最长 15 分钟。
+- 同一客户端地址在 15 分钟内 **失败 20 次** 后,该地址按同样的规则被锁定。更高的阈值意味着共享的反向代理地址不会因为某一个人的输错而被锁定。
+- 登录成功会清除该用户名的失败计数。
+
+锁定期间,API 返回 `429 Too Many Requests` 并带有 `Retry-After` 头,登录页会显示需要等待的时间。错误的凭据仍然返回通常的 `401`,因此响应不会泄露用户名是否存在。失败的尝试会连同用户名和客户端地址写入服务器日志。重启 Bootimus 会清除计数器。OIDC 登录经由身份提供商完成,不计入其中。
+
 ## 角色
 
 Bootimus 有两种角色:
@@ -94,7 +122,7 @@ Bootimus 有两种角色:
 只读用户:
 
 - 无法更改任何内容 — 服务器会拒绝每一次写入并返回 `403 Your account has read-only access`,管理面板也会隐藏相应的按钮
-- 无法查看用户、webhook 设置、备份、实时服务器日志、自动安装文件和脚本,以及集群机器配置
+- 无法查看用户、webhook 设置、备份、审计日志、实时服务器日志、自动安装文件和脚本,以及集群机器配置
 - 永远不会收到 BMC (IPMI/Redfish) 密码或客户端配置补丁 — 发送给他们的每个 API 响应中都会移除这些内容
 
 满足以下条件的用户是管理员:
@@ -138,6 +166,35 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/images
 - **过期时间**:签发后 24 小时
 - **密钥**:每次服务器启动时随机生成(重启后所有 token 失效)
 - **声明**:用户名、管理员状态、签发时间、过期时间
+
+### API 令牌
+
+对于脚本、CI 任务和集成,请在 **Users** → **API Tokens** 下创建一个长期有效的令牌,而不是用密码登录。令牌以 `btk_` 开头,只在创建时显示一次,并以哈希形式存储。每个令牌都有一个作用域:
+
+| 作用域 | 能做什么 |
+|--------|----------|
+| `read` | 对只读用户可见的同一批端点发起 `GET` 请求 |
+| `admin` | 管理员能做的一切,但不能创建或吊销令牌 |
+
+令牌可以设置以天为单位的有效期,并可随时吊销。审计日志会把用令牌做出的更改记录为 `token:<name>`,`/api/me` 则报告 `"principal": "token"`。
+
+```bash
+# Create a token (as an admin user)
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"ansible","scope":"admin","expires_in_days":365}' \
+  http://localhost:8081/api/tokens
+
+# Use it exactly like a JWT
+curl -H "Authorization: Bearer btk_..." http://localhost:8081/api/clients
+
+# List and revoke
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/tokens
+curl -X DELETE -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/tokens?id=3"
+```
+
+与 JWT 不同,API 令牌在 Bootimus 重启后仍然有效。
+
+除非管理界面通过 HTTPS 提供服务,否则令牌以及用于获取它们的密码都会以明文传输。可以用 `--admin-tls` 启用 HTTPS,或在管理端口前放置一个终止 TLS 的反向代理;见[保护管理界面](deployment.md#保护管理界面)。
 
 ### 检查可用的认证后端
 
