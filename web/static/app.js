@@ -468,10 +468,11 @@ function setupTabs() {
             if (item.dataset.tab === 'profiles') loadProfiles();
             if (item.dataset.tab === 'autoinstall') loadAutoInstallFiles();
             if (item.dataset.tab === 'clusters') loadClustersTab();
-            if (item.dataset.tab === 'boot-menu') loadTheme();
-            if (item.dataset.tab === 'settings') { loadUSBImages(); loadWebhookConfig(); }
+            if (item.dataset.tab === 'boot-menu') { loadTheme(); populateMenuPreviewMACs(); }
+            if (item.dataset.tab === 'settings') { loadUSBImages(); loadWebhookConfig(); loadRestoreStatus(); }
             if (item.dataset.tab === 'api-reference') showAPIReference();
             if (item.dataset.tab === 'audit') loadAuditLog();
+            if (item.dataset.tab === 'pxe-debug') loadPXEDebug();
         });
     });
 
@@ -862,6 +863,71 @@ async function downloadBackup() {
         URL.revokeObjectURL(a.href);
     } catch (err) {
         showAlert('Backup download failed: ' + err.message, 'error');
+    }
+}
+
+function setRestorePendingNotice(pending) {
+    const notice = document.getElementById('restore-pending-notice');
+    if (notice) notice.style.display = pending ? 'flex' : 'none';
+}
+
+async function loadRestoreStatus() {
+    try {
+        const res = await authFetch(`${API_BASE}/backup/import`);
+        const data = await res.json();
+        setRestorePendingNotice(!!(data.success && data.data && data.data.pending));
+    } catch (err) {
+        console.error('Failed to load restore status:', err);
+    }
+}
+
+async function uploadRestore() {
+    const input = document.getElementById('restore-file');
+    const status = document.getElementById('restore-status');
+    const btn = document.getElementById('restore-upload-btn');
+    const file = input && input.files && input.files[0];
+    if (!file) {
+        showAlert('Choose a backup file first', 'error');
+        return;
+    }
+    if (!confirm(`Restore "${file.name}"?\n\nThe current database, bootloader configuration and settings will be replaced the next time Bootimus restarts. ISOs are not affected.`)) return;
+    const form = new FormData();
+    form.append('backup', file);
+    btn.disabled = true;
+    status.textContent = 'Uploading…';
+    try {
+        const res = await authFetch(`${API_BASE}/backup/import`, { method: 'POST', body: form });
+        const data = await res.json();
+        if (data.success) {
+            status.textContent = '';
+            input.value = '';
+            setRestorePendingNotice(true);
+            showAlert(data.message || 'Restore staged. Restart Bootimus to apply it.', 'success');
+        } else {
+            status.textContent = '';
+            showAlert(data.error || 'Restore upload failed', 'error');
+        }
+    } catch (err) {
+        status.textContent = '';
+        showAlert('Restore upload failed: ' + err.message, 'error');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function cancelRestore() {
+    if (!confirm('Discard the staged restore?')) return;
+    try {
+        const res = await authFetch(`${API_BASE}/backup/import`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+            setRestorePendingNotice(false);
+            showAlert('Staged restore cancelled', 'success');
+        } else {
+            showAlert(data.error || 'Failed to cancel restore', 'error');
+        }
+    } catch (err) {
+        showAlert('Failed to cancel restore: ' + err.message, 'error');
     }
 }
 
@@ -1272,6 +1338,7 @@ function clientRowHTML(client, includeGroupCell) {
                             ${!client.static ? '<button class="btn btn-success btn-sm" onclick="promoteClient(\'' + client.mac_address + '\')">Make Static</button>' : ''}
                             <button class="btn btn-success btn-sm" onclick="wakeClient('${client.mac_address}')">Wake</button>
                             <button class="btn btn-primary btn-sm" onclick="showNextBoot('${client.mac_address}')">Next Boot</button>
+                            <button class="btn btn-sm" onclick="previewBootMenu('${client.mac_address}')">Preview Menu</button>
                         </td>
                     </tr>`;
 }
@@ -2860,6 +2927,7 @@ const API_REFERENCE = [
         { method: 'POST',   path: '/api/clients/promote?mac={mac}', desc: 'Promote discovered client to static.' },
         { method: 'GET',    path: '/api/clients/inventory?mac={mac}', desc: 'Latest hardware inventory.' },
         { method: 'GET',    path: '/api/clients/inventory/history?mac={mac}', desc: 'Historical inventory submissions.' },
+        { method: 'GET',    path: '/api/clients/menu-preview?mac={mac}', desc: 'Render the iPXE script a client would receive, without side effects. Omit <code>mac</code> for the anonymous menu.' },
         { method: 'POST',   path: '/api/clients/power?mac={mac}',  desc: 'BMC (Redfish or Intel AMT) power control. Query: <code>action</code> (On/ForceOff/ForceRestart/GracefulShutdown/GracefulRestart).' },
         { method: 'GET',    path: '/api/clients/power/status?mac={mac}', desc: 'BMC (Redfish or Intel AMT) power status.' },
         { method: 'POST',   path: '/api/clients/import',           desc: 'CSV import (multipart).' },
@@ -2971,13 +3039,19 @@ const API_REFERENCE = [
     { category: 'Settings', endpoints: [
         { method: 'GET',    path: '/api/theme',                    desc: 'Menu theme + defaults.' },
         { method: 'PUT',    path: '/api/theme',                    desc: 'Body: <code>{title, menu_timeout, default_menu_item}</code>' },
-        { method: 'GET',    path: '/api/backup/export',            desc: 'Export full DB backup as JSON.' },
+        { method: 'GET',    path: '/api/backup/export',            desc: 'Download a <code>.tar.gz</code> backup of the database and data directory (ISOs and tools excluded).' },
+        { method: 'POST',   path: '/api/backup/import',            desc: 'Multipart field <code>backup</code>: stage a backup for restore on the next restart.' },
+        { method: 'GET',    path: '/api/backup/import',            desc: 'Is a restore staged?' },
+        { method: 'DELETE', path: '/api/backup/import',            desc: 'Discard the staged restore.' },
     ]},
     { category: 'Logs', endpoints: [
         { method: 'GET',    path: '/api/logs',                     desc: 'Boot log entries.' },
         { method: 'GET',    path: '/api/logs/stream',              desc: 'Server log SSE stream.' },
         { method: 'GET',    path: '/api/logs/buffer',              desc: 'Recent in-memory log buffer.' },
         { method: 'GET',    path: '/api/audit',                    desc: 'Admin action audit log. Query: <code>username</code>, <code>path</code>, <code>since</code> (RFC 3339), <code>limit</code>, <code>offset</code>.' },
+        { method: 'GET',    path: '/api/proxydhcp/events',         desc: 'Recent DHCP requests seen by the built-in proxyDHCP and the decision taken for each.' },
+        { method: 'GET',    path: '/api/proxydhcp/stream',         desc: 'SSE stream of proxyDHCP request events.' },
+        { method: 'POST',   path: '/api/proxydhcp/events/clear',   desc: 'Clear the recorded proxyDHCP request history.' },
     ]},
     { category: 'Public Boot Endpoints (no auth)', endpoints: [
         { method: 'GET',    path: '/menu.ipxe',                    desc: 'Generated iPXE menu script.', publicAccess: true },
@@ -4081,6 +4155,118 @@ function disconnectLiveLogs() {
 
 function clearLiveLogs() {
     document.getElementById('live-logs').innerHTML = '<div style="color: var(--text-secondary);">Click "Refresh" to load logs...</div>';
+}
+
+// ==================== PXE Debug ====================
+
+let pxeDebugEvents = [];
+let pxeDebugEnabled = false;
+let pxeDebugInterval = null;
+
+async function loadPXEDebug() {
+    try {
+        const res = await authFetch(`${API_BASE}/proxydhcp/events`);
+        const data = await res.json();
+        if (!data.success) return;
+        pxeDebugEvents = data.events || [];
+        pxeDebugEnabled = !!data.enabled;
+        const banner = document.getElementById('pxe-debug-disabled');
+        if (banner) banner.style.display = pxeDebugEnabled ? 'none' : 'block';
+        const summary = document.getElementById('pxe-debug-summary');
+        if (summary) {
+            const bf = data.bootfiles || {};
+            summary.innerHTML = pxeDebugEnabled
+                ? `Advertising next-server <code>${escapeHtml(data.server_ip || '')}</code> with bootfiles BIOS <code>${escapeHtml(bf.bios || '')}</code>, UEFI <code>${escapeHtml(bf.uefi || '')}</code>, ARM64 <code>${escapeHtml(bf.arm64 || '')}</code>. Showing the last ${pxeDebugEvents.length} requests.`
+                : '';
+        }
+        if (!clients || clients.length === 0) {
+            try { await loadClients(); } catch (_) {}
+        }
+        renderPXEDebug();
+    } catch (err) {
+        console.error('Failed to load PXE debug events:', err);
+    }
+}
+
+function pxeDebugClientName(mac) {
+    const match = (clients || []).find(c => c.mac_address && c.mac_address.toLowerCase() === (mac || '').toLowerCase());
+    return match && match.name ? match.name : '';
+}
+
+function renderPXEDebug() {
+    const container = document.getElementById('pxe-debug-table');
+    if (!container) return;
+    const filterInput = document.getElementById('pxe-debug-filter');
+    const q = filterInput ? filterInput.value.trim().toLowerCase() : '';
+    const rows = pxeDebugEvents
+        .map(ev => ({ ev, name: pxeDebugClientName(ev.mac) }))
+        .filter(({ ev, name }) => !q || [ev.mac, name, ev.decision, ev.vendor_class, ev.source, ev.relay, ev.bootfile].some(v => (v || '').toLowerCase().includes(q)))
+        .reverse();
+    if (rows.length === 0) {
+        container.innerHTML = `<p style="color: var(--text-secondary); padding: 20px;">${pxeDebugEvents.length === 0 ? 'No PXE requests recorded yet.' : 'No requests match the filter.'}</p>`;
+        return;
+    }
+    const colours = { replied: 'var(--success)', ignored: 'var(--text-secondary)', failed: 'var(--danger)' };
+    let html = '<div class="table-scroll"><table><thead><tr><th>Time</th><th>MAC</th><th>Client</th><th>Source</th><th>Relay</th><th>Type</th><th>Arch</th><th>Vendor class</th><th>Decision</th><th>Bootfile</th></tr></thead><tbody>';
+    for (const { ev, name } of rows) {
+        const flags = [];
+        if (ev.raspberry_pi) flags.push('<span class="badge badge-info" title="Raspberry Pi firmware stage">Pi</span>');
+        if (ev.vendor_option_omitted) flags.push('<span class="badge badge-warning" title="PXE vendor option 43 omitted">no opt 43</span>');
+        if (ev.client_guid) flags.push(`<span style="color: var(--text-muted); font-size: 11px;" title="Client machine identifier">${escapeHtml(ev.client_guid)}</span>`);
+        html += `<tr>
+            <td style="white-space: nowrap;">${new Date(ev.time).toLocaleTimeString()}</td>
+            <td><code>${escapeHtml(ev.mac || '')}</code></td>
+            <td>${name ? escapeHtml(name) : '<span style="color: var(--text-secondary);">unknown</span>'}</td>
+            <td><code>${escapeHtml(ev.source || '')}</code><br><span style="color: var(--text-muted); font-size: 11px;">port ${ev.port}</span></td>
+            <td>${ev.relay ? '<code>' + escapeHtml(ev.relay) + '</code>' : '<span style="color: var(--text-secondary);">—</span>'}</td>
+            <td>${escapeHtml(ev.message_type || '')}</td>
+            <td title="${escapeHtml(ev.arch_name || '')}">${ev.arch}<br><span style="color: var(--text-muted); font-size: 11px;">${escapeHtml(ev.arch_name || '')}</span></td>
+            <td><code style="font-size: 11px;">${escapeHtml(ev.vendor_class || '')}</code></td>
+            <td style="color: ${colours[ev.outcome] || 'inherit'}; max-width: 420px;">${escapeHtml(ev.decision || '')}${flags.length ? '<br>' + flags.join(' ') : ''}</td>
+            <td>${ev.bootfile ? '<code>' + escapeHtml(ev.bootfile) + '</code>' : ''}</td>
+        </tr>`;
+    }
+    html += '</tbody></table></div>';
+    container.innerHTML = html;
+}
+
+function startPXEDebugLive() {
+    loadPXEDebug();
+    if (!pxeDebugInterval) {
+        pxeDebugInterval = setInterval(loadPXEDebug, 2000);
+    }
+    const status = document.getElementById('pxe-debug-status');
+    status.textContent = 'Live (refreshing every 2s)';
+    status.style.color = 'var(--success)';
+    document.getElementById('pxe-debug-live-btn').style.display = 'none';
+    document.getElementById('pxe-debug-stop-btn').style.display = 'inline-block';
+}
+
+function stopPXEDebugLive() {
+    if (pxeDebugInterval) {
+        clearInterval(pxeDebugInterval);
+        pxeDebugInterval = null;
+    }
+    const status = document.getElementById('pxe-debug-status');
+    status.textContent = 'Stopped';
+    status.style.color = 'var(--text-secondary)';
+    document.getElementById('pxe-debug-live-btn').style.display = 'inline-block';
+    document.getElementById('pxe-debug-stop-btn').style.display = 'none';
+}
+
+async function clearPXEDebug() {
+    try {
+        const res = await authFetch(`${API_BASE}/proxydhcp/events/clear`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            pxeDebugEvents = [];
+            renderPXEDebug();
+        } else {
+            showAlert(data.error || 'Failed to clear PXE request history', 'error');
+        }
+    } catch (err) {
+        showAlert('Failed to clear PXE request history: ' + err.message, 'error');
+    }
 }
 
 // ==================== User Management ====================
@@ -7488,4 +7674,62 @@ function renderAuditTable() {
             </tbody>
         </table>
         </div>`;
+}
+
+let menuPreviewData = null;
+
+function populateMenuPreviewMACs() {
+    const list = document.getElementById('menu-preview-mac-list');
+    if (!list) return;
+    list.innerHTML = (clients || []).map(c =>
+        `<option value="${escapeHtml(c.mac_address)}">${escapeHtml(c.name || '')}</option>`
+    ).join('');
+}
+
+async function previewBootMenu(mac) {
+    const query = mac && mac.trim() ? `?mac=${encodeURIComponent(mac.trim())}` : '';
+    try {
+        const res = await authFetch(`${API_BASE}/clients/menu-preview${query}`);
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Failed to render boot menu preview', 'error');
+            return;
+        }
+        menuPreviewData = data.data;
+        const parts = [`MAC: ${escapeHtml(menuPreviewData.mac)}`];
+        parts.push(menuPreviewData.known_client
+            ? `Client: ${escapeHtml(menuPreviewData.client_name || '(unnamed)')}`
+            : 'Client: not registered (anonymous menu)');
+        parts.push(menuPreviewData.kind === 'install' ? 'Kind: cluster install boot' : 'Kind: boot menu');
+        if (menuPreviewData.next_boot_image) {
+            parts.push(`Next boot: ${escapeHtml(menuPreviewData.next_boot_image)}`);
+        }
+        document.getElementById('menu-preview-summary').innerHTML = parts.join(' &nbsp;·&nbsp; ');
+        document.getElementById('menu-preview-script').textContent = menuPreviewData.script || '';
+        showModal('menu-preview-modal');
+    } catch (err) {
+        showAlert('Failed to render boot menu preview: ' + err.message, 'error');
+    }
+}
+
+async function copyMenuPreview() {
+    if (!menuPreviewData) return;
+    try {
+        await navigator.clipboard.writeText(menuPreviewData.script || '');
+        showAlert('Boot menu script copied', 'success');
+    } catch (err) {
+        showAlert('Copy failed: ' + err.message, 'error');
+    }
+}
+
+function downloadMenuPreview() {
+    if (!menuPreviewData) return;
+    const blob = new Blob([menuPreviewData.script || ''], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `menu-${(menuPreviewData.mac || 'unknown').replace(/:/g, '')}.ipxe`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
 }

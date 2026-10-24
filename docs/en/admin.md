@@ -389,6 +389,7 @@ GET /api/stats
 | `PUT` | `/api/clients?mac=<MAC>` | Update client |
 | `DELETE` | `/api/clients?mac=<MAC>` | Delete client |
 | `POST` | `/api/assign-images` | Assign images to client |
+| `GET` | `/api/clients/menu-preview?mac=<MAC>` | Render the iPXE script a client would receive (no side effects; omit `mac` for the anonymous menu) |
 
 #### Images
 

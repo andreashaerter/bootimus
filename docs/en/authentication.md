@@ -84,6 +84,16 @@ recovery). These commands operate directly on the configured database
 6. The token is stored in the browser and sent with all API requests
 7. On logout or token expiry, the login page is shown again
 
+### Brute-Force Protection
+
+Password logins (local and LDAP) are rate limited in memory:
+
+- After **5 failed attempts** for the same username within 15 minutes, that username is locked for 1 minute. Each further failure while the recent failures are still within the window doubles the lock, up to 15 minutes.
+- After **20 failed attempts** from the same client address within 15 minutes, that address is locked on the same schedule. The higher threshold means a shared reverse-proxy address is not locked by one person's typos.
+- A successful login clears the username's failure count.
+
+While locked, the API answers `429 Too Many Requests` with a `Retry-After` header and the login page shows how long to wait. Wrong credentials still return the usual `401`, so the response does not reveal whether a username exists. Failed attempts are written to the server log with the username and client address. Restarting Bootimus clears the counters. OIDC sign-ins go through the identity provider and are not counted.
+
 ## Roles
 
 Bootimus has two roles:

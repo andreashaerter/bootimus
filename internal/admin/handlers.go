@@ -2689,8 +2689,10 @@ func (h *Handler) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to get system stats: %v", err)
 	}
 
+	_, pendingErr := storage.PendingRestore(h.dataDir)
 	info := map[string]interface{}{
-		"version": h.version,
+		"version":         h.version,
+		"restore_pending": pendingErr == nil,
 		"configuration": map[string]string{
 			"data_directory": h.dataDir,
 			"iso_directory":  h.isoDir,
@@ -4586,6 +4588,70 @@ func (h *Handler) ExportBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("Backup exported (%s) — db: %s (%d bytes)", ts, dbName, dbBuf.Len())
+}
+
+func (h *Handler) ImportBackup(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		summary, err := storage.PendingRestore(h.dataDir)
+		if errors.Is(err, storage.ErrNoPendingRestore) {
+			h.sendJSON(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"pending": false}})
+			return
+		}
+		if err != nil {
+			h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
+			return
+		}
+		h.sendJSON(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"pending": true, "summary": summary, "restart_required": true}})
+	case http.MethodDelete:
+		if err := storage.CancelRestore(h.dataDir); err != nil {
+			if errors.Is(err, storage.ErrNoPendingRestore) {
+				h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "No restore is staged"})
+				return
+			}
+			h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
+			return
+		}
+		log.Printf("Backup restore cancelled")
+		h.sendJSON(w, http.StatusOK, Response{Success: true, Message: "Staged restore cancelled"})
+	case http.MethodPost:
+		reader, err := r.MultipartReader()
+		if err != nil {
+			h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Invalid multipart body"})
+			return
+		}
+		for {
+			part, err := reader.NextPart()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Malformed upload"})
+				return
+			}
+			if part.FormName() != "backup" {
+				part.Close()
+				continue
+			}
+			summary, stageErr := storage.StageRestore(h.dataDir, part)
+			part.Close()
+			if stageErr != nil {
+				log.Printf("Backup restore staging failed: %v", stageErr)
+				h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: stageErr.Error()})
+				return
+			}
+			log.Printf("Backup restore staged (%s database, %d files); restart required to apply", summary.Database, summary.FileCount)
+			h.sendJSON(w, http.StatusOK, Response{
+				Success: true,
+				Message: "Restore staged. Restart Bootimus to apply it.",
+				Data:    map[string]interface{}{"pending": true, "summary": summary, "restart_required": true},
+			})
+			return
+		}
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "No backup file in upload (expected form field 'backup')"})
+	default:
+		h.sendJSON(w, http.StatusMethodNotAllowed, Response{Success: false, Error: "Method not allowed"})
+	}
 }
 
 func (h *Handler) ImportClientsCSV(w http.ResponseWriter, r *http.Request) {

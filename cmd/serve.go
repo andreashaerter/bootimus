@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -92,8 +93,9 @@ func runServe(cmd *cobra.Command, args []string) {
 	var err error
 
 	pgHost := viper.GetString("db.host")
+	var dbCfg *storage.Config
 	if pgHost != "" {
-		dbCfg := &storage.Config{
+		dbCfg = &storage.Config{
 			Host:     pgHost,
 			Port:     viper.GetInt("db.port"),
 			User:     viper.GetString("db.user"),
@@ -101,7 +103,11 @@ func runServe(cmd *cobra.Command, args []string) {
 			DBName:   viper.GetString("db.name"),
 			SSLMode:  viper.GetString("db.sslmode"),
 		}
+	}
 
+	applyPendingRestore(dataDir, dbCfg)
+
+	if pgHost != "" {
 		log.Printf("Connecting to PostgreSQL database at %s:%d...", pgHost, viper.GetInt("db.port"))
 
 		maxRetries := 10
@@ -264,4 +270,15 @@ func splitList(value string) []string {
 		}
 	}
 	return out
+}
+
+func applyPendingRestore(dataDir string, dbCfg *storage.Config) {
+	summary, err := storage.ApplyPendingRestore(dataDir, dbCfg)
+	if errors.Is(err, storage.ErrNoPendingRestore) {
+		return
+	}
+	if err != nil {
+		log.Fatalf("Failed to apply staged backup restore (left in place under %s/.restore-pending): %v", dataDir, err)
+	}
+	log.Printf("Restored backup staged at %s (%s database, %d files)", summary.StagedAt.Format(time.RFC3339), summary.Database, summary.FileCount)
 }

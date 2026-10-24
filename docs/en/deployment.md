@@ -9,6 +9,7 @@ Complete guide for deploying Bootimus in various environments with networking an
 - [Binary Deployment](#binary-deployment)
 - [Networking Configuration](#networking-configuration)
 - [Storage Configuration](#storage-configuration)
+- [Backup and Restore](#backup-and-restore)
 - [Database Options](#database-options)
 - [Remote Updates & Privacy](#remote-updates--privacy)
 - [Production Deployment](#production-deployment)
@@ -285,6 +286,36 @@ sudo journalctl -u bootimus -f
 2. **Regular backups**: Backup database and ISOs
 3. **Monitor disk space**: Set up alerts for low disk space
 4. **Clean old ISOs**: Remove unused ISOs to free space
+
+## Backup and Restore
+
+### Taking a backup
+
+**Settings → Backup → Download Backup** (or `GET /api/backup/export`) produces a `.tar.gz` containing a consistent snapshot of the database (`bootimus.db` for SQLite, a `pg_dump` as `bootimus.sql` for PostgreSQL) plus everything else in the data directory except the `isos/` and `tools/` folders, which are reproducible downloads.
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" -o bootimus-backup.tar.gz \
+  http://localhost:8081/api/backup/export
+```
+
+### Restoring a backup
+
+Upload a backup from **Settings → Backup → Upload and Restore**, or with the API:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" -F backup=@bootimus-backup.tar.gz \
+  http://localhost:8081/api/backup/import
+```
+
+The archive is validated (gzip tar, no absolute or `..` paths, no symbolic links, a database at the top level, 2 GiB limit) and unpacked into `<data_dir>/.restore-pending/`. Nothing changes while Bootimus is running: the live database cannot be swapped under an active server. The restore is applied the next time Bootimus starts, before the database is opened:
+
+1. **SQLite**: the current `bootimus.db` is renamed to `bootimus.db.pre-restore` (replacing any older copy), WAL and journal files are removed, and the restored database takes its place.
+2. **PostgreSQL**: the dump is replayed with `psql` against the configured database. `psql` must be on `PATH`; the Docker image ships `postgresql-client`, standalone installs need it alongside `pg_dump`. The backup kind must match the configured database, so a SQLite backup cannot be restored into a PostgreSQL deployment.
+3. The remaining files (bootloader sets, auto-install files, custom files, driver packs) are copied over the data directory. Existing files with the same name are replaced; files that are not in the backup are left alone.
+
+If any step fails Bootimus logs the error and exits without starting, and the staged restore is left in place so you can fix the cause (for example a missing `psql`) and start again. Remove `<data_dir>/.restore-pending/` by hand, or use **Cancel** in the Settings page before restarting, to abandon a restore.
+
+The Settings page shows a **Restore staged** notice until the restart happens. `GET /api/backup/import` reports the same, and `DELETE /api/backup/import` discards it.
 
 ## Database Options
 
