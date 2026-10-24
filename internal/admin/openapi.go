@@ -132,6 +132,15 @@ var APISections = []APISection{
 		{Method: "GET", Path: "/api/downloads", Summary: "List active downloads.", ReadOnly: true},
 		{Method: "GET", Path: "/api/downloads/progress", Summary: "Download progress.", Params: []APIParam{qFilename("ISO filename")}, ReadOnly: true},
 	}},
+	{Tag: "Disk Images", Description: "Clonezilla disk capture and deploy.", Endpoints: []APIEndpoint{
+		{Method: "GET", Path: "/api/disk-images", Summary: "Disk imaging readiness and the list of captured disk images.", ReadOnly: true},
+		{Method: "PUT", Path: "/api/disk-images", Summary: "Update a disk image's description.", Params: []APIParam{qID("Disk image ID")}, Body: "{description}"},
+		{Method: "DELETE", Path: "/api/disk-images", Summary: "Delete a disk image and its files.", Params: []APIParam{qID("Disk image ID")}},
+		{Method: "POST", Path: "/api/disk-images/capture", Summary: "Queue a disk capture from a client on its next PXE boot.", Body: "{mac_address, name, description, disk, wake}"},
+		{Method: "POST", Path: "/api/disk-images/deploy", Summary: "Queue a disk image deploy to a client or every enabled member of a client group.", Body: "{mac_address | client_group_id, image_id, disk, wake}"},
+		{Method: "GET", Path: "/api/disk-images/jobs", Summary: "Recent capture and deploy jobs.", Params: []APIParam{{Name: "mac", In: "query", Description: "Only jobs for this client"}, {Name: "limit", In: "query", Description: "Maximum number of jobs, default 100"}}, ReadOnly: true},
+		{Method: "DELETE", Path: "/api/disk-images/jobs", Summary: "Cancel a pending or running job.", Params: []APIParam{qID("Job ID")}},
+	}},
 	{Tag: "Image Groups", Endpoints: []APIEndpoint{
 		{Method: "GET", Path: "/api/groups", Summary: "List image groups.", ReadOnly: true},
 		{Method: "POST", Path: "/api/groups", Summary: "Create an image group.", Body: "{name, parent_id, description, order}"},
@@ -206,7 +215,7 @@ var APISections = []APISection{
 	}},
 	{Tag: "Webhooks", Endpoints: []APIEndpoint{
 		{Method: "GET", Path: "/api/webhook", Summary: "Get the webhook configuration."},
-		{Method: "PUT", Path: "/api/webhook", Summary: "Update the webhook configuration.", Body: "{url, enabled, on_boot_started, on_client_discovered, on_inventory_updated, on_node_events}"},
+		{Method: "PUT", Path: "/api/webhook", Summary: "Update the webhook configuration.", Body: "{url, enabled, on_boot_started, on_client_discovered, on_inventory_updated, on_enrollment, on_admin_action, on_disk_imaging}"},
 		{Method: "POST", Path: "/api/webhook/test", Summary: "Send a test event."},
 	}},
 	{Tag: "Scheduled Tasks", Endpoints: []APIEndpoint{
@@ -260,6 +269,8 @@ var APISections = []APISection{
 		{Method: "GET", Path: "/bootenv/{filename}", Summary: "NBD boot environment kernel and initrd.", Params: []APIParam{pathParam("filename", "File name")}, Public: true},
 		{Method: "GET", Path: "/tools/{path}", Summary: "Downloaded tool files.", Params: []APIParam{pathParam("path", "File path within the tools directory")}, Public: true},
 		{Method: "GET", Path: "/node-images/{path}", Summary: "Kubernetes node image assets.", Params: []APIParam{pathParam("path", "Asset path")}, Public: true},
+		{Method: "GET", Path: "/diskimage/job", Summary: "Shell script a Clonezilla client runs for its queued capture or deploy job.", Params: []APIParam{{Name: "token", In: "query", Description: "Job token", Required: true}}, Public: true},
+		{Method: "GET", Path: "/diskimage/callback", Summary: "Progress report from a Clonezilla client.", Params: []APIParam{{Name: "token", In: "query", Description: "Job token", Required: true}, {Name: "status", In: "query", Description: "running, done or failed", Required: true}, {Name: "disk", In: "query", Description: "Disk device actually used"}, {Name: "message", In: "query", Description: "Short failure reason"}}, Public: true},
 		{Method: "GET", Path: "/machineconfig", Summary: "Kubernetes machine config for an enrolled node.", Params: []APIParam{{Name: "m", In: "query", Description: "MAC address", Required: true}, {Name: "t", In: "query", Description: "Enrolment token", Required: true}, {Name: "u", In: "query", Description: "System UUID"}}, Public: true},
 	}},
 }

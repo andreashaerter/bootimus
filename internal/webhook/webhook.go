@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"bootimus/internal/models"
@@ -21,6 +22,7 @@ const (
 	EventInstallStarted   = "node.install_started"
 	EventInstallCompleted = "node.install_completed"
 	EventAdminAction      = "admin.action"
+	EventDiskImaging      = "disk."
 	EventInstallDone      = "install.completed"
 	EventInstallFailed    = "install.failed"
 )
@@ -78,6 +80,9 @@ func eventEnabled(cfg *models.WebhookConfig, event string) bool {
 		return cfg.OnAdminAction
 	case EventInstallDone, EventInstallFailed:
 		return cfg.OnInstall
+	}
+	if strings.HasPrefix(event, EventDiskImaging) {
+		return cfg.OnDiskImaging
 	}
 	return false
 }

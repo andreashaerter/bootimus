@@ -208,6 +208,7 @@ type WebhookConfig struct {
 	OnInventoryUpdated bool      `gorm:"default:false" json:"on_inventory_updated"`
 	OnEnrollment       bool      `gorm:"default:true" json:"on_enrollment"`
 	OnAdminAction      bool      `gorm:"default:false" json:"on_admin_action"`
+	OnDiskImaging      bool      `gorm:"default:true" json:"on_disk_imaging"`
 	OnInstall          bool      `gorm:"default:true" json:"on_install"`
 }
 
@@ -567,4 +568,53 @@ type BootTool struct {
 	UpdateAvailable bool   `gorm:"default:false" json:"update_available"`
 	UpdateURL       string `json:"update_url,omitempty"`
 	KernelPathBIOS  string `json:"kernel_path_bios,omitempty"` // optional BIOS variant local path
+}
+
+const (
+	DiskImageStateCapturing = "capturing"
+	DiskImageStateReady     = "ready"
+	DiskImageStateFailed    = "failed"
+
+	DiskJobKindCapture = "capture"
+	DiskJobKindDeploy  = "deploy"
+
+	DiskJobStatePending   = "pending"
+	DiskJobStateRunning   = "running"
+	DiskJobStateCompleted = "completed"
+	DiskJobStateFailed    = "failed"
+	DiskJobStateCancelled = "cancelled"
+)
+
+type DiskImage struct {
+	ID               uint      `gorm:"primarykey" json:"id"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+	Name             string    `gorm:"uniqueIndex;not null" json:"name"`
+	Description      string    `json:"description"`
+	SourceMAC        string    `json:"source_mac,omitempty"`
+	SourceClientName string    `json:"source_client_name,omitempty"`
+	Disk             string    `json:"disk"`
+	SizeBytes        int64     `json:"size_bytes"`
+	State            string    `gorm:"index" json:"state"`
+}
+
+type DiskJob struct {
+	ID          uint       `gorm:"primarykey" json:"id"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	ClientMAC   string     `gorm:"index" json:"client_mac"`
+	ClientName  string     `json:"client_name,omitempty"`
+	Kind        string     `gorm:"not null" json:"kind"`
+	DiskImageID uint       `gorm:"index" json:"disk_image_id"`
+	DiskImage   *DiskImage `gorm:"foreignKey:DiskImageID" json:"disk_image,omitempty"`
+	Disk        string     `json:"disk"`
+	State       string     `gorm:"index" json:"state"`
+	Token       string     `gorm:"uniqueIndex;not null" json:"-"`
+	Message     string     `json:"message,omitempty"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+	FinishedAt  *time.Time `json:"finished_at,omitempty"`
+}
+
+func (j *DiskJob) Active() bool {
+	return j.State == DiskJobStatePending || j.State == DiskJobStateRunning
 }

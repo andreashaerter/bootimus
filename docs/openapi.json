@@ -27,6 +27,10 @@
       "name": "Images"
     },
     {
+      "name": "Disk Images",
+      "description": "Clonezilla disk capture and deploy."
+    },
+    {
       "name": "Image Groups"
     },
     {
@@ -195,7 +199,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 156
+        "x-bootimus-order": 163
       }
     },
     "/api/auth-info": {
@@ -243,7 +247,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 95
+        "x-bootimus-order": 102
       }
     },
     "/api/autoinstall-files/delete": {
@@ -278,7 +282,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 100
+        "x-bootimus-order": 107
       }
     },
     "/api/autoinstall-files/download": {
@@ -313,7 +317,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 99
+        "x-bootimus-order": 106
       }
     },
     "/api/autoinstall-files/get": {
@@ -348,7 +352,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 96
+        "x-bootimus-order": 103
       }
     },
     "/api/autoinstall-files/save": {
@@ -383,7 +387,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 97
+        "x-bootimus-order": 104
       }
     },
     "/api/autoinstall-files/upload": {
@@ -424,7 +428,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 98
+        "x-bootimus-order": 105
       }
     },
     "/api/backup/export": {
@@ -448,7 +452,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 145
+        "x-bootimus-order": 152
       }
     },
     "/api/backup/import": {
@@ -472,7 +476,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 148
+        "x-bootimus-order": 155
       },
       "get": {
         "tags": [
@@ -494,7 +498,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 147
+        "x-bootimus-order": 154
       },
       "post": {
         "tags": [
@@ -532,7 +536,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 146
+        "x-bootimus-order": 153
       }
     },
     "/api/bootloaders": {
@@ -556,7 +560,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 74
+        "x-bootimus-order": 81
       }
     },
     "/api/bootloaders/create": {
@@ -591,7 +595,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 75
+        "x-bootimus-order": 82
       }
     },
     "/api/bootloaders/delete": {
@@ -634,7 +638,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 77
+        "x-bootimus-order": 84
       }
     },
     "/api/bootloaders/select": {
@@ -669,7 +673,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 78
+        "x-bootimus-order": 85
       }
     },
     "/api/bootloaders/upload": {
@@ -716,7 +720,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 76
+        "x-bootimus-order": 83
       }
     },
     "/api/catalogue/check": {
@@ -740,7 +744,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 152
+        "x-bootimus-order": 159
       }
     },
     "/api/client-groups": {
@@ -1669,7 +1673,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 109
+        "x-bootimus-order": 116
       },
       "post": {
         "tags": [
@@ -1702,7 +1706,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 110
+        "x-bootimus-order": 117
       }
     },
     "/api/clusters/config": {
@@ -1737,7 +1741,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 113
+        "x-bootimus-order": 120
       },
       "post": {
         "tags": [
@@ -1781,7 +1785,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 114
+        "x-bootimus-order": 121
       }
     },
     "/api/clusters/config/template": {
@@ -1825,7 +1829,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 115
+        "x-bootimus-order": 122
       }
     },
     "/api/clusters/delete": {
@@ -1860,7 +1864,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 112
+        "x-bootimus-order": 119
       }
     },
     "/api/clusters/nodes": {
@@ -1895,7 +1899,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 116
+        "x-bootimus-order": 123
       }
     },
     "/api/clusters/nodes/assign": {
@@ -1930,7 +1934,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 117
+        "x-bootimus-order": 124
       }
     },
     "/api/clusters/nodes/mark-installed": {
@@ -1965,7 +1969,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 120
+        "x-bootimus-order": 127
       }
     },
     "/api/clusters/nodes/reinstall": {
@@ -2000,7 +2004,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 119
+        "x-bootimus-order": 126
       }
     },
     "/api/clusters/nodes/unassign": {
@@ -2035,7 +2039,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 118
+        "x-bootimus-order": 125
       }
     },
     "/api/clusters/update": {
@@ -2081,7 +2085,253 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 111
+        "x-bootimus-order": 118
+      }
+    },
+    "/api/disk-images": {
+      "delete": {
+        "tags": [
+          "Disk Images"
+        ],
+        "summary": "Delete a disk image and its files.",
+        "operationId": "deleteApiDiskImages",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Disk image ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 72
+      },
+      "get": {
+        "tags": [
+          "Disk Images"
+        ],
+        "summary": "Disk imaging readiness and the list of captured disk images.",
+        "operationId": "getApiDiskImages",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 70
+      },
+      "put": {
+        "tags": [
+          "Disk Images"
+        ],
+        "summary": "Update a disk image's description.",
+        "operationId": "putApiDiskImages",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Disk image ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "{description}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 71
+      }
+    },
+    "/api/disk-images/capture": {
+      "post": {
+        "tags": [
+          "Disk Images"
+        ],
+        "summary": "Queue a disk capture from a client on its next PXE boot.",
+        "operationId": "postApiDiskImagesCapture",
+        "requestBody": {
+          "description": "{mac_address, name, description, disk, wake}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 73
+      }
+    },
+    "/api/disk-images/deploy": {
+      "post": {
+        "tags": [
+          "Disk Images"
+        ],
+        "summary": "Queue a disk image deploy to a client or every enabled member of a client group.",
+        "operationId": "postApiDiskImagesDeploy",
+        "requestBody": {
+          "description": "{mac_address | client_group_id, image_id, disk, wake}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 74
+      }
+    },
+    "/api/disk-images/jobs": {
+      "delete": {
+        "tags": [
+          "Disk Images"
+        ],
+        "summary": "Cancel a pending or running job.",
+        "operationId": "deleteApiDiskImagesJobs",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Job ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 76
+      },
+      "get": {
+        "tags": [
+          "Disk Images"
+        ],
+        "summary": "Recent capture and deploy jobs.",
+        "operationId": "getApiDiskImagesJobs",
+        "parameters": [
+          {
+            "name": "mac",
+            "in": "query",
+            "description": "Only jobs for this client",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of jobs, default 100",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 75
       }
     },
     "/api/downloads": {
@@ -2175,7 +2425,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 105
+        "x-bootimus-order": 112
       }
     },
     "/api/drivers/delete": {
@@ -2210,7 +2460,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 107
+        "x-bootimus-order": 114
       }
     },
     "/api/drivers/rebuild": {
@@ -2245,7 +2495,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 108
+        "x-bootimus-order": 115
       }
     },
     "/api/drivers/upload": {
@@ -2289,7 +2539,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 106
+        "x-bootimus-order": 113
       }
     },
     "/api/files": {
@@ -2313,7 +2563,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 101
+        "x-bootimus-order": 108
       }
     },
     "/api/files/delete": {
@@ -2348,7 +2598,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 104
+        "x-bootimus-order": 111
       }
     },
     "/api/files/update": {
@@ -2394,7 +2644,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 103
+        "x-bootimus-order": 110
       }
     },
     "/api/files/upload": {
@@ -2447,7 +2697,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 102
+        "x-bootimus-order": 109
       }
     },
     "/api/groups": {
@@ -2471,7 +2721,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 70
+        "x-bootimus-order": 77
       },
       "post": {
         "tags": [
@@ -2504,7 +2754,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 71
+        "x-bootimus-order": 78
       }
     },
     "/api/groups/delete": {
@@ -2539,7 +2789,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 73
+        "x-bootimus-order": 80
       }
     },
     "/api/groups/update": {
@@ -2585,7 +2835,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 72
+        "x-bootimus-order": 79
       }
     },
     "/api/housekeeping": {
@@ -2609,7 +2859,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 149
+        "x-bootimus-order": 156
       },
       "put": {
         "tags": [
@@ -2642,7 +2892,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 150
+        "x-bootimus-order": 157
       }
     },
     "/api/housekeeping/run": {
@@ -2666,7 +2916,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 151
+        "x-bootimus-order": 158
       }
     },
     "/api/images": {
@@ -3490,7 +3740,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 94
+        "x-bootimus-order": 101
       }
     },
     "/api/isos": {
@@ -3538,7 +3788,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 125
+        "x-bootimus-order": 132
       }
     },
     "/api/login": {
@@ -3615,7 +3865,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 153
+        "x-bootimus-order": 160
       }
     },
     "/api/logs/buffer": {
@@ -3639,7 +3889,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 155
+        "x-bootimus-order": 162
       }
     },
     "/api/logs/stream": {
@@ -3663,7 +3913,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 154
+        "x-bootimus-order": 161
       }
     },
     "/api/me": {
@@ -3805,7 +4055,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 121
+        "x-bootimus-order": 128
       },
       "post": {
         "tags": [
@@ -3838,7 +4088,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 122
+        "x-bootimus-order": 129
       }
     },
     "/api/node-images/delete": {
@@ -3873,7 +4123,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 124
+        "x-bootimus-order": 131
       }
     },
     "/api/node-images/download": {
@@ -3908,7 +4158,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 123
+        "x-bootimus-order": 130
       }
     },
     "/api/oidc/callback": {
@@ -4004,7 +4254,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 90
+        "x-bootimus-order": 97
       }
     },
     "/api/profiles/delete": {
@@ -4039,7 +4289,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 92
+        "x-bootimus-order": 99
       }
     },
     "/api/profiles/save": {
@@ -4074,7 +4324,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 91
+        "x-bootimus-order": 98
       }
     },
     "/api/profiles/update": {
@@ -4098,7 +4348,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 93
+        "x-bootimus-order": 100
       }
     },
     "/api/proxydhcp/events": {
@@ -4122,7 +4372,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 157
+        "x-bootimus-order": 164
       }
     },
     "/api/proxydhcp/events/clear": {
@@ -4146,7 +4396,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 159
+        "x-bootimus-order": 166
       }
     },
     "/api/proxydhcp/stream": {
@@ -4170,7 +4420,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 158
+        "x-bootimus-order": 165
       }
     },
     "/api/san-targets": {
@@ -4352,7 +4602,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 129
+        "x-bootimus-order": 136
       },
       "post": {
         "tags": [
@@ -4385,7 +4635,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 130
+        "x-bootimus-order": 137
       }
     },
     "/api/scheduled-tasks/delete": {
@@ -4420,7 +4670,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 132
+        "x-bootimus-order": 139
       }
     },
     "/api/scheduled-tasks/run": {
@@ -4455,7 +4705,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 133
+        "x-bootimus-order": 140
       }
     },
     "/api/scheduled-tasks/update": {
@@ -4501,7 +4751,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 131
+        "x-bootimus-order": 138
       }
     },
     "/api/server-info": {
@@ -4573,7 +4823,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 143
+        "x-bootimus-order": 150
       },
       "put": {
         "tags": [
@@ -4606,7 +4856,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 144
+        "x-bootimus-order": 151
       }
     },
     "/api/tokens": {
@@ -4641,7 +4891,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 142
+        "x-bootimus-order": 149
       },
       "get": {
         "tags": [
@@ -4663,7 +4913,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 140
+        "x-bootimus-order": 147
       },
       "post": {
         "tags": [
@@ -4696,7 +4946,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 141
+        "x-bootimus-order": 148
       }
     },
     "/api/tools": {
@@ -4720,7 +4970,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 81
+        "x-bootimus-order": 88
       }
     },
     "/api/tools/custom": {
@@ -4755,7 +5005,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 87
+        "x-bootimus-order": 94
       }
     },
     "/api/tools/custom/delete": {
@@ -4790,7 +5040,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 88
+        "x-bootimus-order": 95
       }
     },
     "/api/tools/delete": {
@@ -4825,7 +5075,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 84
+        "x-bootimus-order": 91
       }
     },
     "/api/tools/download": {
@@ -4860,7 +5110,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 83
+        "x-bootimus-order": 90
       }
     },
     "/api/tools/progress": {
@@ -4895,7 +5145,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 85
+        "x-bootimus-order": 92
       }
     },
     "/api/tools/toggle": {
@@ -4941,7 +5191,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 82
+        "x-bootimus-order": 89
       }
     },
     "/api/tools/update": {
@@ -4965,7 +5215,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 89
+        "x-bootimus-order": 96
       }
     },
     "/api/tools/url": {
@@ -5011,7 +5261,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 86
+        "x-bootimus-order": 93
       }
     },
     "/api/usb": {
@@ -5035,7 +5285,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 79
+        "x-bootimus-order": 86
       }
     },
     "/api/usb/download": {
@@ -5070,7 +5320,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 80
+        "x-bootimus-order": 87
       }
     },
     "/api/users": {
@@ -5105,7 +5355,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 137
+        "x-bootimus-order": 144
       },
       "get": {
         "tags": [
@@ -5127,7 +5377,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 134
+        "x-bootimus-order": 141
       },
       "post": {
         "tags": [
@@ -5160,7 +5410,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 135
+        "x-bootimus-order": 142
       },
       "put": {
         "tags": [
@@ -5204,7 +5454,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 136
+        "x-bootimus-order": 143
       }
     },
     "/api/users/reset-password": {
@@ -5250,7 +5500,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 138
+        "x-bootimus-order": 145
       }
     },
     "/api/users/totp/reset": {
@@ -5285,7 +5535,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 139
+        "x-bootimus-order": 146
       }
     },
     "/api/webhook": {
@@ -5309,7 +5559,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 126
+        "x-bootimus-order": 133
       },
       "put": {
         "tags": [
@@ -5318,7 +5568,7 @@
         "summary": "Update the webhook configuration.",
         "operationId": "putApiWebhook",
         "requestBody": {
-          "description": "{url, enabled, on_boot_started, on_client_discovered, on_inventory_updated, on_node_events}",
+          "description": "{url, enabled, on_boot_started, on_client_discovered, on_inventory_updated, on_enrollment, on_admin_action, on_disk_imaging}",
           "required": true,
           "content": {
             "application/json": {
@@ -5342,7 +5592,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 127
+        "x-bootimus-order": 134
       }
     },
     "/api/webhook/test": {
@@ -5366,7 +5616,7 @@
         },
         "x-bootimus-public": false,
         "x-bootimus-readonly": false,
-        "x-bootimus-order": 128
+        "x-bootimus-order": 135
       }
     },
     "/autoexec.ipxe": {
@@ -5390,7 +5640,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 161
+        "x-bootimus-order": 168
       }
     },
     "/autoinstall/{filename}": {
@@ -5425,7 +5675,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 165
+        "x-bootimus-order": 172
       }
     },
     "/boot/{cache_dir}/{path}": {
@@ -5469,7 +5719,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 164
+        "x-bootimus-order": 171
       }
     },
     "/bootenv/{filename}": {
@@ -5504,7 +5754,102 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 168
+        "x-bootimus-order": 175
+      }
+    },
+    "/diskimage/callback": {
+      "get": {
+        "tags": [
+          "Boot"
+        ],
+        "summary": "Progress report from a Clonezilla client.",
+        "operationId": "getDiskimageCallback",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "description": "Job token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "running, done or failed",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "disk",
+            "in": "query",
+            "description": "Disk device actually used",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "message",
+            "in": "query",
+            "description": "Short failure reason",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 179
+      }
+    },
+    "/diskimage/job": {
+      "get": {
+        "tags": [
+          "Boot"
+        ],
+        "summary": "Shell script a Clonezilla client runs for its queued capture or deploy job.",
+        "operationId": "getDiskimageJob",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "description": "Job token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 178
       }
     },
     "/files/{filename}": {
@@ -5539,7 +5884,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 167
+        "x-bootimus-order": 174
       }
     },
     "/health": {
@@ -5614,7 +5959,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 166
+        "x-bootimus-order": 173
       }
     },
     "/inventory": {
@@ -5649,7 +5994,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 162
+        "x-bootimus-order": 169
       }
     },
     "/isos/{filename}": {
@@ -5684,7 +6029,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 163
+        "x-bootimus-order": 170
       }
     },
     "/logout": {
@@ -5760,7 +6105,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 171
+        "x-bootimus-order": 180
       }
     },
     "/menu.ipxe": {
@@ -5794,7 +6139,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 160
+        "x-bootimus-order": 167
       }
     },
     "/metrics": {
@@ -5853,7 +6198,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 170
+        "x-bootimus-order": 177
       }
     },
     "/tools/{path}": {
@@ -5888,7 +6233,7 @@
         },
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
-        "x-bootimus-order": 169
+        "x-bootimus-order": 176
       }
     }
   },

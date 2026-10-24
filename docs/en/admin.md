@@ -455,6 +455,20 @@ GET /api/stats
 | `PUT` | `/api/images/winpe?filename=<name>` | Choose the WIM file and image index a Windows or WinPE image boots. Body: `{wim_path, wim_index}` |
 | `POST` | `/api/scan` | Scan for new ISOs |
 
+#### Disk Images
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/disk-images` | Readiness status and the list of captured disk images |
+| `PUT` | `/api/disk-images?id=<id>` | Update an image's description |
+| `DELETE` | `/api/disk-images?id=<id>` | Delete an image and its files |
+| `POST` | `/api/disk-images/capture` | Queue a capture: `{mac_address, name, description, disk, wake}` |
+| `POST` | `/api/disk-images/deploy` | Queue a deploy: `{mac_address` or `client_group_id, image_id, disk, wake}` |
+| `GET` | `/api/disk-images/jobs?mac=<MAC>&limit=<n>` | Recent capture and deploy jobs |
+| `DELETE` | `/api/disk-images/jobs?id=<id>` | Cancel a pending or running job |
+
+See the [Disk Imaging guide](disk-imaging.md) for the workflow.
+
 #### Downloads
 
 | Method | Endpoint | Description |
