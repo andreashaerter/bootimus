@@ -9,6 +9,7 @@ Complete guide for using the Bootimus admin interface and REST API.
 - [Client Management](#client-management)
 - [Image Management](#image-management)
 - [Boot Logs](#boot-logs)
+- [Audit Log](#audit-log)
 - [REST API](#rest-api)
 - [Automation Examples](#automation-examples)
 - [Security Best Practises](#security-best-practises)
@@ -317,6 +318,26 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/logs?limit=10
 # Get last 500 logs (max 1000)
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/logs?limit=500
 ```
+
+## Audit Log
+
+Every change made through the admin API is recorded: the user, the HTTP method and path, the query string, the status the server answered with, and the caller's IP address. Reads (`GET` requests) and the login endpoint itself are not recorded. Query values that look like passwords or tokens are stored as `[redacted]`.
+
+The **Audit Log** tab is visible to administrators only. It can be filtered by user, by path and by a start time, and pages through older entries with **Load more**.
+
+The same entries can be forwarded as `admin.action` webhook events by ticking that event under **Settings → Webhook**. The payload carries the user, method, path, query, status and a short summary in its `metadata` map.
+
+**Via API**:
+```bash
+# Latest 100 entries
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/audit
+
+# Everything alice did to clients since a point in time
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8081/api/audit?username=alice&path=/api/clients&since=2026-10-01T00:00:00Z&limit=500"
+```
+
+The response contains `entries` (newest first) and `total`, so `offset` can be used to page.
 
 ## REST API
 

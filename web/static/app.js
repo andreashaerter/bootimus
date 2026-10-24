@@ -471,6 +471,7 @@ function setupTabs() {
             if (item.dataset.tab === 'boot-menu') loadTheme();
             if (item.dataset.tab === 'settings') { loadUSBImages(); loadWebhookConfig(); }
             if (item.dataset.tab === 'api-reference') showAPIReference();
+            if (item.dataset.tab === 'audit') loadAuditLog();
         });
     });
 
@@ -795,6 +796,7 @@ async function loadWebhookConfig() {
         document.getElementById('webhook-on-boot-started').checked = !!c.on_boot_started;
         document.getElementById('webhook-on-client-discovered').checked = !!c.on_client_discovered;
         document.getElementById('webhook-on-inventory-updated').checked = !!c.on_inventory_updated;
+        document.getElementById('webhook-on-admin-action').checked = !!c.on_admin_action;
     } catch (err) {
         console.error('Failed to load webhook config:', err);
     }
@@ -808,6 +810,7 @@ async function saveWebhookConfig(e) {
         on_boot_started: document.getElementById('webhook-on-boot-started').checked,
         on_client_discovered: document.getElementById('webhook-on-client-discovered').checked,
         on_inventory_updated: document.getElementById('webhook-on-inventory-updated').checked,
+        on_admin_action: document.getElementById('webhook-on-admin-action').checked,
     };
     try {
         const res = await authFetch(`${API_BASE}/webhook`, {
@@ -2974,6 +2977,7 @@ const API_REFERENCE = [
         { method: 'GET',    path: '/api/logs',                     desc: 'Boot log entries.' },
         { method: 'GET',    path: '/api/logs/stream',              desc: 'Server log SSE stream.' },
         { method: 'GET',    path: '/api/logs/buffer',              desc: 'Recent in-memory log buffer.' },
+        { method: 'GET',    path: '/api/audit',                    desc: 'Admin action audit log. Query: <code>username</code>, <code>path</code>, <code>since</code> (RFC 3339), <code>limit</code>, <code>offset</code>.' },
     ]},
     { category: 'Public Boot Endpoints (no auth)', endpoints: [
         { method: 'GET',    path: '/menu.ipxe',                    desc: 'Generated iPXE menu script.', publicAccess: true },
@@ -7387,4 +7391,101 @@ function unassignNode(mac) {
 
 function markNodeInstalled(mac) {
     clusterNodeAction('mark-installed', mac, 'Node marked installed');
+}
+
+const AUDIT_PAGE_SIZE = 100;
+let auditOffset = 0;
+let auditEntries = [];
+
+function auditFilterQuery() {
+    const params = new URLSearchParams();
+    const user = document.getElementById('audit-filter-user').value.trim();
+    const path = document.getElementById('audit-filter-path').value.trim();
+    const since = document.getElementById('audit-filter-since').value;
+    if (user) params.set('username', user);
+    if (path) params.set('path', path);
+    if (since) params.set('since', new Date(since).toISOString());
+    params.set('limit', AUDIT_PAGE_SIZE);
+    params.set('offset', auditOffset);
+    return params.toString();
+}
+
+async function loadAuditLog() {
+    auditOffset = 0;
+    auditEntries = [];
+    await fetchAuditPage();
+}
+
+async function loadMoreAuditLog() {
+    auditOffset = auditEntries.length;
+    await fetchAuditPage();
+}
+
+async function fetchAuditPage() {
+    const status = document.getElementById('audit-status');
+    const more = document.getElementById('audit-load-more');
+    try {
+        const res = await authFetch(`${API_BASE}/audit?${auditFilterQuery()}`);
+        const data = await res.json();
+        if (!data.success) {
+            document.getElementById('audit-table').innerHTML = `<p class="alert alert-error">${escapeHtml(data.error || 'Failed to load audit log')}</p>`;
+            return;
+        }
+        auditEntries = auditEntries.concat(data.data.entries || []);
+        renderAuditTable();
+        status.textContent = `Showing ${auditEntries.length} of ${data.data.total}`;
+        more.style.display = auditEntries.length < data.data.total ? '' : 'none';
+    } catch (err) {
+        document.getElementById('audit-table').innerHTML = '<p class="alert alert-error">Failed to load audit log</p>';
+    }
+}
+
+function clearAuditFilters() {
+    document.getElementById('audit-filter-user').value = '';
+    document.getElementById('audit-filter-path').value = '';
+    document.getElementById('audit-filter-since').value = '';
+    loadAuditLog();
+}
+
+function auditStatusBadge(status) {
+    const cls = status >= 500 ? 'badge-danger' : status >= 400 ? 'badge-warning' : 'badge-success';
+    return `<span class="badge ${cls}">${status}</span>`;
+}
+
+function renderAuditTable() {
+    const container = document.getElementById('audit-table');
+    container.classList.remove('loading');
+    if (auditEntries.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-secondary); padding: 20px;">No audit entries match.</p>';
+        return;
+    }
+    container.innerHTML = `
+        <div class="table-scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>User</th>
+                    <th>Action</th>
+                    <th>Method</th>
+                    <th>Path</th>
+                    <th>Status</th>
+                    <th>IP</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${auditEntries.map(e => `
+                    <tr>
+                        <td style="white-space: nowrap;">${new Date(e.created_at).toLocaleString()}</td>
+                        <td>${escapeHtml(e.username)}</td>
+                        <td>${escapeHtml(e.summary || '')}</td>
+                        <td><span class="api-method ${e.method.toLowerCase()}">${e.method}</span></td>
+                        <td><code>${escapeHtml(e.path)}${e.query ? '?' + escapeHtml(e.query) : ''}</code></td>
+                        <td>${auditStatusBadge(e.status)}</td>
+                        <td>${escapeHtml(e.remote_ip || '-')}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+        </div>`;
 }

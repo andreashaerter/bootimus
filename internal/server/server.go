@@ -120,6 +120,7 @@ type Server struct {
 	wg                    sync.WaitGroup
 	activeSessions        *ActiveSessions
 	logBroadcaster        *LogBroadcaster
+	audit                 *auditRecorder
 	activeBootloaderSet   string // name of active set folder, empty = built-in
 	activeBootloaderSetMu sync.RWMutex
 	toolsManager          *tools.Manager
@@ -1334,8 +1335,12 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	}
 
 	useAuth := s.config.Auth != nil
+	if s.audit == nil {
+		s.audit = &auditRecorder{store: s.config.Storage, notifier: s.webhookNotifier}
+	}
 
 	adminWrap := func(handler http.HandlerFunc) http.HandlerFunc {
+		handler = s.audit.wrap(handler)
 		if useAuth {
 			return s.config.Auth.AdminMiddleware(handler)
 		}
@@ -1343,6 +1348,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	}
 
 	readWrap := func(handler http.HandlerFunc) http.HandlerFunc {
+		handler = s.audit.wrap(handler)
 		if useAuth {
 			return s.config.Auth.ReadMiddleware(handler)
 		}
@@ -1582,6 +1588,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 
 	mux.HandleFunc("/api/clients/import", adminWrap(adminHandler.ImportClientsCSV))
 	mux.HandleFunc("/api/backup/export", adminWrap(adminHandler.ExportBackup))
+	mux.HandleFunc("/api/audit", adminWrap(s.handleAuditList))
 
 	mux.HandleFunc("/api/webhook", adminWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {

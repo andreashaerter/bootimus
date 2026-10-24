@@ -111,6 +111,7 @@
                     <button class="nav-item" data-tab="clients" data-i18n="nav.clients"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg> Clients</button>
                     <button class="nav-item" data-tab="clusters" data-i18n="nav.kubernetes"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="9" x2="12" y2="5.5"/><line x1="12" y1="15" x2="12" y2="18.5"/><line x1="9.4" y1="10.5" x2="6.2" y2="8.7"/><line x1="14.6" y1="13.5" x2="17.8" y2="15.3"/><line x1="9.4" y1="13.5" x2="6.2" y2="15.3"/><line x1="14.6" y1="10.5" x2="17.8" y2="8.7"/></svg> Kubernetes</button>
                     <button class="nav-item admin-only" data-tab="users" data-i18n="nav.users"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> Users</button>
+                    <button class="nav-item admin-only" data-tab="audit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg> Audit Log</button>
                 </div>
                 <div class="nav-group">
                     <span class="nav-group-label" data-i18n="nav.group.system">System</span>
@@ -521,6 +522,34 @@
             </div>
         </div>
 
+        <!-- Audit Log Tab -->
+        <div id="audit-tab" class="tab-content">
+            <div class="card">
+                <h2>Audit Log</h2>
+                <p style="color: var(--text-secondary); margin: 0 12px 8px; font-size: 13px;">
+                    Every change made through the admin API: who did it, what was called and how the server answered. Reads are not recorded.
+                </p>
+                <div class="toolbar">
+                    <input type="text" class="toolbar-filter" id="audit-filter-user" placeholder="User" style="width: 160px;" onkeydown="if (event.key === 'Enter') loadAuditLog()">
+                    <input type="text" class="toolbar-filter" id="audit-filter-path" placeholder="Path contains…" style="width: 200px;" onkeydown="if (event.key === 'Enter') loadAuditLog()">
+                    <input type="datetime-local" id="audit-filter-since" style="height: 34px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); font-size: 13px;" onchange="loadAuditLog()">
+                    <button class="btn" type="button" onclick="loadAuditLog()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        Search
+                    </button>
+                    <button class="btn" type="button" onclick="clearAuditFilters()">Clear</button>
+                    <span id="audit-status" style="color: var(--text-secondary); font-size: 12px;"></span>
+                </div>
+                <div id="audit-table" class="loading" style="padding: 0 12px 12px;">
+                    <div class="spinner"></div>
+                    Loading audit log...
+                </div>
+                <div style="padding: 0 12px 12px;">
+                    <button class="btn" type="button" id="audit-load-more" style="display: none;" onclick="loadMoreAuditLog()">Load more</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Tools Tab -->
         <div id="tools-tab" class="tab-content">
             <div class="card">
@@ -754,6 +783,10 @@
                         <div class="form-group checkbox-group" style="margin: 4px 0;">
                             <input type="checkbox" id="webhook-on-inventory-updated">
                             <label for="webhook-on-inventory-updated"><code>client.inventory_updated</code> — hardware info refreshed for an existing client</label>
+                        </div>
+                        <div class="form-group checkbox-group" style="margin: 4px 0;">
+                            <input type="checkbox" id="webhook-on-admin-action">
+                            <label for="webhook-on-admin-action"><code>admin.action</code> — a change was made through the admin API (mirrors the audit log)</label>
                         </div>
                     </div>
                     <div style="display: flex; gap: 8px;">
