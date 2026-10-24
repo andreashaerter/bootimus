@@ -112,6 +112,9 @@ type Storage interface {
 	ListOpenInstallRecordsBefore(cutoff time.Time) ([]models.InstallRecord, error)
 	SetClientInstallStatus(mac, state, image string, at time.Time) error
 
+	GetReplicaState() (*models.ReplicaState, error)
+	SaveReplicaState(state *models.ReplicaState) error
+
 	CreateAuditLog(entry *models.AuditLog) error
 	ListAuditLogs(filter AuditLogFilter) ([]models.AuditLog, int64, error)
 	DeleteAuditLogsBefore(cutoff time.Time) (int64, error)

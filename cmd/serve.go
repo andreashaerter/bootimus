@@ -13,6 +13,7 @@ import (
 	"bootimus/internal/auth"
 	"bootimus/internal/netbind"
 	"bootimus/internal/profiles"
+	"bootimus/internal/replica"
 	"bootimus/internal/server"
 	"bootimus/internal/storage"
 
@@ -256,6 +257,18 @@ func runServe(cmd *cobra.Command, args []string) {
 	}
 	if err := cfg.AdminTLS.Validate(); err != nil {
 		log.Fatalf("Invalid configuration: %v", err)
+	}
+	replicaCfg := &replica.Config{
+		PrimaryURL: viper.GetString("replica.primary_url"),
+		Token:      viper.GetString("replica.token"),
+		Interval:   viper.GetDuration("replica.interval"),
+		SyncISOs:   viper.GetBool("replica.sync_isos"),
+	}
+	if err := replicaCfg.Validate(); err != nil {
+		log.Fatalf("Invalid configuration: %v", err)
+	}
+	if replicaCfg.Enabled() {
+		cfg.Replica = replicaCfg
 	}
 	cfg.InstallTimeoutHours = viper.GetInt("install_timeout_hours")
 

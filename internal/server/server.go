@@ -42,6 +42,7 @@ import (
 	"bootimus/internal/nfs"
 	"bootimus/internal/profiles"
 	"bootimus/internal/proxydhcp"
+	"bootimus/internal/replica"
 	"bootimus/internal/scheduler"
 	"bootimus/internal/smb"
 	"bootimus/internal/storage"
@@ -114,6 +115,7 @@ type Config struct {
 	WindowsSMBPort    int
 
 	AdminTLS AdminTLSConfig
+	Replica  *replica.Config
 }
 
 type AdminTLSConfig struct {
@@ -155,6 +157,7 @@ type Server struct {
 	webhookNotifier       *webhook.Notifier
 	scheduler             *scheduler.Scheduler
 	housekeeping          *housekeeping.Runner
+	replica               *replica.Syncer
 	catalogue             *catalogue.Checker
 	bootLogDedup          map[string]time.Time
 	bootLogDedupMu        sync.Mutex
@@ -903,6 +906,11 @@ func (s *Server) Shutdown() error {
 		log.Println("Housekeeping stopped")
 	}
 
+	if s.replica != nil {
+		s.replica.Stop()
+		log.Println("Replica sync stopped")
+	}
+
 	s.stopInstallSweeper()
 
 	if s.smbManager != nil {
@@ -1545,7 +1553,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	}
 
 	adminWrap := func(handler http.HandlerFunc) http.HandlerFunc {
-		handler = s.audit.wrap(handler)
+		handler = s.audit.wrap(s.replicaGuard(handler))
 		if useAuth {
 			return s.config.Auth.AdminMiddleware(handler)
 		}
@@ -1553,7 +1561,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	}
 
 	readWrap := func(handler http.HandlerFunc) http.HandlerFunc {
-		handler = s.audit.wrap(handler)
+		handler = s.audit.wrap(s.replicaGuard(handler))
 		if useAuth {
 			return s.config.Auth.ReadMiddleware(handler)
 		}
@@ -1833,6 +1841,13 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 		}
 	}))
 	mux.HandleFunc("/api/webhook/test", adminWrap(adminHandler.TestWebhook))
+
+	mux.HandleFunc("/api/sync/manifest", readWrap(adminHandler.SyncManifest))
+	mux.HandleFunc("/api/sync/tool-files", readWrap(adminHandler.SyncToolFiles))
+	mux.HandleFunc("/api/sync/asset", readWrap(adminHandler.SyncAsset))
+	mux.HandleFunc("/api/replica/status", readWrap(adminHandler.ReplicaStatus))
+	mux.HandleFunc("/api/replica/sync", adminWrap(adminHandler.ReplicaSync))
+	s.startReplica(adminHandler)
 
 	mux.HandleFunc("/api/housekeeping", readWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -2735,4 +2750,109 @@ func GetOutboundIP() string {
 
 	localAddr := conn.LocalAddr().(*net.UDPAddr)
 	return localAddr.IP.String()
+}
+
+var replicaWritablePaths = map[string]bool{
+	"/api/replica/sync":           true,
+	"/api/users":                  true,
+	"/api/users/reset-password":   true,
+	"/api/users/totp/reset":       true,
+	"/api/tokens":                 true,
+	"/api/proxydhcp/events/clear": true,
+}
+
+func (s *Server) replicaGuard(next http.HandlerFunc) http.HandlerFunc {
+	if !s.config.Replica.Enabled() {
+		return next
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+			if !replicaWritablePaths[r.URL.Path] && !strings.HasPrefix(r.URL.Path, "/api/me/") {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusConflict)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"success": false,
+					"error":   fmt.Sprintf("This instance is a replica of %s; make changes there", s.config.Replica.DisplayURL()),
+					"replica": s.config.Replica.DisplayURL(),
+				})
+				return
+			}
+		}
+		next(w, r)
+	}
+}
+
+func (s *Server) bootloaderSetExists(name string) bool {
+	if name == "" {
+		return true
+	}
+	if bootloaders.IsBuiltIn(name) {
+		return true
+	}
+	info, err := os.Stat(filepath.Join(s.config.BootDir, name))
+	return err == nil && info.IsDir()
+}
+
+func (s *Server) startReplica(adminHandler *admin.Handler) {
+	if !s.config.Replica.Enabled() || s.config.Storage == nil {
+		return
+	}
+	if s.replica == nil {
+		s.replica = replica.New(*s.config.Replica, replica.Deps{
+			Store:       s.config.Storage,
+			DataDir:     s.config.DataDir,
+			ISODir:      s.config.ISODir,
+			AutoInstall: s.autoInstallLib,
+			Extract:     adminHandler.ExtractImageByFilename,
+			SelectBootloaderSet: func(name string) error {
+				if s.GetActiveBootloaderSet() == name {
+					return nil
+				}
+				s.SetActiveBootloaderSet(name)
+				return s.SaveBootloaderConfig()
+			},
+			BootloaderSetExists: s.bootloaderSetExists,
+			ToolDir:             s.toolsManager.ToolDir,
+		})
+		if s.config.Auth != nil {
+			s.config.Auth.MeExtras = s.replicaMeExtras
+		}
+		s.replica.Start()
+		log.Printf("Replica mode: syncing from %s every %s", s.config.Replica.DisplayURL(), s.config.Replica.Interval)
+	}
+	adminHandler.Replica = s.replica
+}
+
+func (s *Server) replicaMeExtras() map[string]interface{} {
+	if s.replica == nil {
+		return nil
+	}
+	status := s.replica.Status()
+	return map[string]interface{}{
+		"replica": map[string]interface{}{
+			"primary_url": status.PrimaryURL,
+			"last_sync":   status.LastSuccess,
+			"last_run":    status.LastRun,
+			"last_error":  status.LastError,
+			"sync_isos":   status.SyncISOs,
+		},
+	}
+}
+
+func (s *Server) remoteImages(images []models.Image) (string, map[uint]bool) {
+	if s.replica == nil {
+		return "", nil
+	}
+	base := s.replica.BootBaseURL()
+	if base == "" {
+		return "", nil
+	}
+	remote := map[uint]bool{}
+	for _, img := range images {
+		if !s.replica.ImageIsLocal(img.Filename) {
+			remote[img.ID] = true
+		}
+	}
+	return base, remote
 }

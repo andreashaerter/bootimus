@@ -18,6 +18,17 @@ windows_smb:
   enabled: false
   port: 445
 
+# Multi-site: run this instance as a read-only replica of a primary Bootimus.
+# Create an API token on the primary (Users -> API Tokens; admin scope also
+# syncs auto-install files) and point the replica at the primary's admin URL.
+# Changes are refused on the replica; it mirrors clients, images, groups,
+# SAN targets, the menu theme, custom profiles, tools and custom files.
+replica:
+  primary_url: ""        # e.g. https://bootimus.hq.example.com:8081
+  token: ""              # btk_... token created on the primary
+  interval: 5m           # how often to sync (minimum 30s)
+  sync_isos: true        # copy ISOs locally; false serves them from the primary
+
 # Serve the admin interface over HTTPS (off by default).
 # With no cert_file and key_file a self-signed certificate is generated once
 # and kept under <data_dir>/tls/. redirect_port optionally answers plain HTTP
