@@ -245,6 +245,17 @@ func runServe(cmd *cobra.Command, args []string) {
 
 		WindowsSMBEnabled: viper.GetBool("windows_smb.enabled"),
 		WindowsSMBPort:    viper.GetInt("windows_smb.port"),
+
+		AdminTLS: server.AdminTLSConfig{
+			Enabled:      viper.GetBool("admin_tls.enabled"),
+			CertFile:     viper.GetString("admin_tls.cert_file"),
+			KeyFile:      viper.GetString("admin_tls.key_file"),
+			SelfSigned:   viper.GetBool("admin_tls.self_signed"),
+			RedirectPort: viper.GetInt("admin_tls.redirect_port"),
+		},
+	}
+	if err := cfg.AdminTLS.Validate(); err != nil {
+		log.Fatalf("Invalid configuration: %v", err)
 	}
 	cfg.InstallTimeoutHours = viper.GetInt("install_timeout_hours")
 
@@ -254,8 +265,15 @@ func runServe(cmd *cobra.Command, args []string) {
 	}
 
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	<-sigChan
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	for sig := range sigChan {
+		if sig != syscall.SIGHUP {
+			break
+		}
+		if err := srv.ReloadTLS(); err != nil {
+			log.Printf("Admin TLS: reload failed, keeping the current certificate: %v", err)
+		}
+	}
 
 	log.Println("Received shutdown signal...")
 	if err := srv.Shutdown(); err != nil {

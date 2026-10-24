@@ -3,6 +3,9 @@ package models
 import (
 	"database/sql/driver"
 	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -107,6 +110,8 @@ type Client struct {
 	InstallState     string     `json:"install_state,omitempty"`
 	InstallImage     string     `json:"install_image,omitempty"`
 	InstallUpdatedAt *time.Time `json:"install_updated_at,omitempty"`
+	SANTargetID *uint `gorm:"index" json:"san_target_id,omitempty"`
+	BootFromSAN bool  `gorm:"default:false" json:"boot_from_san"`
 
 	ProxyDHCPNoVendorOption bool `gorm:"default:false" json:"proxy_dhcp_no_vendor_option"`
 
@@ -273,6 +278,44 @@ type ClientGroup struct {
 	IPMIInsecure bool   `gorm:"default:false" json:"ipmi_insecure,omitempty"`
 
 	AutoInstallFile string `json:"auto_install_file,omitempty"`
+
+	SANTargetID *uint `gorm:"index" json:"san_target_id,omitempty"`
+	BootFromSAN bool  `gorm:"default:false" json:"boot_from_san"`
+}
+
+type SANTarget struct {
+	ID                  uint      `gorm:"primarykey" json:"id"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
+	Name                string    `gorm:"uniqueIndex;not null" json:"name"`
+	Description         string    `json:"description"`
+	URI                 string    `gorm:"not null" json:"uri"`
+	InitiatorIQN        string    `json:"initiator_iqn,omitempty"`
+	CHAPUsername        string    `json:"chap_username,omitempty"`
+	CHAPPassword        string    `json:"chap_password,omitempty"`
+	ReverseCHAPUsername string    `json:"reverse_chap_username,omitempty"`
+	ReverseCHAPPassword string    `json:"reverse_chap_password,omitempty"`
+}
+
+const NextBootSANPrefix = "san:"
+
+func (t *SANTarget) NextBootValue() string {
+	return fmt.Sprintf("%s%d", NextBootSANPrefix, t.ID)
+}
+
+func ParseNextBootSAN(value string) (uint, bool) {
+	if !strings.HasPrefix(value, NextBootSANPrefix) {
+		return 0, false
+	}
+	id, err := strconv.ParseUint(strings.TrimPrefix(value, NextBootSANPrefix), 10, 32)
+	if err != nil || id == 0 {
+		return 0, false
+	}
+	return uint(id), true
+}
+
+func (t *SANTarget) ResolveInitiatorIQN(mac string) string {
+	return strings.ReplaceAll(t.InitiatorIQN, "{{MAC}}", strings.ReplaceAll(mac, ":", ""))
 }
 
 type SyncFile struct {
@@ -339,8 +382,30 @@ type Image struct {
 	SMBPatchFingerprint   string         `json:"smb_patch_fingerprint,omitempty"`
 	SMBNeedsRepatch       bool           `gorm:"-" json:"smb_needs_repatch"`
 	SMBUnpatchAvailable   bool           `gorm:"-" json:"smb_unpatch_available"`
+	WIMFiles              []WIMFile      `gorm:"serializer:json" json:"wim_files,omitempty"`
+	WIMPath               string         `json:"wim_path,omitempty"`
+	WIMIndex              int            `gorm:"default:0" json:"wim_index,omitempty"`
 
 	AutoInstallFile string `json:"auto_install_file,omitempty"`
+}
+
+type WIMFile struct {
+	Path string `json:"path"`
+	Size int64  `json:"size"`
+}
+
+const (
+	DistroWindows  = "windows"
+	DistroWindows7 = "windows7"
+	DistroWinPE    = "winpe"
+)
+
+func IsWindowsDistro(distro string) bool {
+	switch distro {
+	case DistroWindows, DistroWindows7, DistroWinPE:
+		return true
+	}
+	return false
 }
 
 type BootLog struct {

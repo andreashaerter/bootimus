@@ -151,6 +151,8 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/images
 - **Secret**: Randomly generated on each server startup (all tokens are invalidated on restart)
 - **Claims**: Username, admin status, issue time, expiry
 
+Tokens and the passwords used to obtain them travel in clear text unless the admin interface is served over HTTPS. Enable it with `--admin-tls` or put a TLS-terminating reverse proxy in front of the admin port; see [Securing the Admin Interface](deployment.md#securing-the-admin-interface).
+
 ### Check Available Auth Backends
 
 ```bash
