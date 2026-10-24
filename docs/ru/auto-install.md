@@ -11,6 +11,7 @@
 - [Порядок разрешения](#порядок-разрешения)
 - [Плейсхолдеры](#плейсхолдеры)
 - [Примеры](#примеры)
+- [Отчёт о завершении установки](#отчёт-о-завершении-установки)
 - [Особенности Windows](#особенности-windows)
 - [REST API](#rest-api)
 - [Диагностика](#диагностика)
@@ -121,6 +122,8 @@ Served auto-install script for ubuntu-24.04-live-server-amd64.iso \
 | `{{SERVER_ADDR}}` | Адрес сервера Bootimus |
 | `{{IMAGE_NAME}}` | Отображаемое имя грузящегося образа |
 | `{{IMAGE_FILENAME}}` | Имя ISO-файла грузящегося образа |
+| `{{CALLBACK_URL}}` | Полный URL, который установщик вызывает, чтобы сообщить о завершении, включая одноразовый токен (см. [Отчёт о завершении установки](#отчёт-о-завершении-установки)) |
+| `{{INSTALL_TOKEN}}` | Сам токен из `{{CALLBACK_URL}}` для сборки собственного запроса |
 
 Плейсхолдеры — это обычная подстановка строки, без экранирования. Заключайте их в кавычки соответственно целевому формату (XML, YAML и т. д.).
 
@@ -204,6 +207,93 @@ openssh-server
 
 ```xml
 <ComputerName>{{HOSTNAME}}</ComputerName>
+```
+
+## Отчёт о завершении установки
+
+Bootimus отслеживает каждую автоматическую установку с момента, когда клиент загружает ядро образа. Запись проходит через четыре состояния:
+
+| Состояние | Устанавливается, когда |
+|-----------|------------------------|
+| `booted` | Клиент получил загрузочные файлы образа, а у образа есть файл автоустановки или встроенный скрипт |
+| `installing` | Установщик получил файл автоустановки |
+| `completed` | Установленная система вызвала `{{CALLBACK_URL}}` |
+| `failed` | Обратный вызов сообщил `status=failed`, либо в течение таймаута никто не отчитался |
+
+Текущее состояние показывается в столбце **Install** таблицы Clients, а полная история — в разделе **Install History** в редакторе клиента. Установки, которые так и не отчитались, помечаются как неудачные через шесть часов; измените это флагом `--install-timeout-hours` или параметром `install_timeout_hours` в `bootimus.yaml`. Каждый переход в `completed` или `failed` порождает событие вебхука `install.completed` или `install.failed`, если оно включено в **Settings → Webhook**.
+
+Обратный вызов — это обычный HTTP-запрос, `GET` или `POST`, на загрузочный порт:
+
+```
+http://<server>:8080/install/callback?token=<token>&status=completed|failed&message=<optional text>
+```
+
+`{{CALLBACK_URL}}` уже содержит токен, так что скрипту достаточно дописать `&status=failed&message=...`. Засчитывается только первый отчёт по токену; последующие вызовы отвечают `already recorded`.
+
+### Kickstart (`%post`)
+
+```
+%post --log=/root/ks-post.log
+curl -fsS "{{CALLBACK_URL}}" || curl -fsS "{{CALLBACK_URL}}&status=failed&message=post-script"
+%end
+```
+
+### Preseed (`late_command`)
+
+```
+d-i preseed/late_command string in-target sh -c 'wget -qO- "{{CALLBACK_URL}}" || curl -fsS "{{CALLBACK_URL}}"'
+```
+
+### Ubuntu autoinstall / cloud-init
+
+Модуль `phone_home` отправляет запрос после первой загрузки — это самый надёжный сигнал:
+
+```yaml
+#cloud-config
+autoinstall:
+  version: 1
+  user-data:
+    phone_home:
+      url: "{{CALLBACK_URL}}"
+      post: [instance_id, hostname]
+      tries: 10
+```
+
+Либо отчитайтесь из окружения установщика через `late-commands`:
+
+```yaml
+  late-commands:
+    - curtin in-target --target=/target -- curl -fsS "{{CALLBACK_URL}}"
+```
+
+### Windows (`autounattend.xml`)
+
+Добавьте команду первого входа в `Microsoft-Windows-Shell-Setup`:
+
+```xml
+<FirstLogonCommands>
+  <SynchronousCommand wcm:action="add">
+    <Order>1</Order>
+    <CommandLine>powershell -NoProfile -Command "Invoke-WebRequest -UseBasicParsing '{{CALLBACK_URL}}'"</CommandLine>
+    <Description>Report install to Bootimus</Description>
+  </SynchronousCommand>
+</FirstLogonCommands>
+```
+
+Помните, что `&` внутри атрибутов или текста XML нужно записывать как `&amp;`, если вы дописываете параметры `status` или `message`.
+
+### Узлы Talos и Flatcar
+
+Узлы Kubernetes, зарегистрированные через вкладку **Kubernetes**, уже отчитываются через процесс машинной конфигурации и события `node.install_started` / `node.install_completed`. Обратный вызов им не нужен.
+
+### Запрос истории
+
+```bash
+# История одного клиента
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/clients/installs?mac=b4:2e:99:01:5f:a3"
+
+# Недавние установки по всему парку
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/installs?limit=50"
 ```
 
 ## Особенности Windows
