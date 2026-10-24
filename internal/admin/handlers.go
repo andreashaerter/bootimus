@@ -118,6 +118,10 @@ func (h *Handler) patchWindowsBootWim(isoFilename string) bool {
 	if h.smbManager == nil {
 		return false
 	}
+	if err := h.smbManager.Err(); err != nil {
+		log.Printf("Windows SMB: skipping boot.wim patch - smbd is not running: %v", err)
+		return false
+	}
 	if h.serverAddr == "" {
 		log.Printf("Windows SMB: skipping boot.wim patch - server address not configured")
 		return false
@@ -1531,6 +1535,10 @@ func (h *Handler) PatchImageSMB(w http.ResponseWriter, r *http.Request) {
 		h.sendJSON(w, http.StatusPreconditionFailed, Response{Success: false, Error: "Windows SMB is not enabled on this server"})
 		return
 	}
+	if err := h.smbManager.Err(); err != nil {
+		h.sendJSON(w, http.StatusPreconditionFailed, Response{Success: false, Error: "Windows SMB server is not running: " + err.Error()})
+		return
+	}
 	if !wim.IsAvailable() {
 		h.sendJSON(w, http.StatusPreconditionFailed, Response{Success: false, Error: "wimlib-imagex not installed on the server. Install wimtools (e.g. apt install wimtools) to enable boot.wim patching."})
 		return
@@ -2718,6 +2726,9 @@ func (h *Handler) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 				}
 				if h.smbManager == nil {
 					return "Requested but unavailable (install samba and ensure smbd is in PATH)"
+				}
+				if err := h.smbManager.Err(); err != nil {
+					return "Requested but not running: " + err.Error()
 				}
 				return fmt.Sprintf("Enabled (%d share(s) active, port %d)", h.smbManager.ShareCount(), h.smbManager.Port())
 			}(),
