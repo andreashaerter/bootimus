@@ -233,6 +233,32 @@ func (r *InstallRecord) Open() bool {
 	return r.State == InstallStateBooted || r.State == InstallStateInstalling
 }
 
+type APIToken struct {
+	ID         uint       `gorm:"primarykey" json:"id"`
+	CreatedAt  time.Time  `json:"created_at"`
+	Name       string     `gorm:"not null" json:"name"`
+	Prefix     string     `gorm:"not null" json:"prefix"`
+	Hash       string     `gorm:"uniqueIndex;not null" json:"-"`
+	Scope      string     `gorm:"not null" json:"scope"`
+	CreatedBy  string     `json:"created_by"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
+	Revoked    bool       `gorm:"default:false" json:"revoked"`
+}
+
+const (
+	APITokenScopeRead  = "read"
+	APITokenScopeAdmin = "admin"
+)
+
+func (t *APIToken) Expired(now time.Time) bool {
+	return t.ExpiresAt != nil && !t.ExpiresAt.After(now)
+}
+
+func (t *APIToken) Usable(now time.Time) bool {
+	return !t.Revoked && !t.Expired(now)
+}
+
 type AuditLog struct {
 	ID        uint      `gorm:"primarykey" json:"id"`
 	CreatedAt time.Time `gorm:"index" json:"created_at"`

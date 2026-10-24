@@ -99,6 +99,7 @@ func (s *PostgresStore) AutoMigrate() error {
 		&models.HousekeepingSettings{},
 		&models.ScheduledTask{},
 		&models.AuditLog{},
+		&models.APIToken{},
 		&models.InstallRecord{},
 		&models.SANTarget{},
 	); err != nil {

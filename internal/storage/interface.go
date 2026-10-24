@@ -41,6 +41,12 @@ type Storage interface {
 	GetUser(username string) (*models.User, error)
 	UpdateUserLastLogin(username string) error
 	ListUsers() ([]*models.User, error)
+	ListAPITokens() ([]*models.APIToken, error)
+	CreateAPIToken(token *models.APIToken) error
+	GetAPITokenByHash(hash string) (*models.APIToken, error)
+	GetAPIToken(id uint) (*models.APIToken, error)
+	RevokeAPIToken(id uint) error
+	TouchAPIToken(id uint, at time.Time) error
 	CreateUser(user *models.User) error
 	UpdateUser(username string, user *models.User) error
 	DeleteUser(username string) error

@@ -407,7 +407,7 @@ function initApp() {
     loadImages();
     loadPublicFiles();
     loadLogs();
-    if (!isReadOnly()) loadUsers();
+    if (!isReadOnly()) { loadUsers(); loadAPITokens(); }
     loadActiveSessions();
 
     // Refresh every 30 seconds
@@ -8021,3 +8021,106 @@ document.addEventListener('DOMContentLoaded', () => {
     const form = document.getElementById('san-target-form');
     if (form) form.addEventListener('submit', saveSANTarget);
 });
+let lastLoadedAPITokens = [];
+
+async function loadAPITokens() {
+    const container = document.getElementById('api-tokens-table');
+    if (!container) return;
+    try {
+        const res = await authFetch(`${API_BASE}/tokens`);
+        const data = await res.json();
+        if (!data.success) {
+            container.innerHTML = `<p class="alert alert-error">${escapeHtml(data.error || 'Failed to load tokens')}</p>`;
+            return;
+        }
+        lastLoadedAPITokens = data.data || [];
+        renderAPITokensTable();
+    } catch (err) {
+        container.innerHTML = '<p class="alert alert-error">Failed to load tokens</p>';
+    }
+}
+
+function renderAPITokensTable() {
+    const container = document.getElementById('api-tokens-table');
+    if (!container) return;
+    if (lastLoadedAPITokens.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-secondary);">No API tokens yet.</p>';
+        return;
+    }
+    const now = Date.now();
+    const rows = lastLoadedAPITokens.map(tok => {
+        const expired = tok.expires_at && new Date(tok.expires_at).getTime() <= now;
+        let status = '<span class="badge badge-success">Active</span>';
+        if (tok.revoked) status = '<span class="badge badge-danger">Revoked</span>';
+        else if (expired) status = '<span class="badge badge-warning">Expired</span>';
+        const scope = tok.scope === 'admin' ? '<span class="badge badge-info">Admin</span>' : '<span class="badge badge-success">Read-only</span>';
+        return `<tr>
+            <td><strong>${escapeHtml(tok.name)}</strong></td>
+            <td><code>${escapeHtml(tok.prefix)}…</code></td>
+            <td>${scope}</td>
+            <td>${escapeHtml(tok.created_by || '-')}</td>
+            <td>${new Date(tok.created_at).toLocaleString()}</td>
+            <td>${tok.last_used_at ? new Date(tok.last_used_at).toLocaleString() : 'Never'}</td>
+            <td>${tok.expires_at ? new Date(tok.expires_at).toLocaleDateString() : 'Never'}</td>
+            <td>${status}</td>
+            <td>${tok.revoked ? '' : `<button class="btn btn-danger btn-sm" onclick="revokeAPIToken(${tok.id}, '${escapeHtml(tok.name).replace(/'/g, "\\'")}')">Revoke</button>`}</td>
+        </tr>`;
+    }).join('');
+    container.innerHTML = `<div class="table-scroll"><table>
+        <thead><tr><th>Name</th><th>Prefix</th><th>Scope</th><th>Created by</th><th>Created</th><th>Last used</th><th>Expires</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>`;
+}
+
+async function createAPIToken(e) {
+    if (e) e.preventDefault();
+    const body = {
+        name: document.getElementById('api-token-name').value.trim(),
+        scope: document.getElementById('api-token-scope').value,
+        expires_in_days: parseInt(document.getElementById('api-token-expires').value, 10) || 0,
+    };
+    try {
+        const res = await authFetch(`${API_BASE}/tokens`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Failed to create token', 'error');
+            return;
+        }
+        document.getElementById('api-token-secret-value').textContent = data.data.secret;
+        document.getElementById('api-token-secret').style.display = '';
+        document.getElementById('api-token-name').value = '';
+        showAlert(data.message || 'Token created', 'success');
+        loadAPITokens();
+    } catch (err) {
+        showAlert('Failed to create token: ' + err.message, 'error');
+    }
+}
+
+async function copyAPITokenSecret() {
+    const secret = document.getElementById('api-token-secret-value').textContent;
+    try {
+        await navigator.clipboard.writeText(secret);
+        showAlert('Token copied', 'success');
+    } catch (err) {
+        showAlert('Copy failed: ' + err.message, 'error');
+    }
+}
+
+async function revokeAPIToken(id, name) {
+    if (!confirm(`Revoke the token "${name}"? Anything using it will stop working immediately.`)) return;
+    try {
+        const res = await authFetch(`${API_BASE}/tokens?id=${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Failed to revoke token', 'error');
+            return;
+        }
+        showAlert('Token revoked', 'success');
+        loadAPITokens();
+    } catch (err) {
+        showAlert('Failed to revoke token: ' + err.message, 'error');
+    }
+}

@@ -1706,6 +1706,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 		}
 	}))
 	mux.HandleFunc("/api/users/reset-password", adminWrap(adminHandler.ResetUserPassword))
+	mux.HandleFunc("/api/tokens", adminWrap(adminHandler.APITokens))
 
 	mux.HandleFunc("/api/images/download", adminWrap(adminHandler.DownloadISO))
 	mux.HandleFunc("/api/downloads", readWrap(adminHandler.ListDownloads))
