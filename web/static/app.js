@@ -468,7 +468,7 @@ function setupTabs() {
             if (item.dataset.tab === 'profiles') loadProfiles();
             if (item.dataset.tab === 'autoinstall') loadAutoInstallFiles();
             if (item.dataset.tab === 'clusters') loadClustersTab();
-            if (item.dataset.tab === 'boot-menu') loadTheme();
+            if (item.dataset.tab === 'boot-menu') { loadTheme(); populateMenuPreviewMACs(); }
             if (item.dataset.tab === 'settings') { loadUSBImages(); loadWebhookConfig(); loadRestoreStatus(); }
             if (item.dataset.tab === 'api-reference') showAPIReference();
         });
@@ -1334,6 +1334,7 @@ function clientRowHTML(client, includeGroupCell) {
                             ${!client.static ? '<button class="btn btn-success btn-sm" onclick="promoteClient(\'' + client.mac_address + '\')">Make Static</button>' : ''}
                             <button class="btn btn-success btn-sm" onclick="wakeClient('${client.mac_address}')">Wake</button>
                             <button class="btn btn-primary btn-sm" onclick="showNextBoot('${client.mac_address}')">Next Boot</button>
+                            <button class="btn btn-sm" onclick="previewBootMenu('${client.mac_address}')">Preview Menu</button>
                         </td>
                     </tr>`;
 }
@@ -2922,6 +2923,7 @@ const API_REFERENCE = [
         { method: 'POST',   path: '/api/clients/promote?mac={mac}', desc: 'Promote discovered client to static.' },
         { method: 'GET',    path: '/api/clients/inventory?mac={mac}', desc: 'Latest hardware inventory.' },
         { method: 'GET',    path: '/api/clients/inventory/history?mac={mac}', desc: 'Historical inventory submissions.' },
+        { method: 'GET',    path: '/api/clients/menu-preview?mac={mac}', desc: 'Render the iPXE script a client would receive, without side effects. Omit <code>mac</code> for the anonymous menu.' },
         { method: 'POST',   path: '/api/clients/power?mac={mac}',  desc: 'BMC (Redfish or Intel AMT) power control. Query: <code>action</code> (On/ForceOff/ForceRestart/GracefulShutdown/GracefulRestart).' },
         { method: 'GET',    path: '/api/clients/power/status?mac={mac}', desc: 'BMC (Redfish or Intel AMT) power status.' },
         { method: 'POST',   path: '/api/clients/import',           desc: 'CSV import (multipart).' },
@@ -7455,4 +7457,62 @@ function unassignNode(mac) {
 
 function markNodeInstalled(mac) {
     clusterNodeAction('mark-installed', mac, 'Node marked installed');
+}
+
+let menuPreviewData = null;
+
+function populateMenuPreviewMACs() {
+    const list = document.getElementById('menu-preview-mac-list');
+    if (!list) return;
+    list.innerHTML = (clients || []).map(c =>
+        `<option value="${escapeHtml(c.mac_address)}">${escapeHtml(c.name || '')}</option>`
+    ).join('');
+}
+
+async function previewBootMenu(mac) {
+    const query = mac && mac.trim() ? `?mac=${encodeURIComponent(mac.trim())}` : '';
+    try {
+        const res = await authFetch(`${API_BASE}/clients/menu-preview${query}`);
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Failed to render boot menu preview', 'error');
+            return;
+        }
+        menuPreviewData = data.data;
+        const parts = [`MAC: ${escapeHtml(menuPreviewData.mac)}`];
+        parts.push(menuPreviewData.known_client
+            ? `Client: ${escapeHtml(menuPreviewData.client_name || '(unnamed)')}`
+            : 'Client: not registered (anonymous menu)');
+        parts.push(menuPreviewData.kind === 'install' ? 'Kind: cluster install boot' : 'Kind: boot menu');
+        if (menuPreviewData.next_boot_image) {
+            parts.push(`Next boot: ${escapeHtml(menuPreviewData.next_boot_image)}`);
+        }
+        document.getElementById('menu-preview-summary').innerHTML = parts.join(' &nbsp;·&nbsp; ');
+        document.getElementById('menu-preview-script').textContent = menuPreviewData.script || '';
+        showModal('menu-preview-modal');
+    } catch (err) {
+        showAlert('Failed to render boot menu preview: ' + err.message, 'error');
+    }
+}
+
+async function copyMenuPreview() {
+    if (!menuPreviewData) return;
+    try {
+        await navigator.clipboard.writeText(menuPreviewData.script || '');
+        showAlert('Boot menu script copied', 'success');
+    } catch (err) {
+        showAlert('Copy failed: ' + err.message, 'error');
+    }
+}
+
+function downloadMenuPreview() {
+    if (!menuPreviewData) return;
+    const blob = new Blob([menuPreviewData.script || ''], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `menu-${(menuPreviewData.mac || 'unknown').replace(/:/g, '')}.ipxe`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
 }
