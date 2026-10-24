@@ -39,6 +39,33 @@ func (s *StringSlice) Scan(value interface{}) error {
 	return json.Unmarshal(bytes, s)
 }
 
+type StringMap map[string]string
+
+func (m StringMap) Value() (driver.Value, error) {
+	if len(m) == 0 {
+		return "{}", nil
+	}
+	return json.Marshal(m)
+}
+
+func (m *StringMap) Scan(value interface{}) error {
+	if value == nil {
+		*m = StringMap{}
+		return nil
+	}
+
+	bytes, ok := value.([]byte)
+	if !ok {
+		str, ok := value.(string)
+		if !ok {
+			return nil
+		}
+		bytes = []byte(str)
+	}
+
+	return json.Unmarshal(bytes, m)
+}
+
 type User struct {
 	ID        uint       `gorm:"primarykey" json:"id"`
 	CreatedAt time.Time  `json:"created_at"`
@@ -109,7 +136,8 @@ type Client struct {
 	IPMIPassword string `json:"ipmi_password,omitempty"`
 	IPMIInsecure bool   `gorm:"default:false" json:"ipmi_insecure,omitempty"`
 
-	AutoInstallFile string `json:"auto_install_file,omitempty"`
+	AutoInstallFile string    `json:"auto_install_file,omitempty"`
+	Variables       StringMap `gorm:"type:text" json:"variables,omitempty"`
 
 	InstallState     string     `json:"install_state,omitempty"`
 	InstallImage     string     `json:"install_image,omitempty"`
@@ -309,7 +337,8 @@ type ClientGroup struct {
 	IPMIPassword string `json:"ipmi_password,omitempty"`
 	IPMIInsecure bool   `gorm:"default:false" json:"ipmi_insecure,omitempty"`
 
-	AutoInstallFile string `json:"auto_install_file,omitempty"`
+	AutoInstallFile string    `json:"auto_install_file,omitempty"`
+	Variables       StringMap `gorm:"type:text" json:"variables,omitempty"`
 
 	SANTargetID *uint `gorm:"index" json:"san_target_id,omitempty"`
 	BootFromSAN bool  `gorm:"default:false" json:"boot_from_san"`

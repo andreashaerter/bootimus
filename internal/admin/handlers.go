@@ -497,6 +497,10 @@ func (h *Handler) CreateClient(w http.ResponseWriter, r *http.Request) {
 		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "MAC address is required"})
 		return
 	}
+	if err := autoinstall.ValidateVariableNames(client.Variables); err != nil {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: err.Error()})
+		return
+	}
 
 	client.Enabled = true
 	client.Static = true
@@ -556,6 +560,14 @@ func (h *Handler) UpdateClient(w http.ResponseWriter, r *http.Request) {
 	}
 	if aif, ok := updates["auto_install_file"].(string); ok {
 		client.AutoInstallFile = aif
+	}
+	if raw, ok := updates["variables"]; ok {
+		vars, err := variablesFromPayload(raw)
+		if err != nil {
+			h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: err.Error()})
+			return
+		}
+		client.Variables = vars
 	}
 	if protocol, ok := updates["bmc_protocol"].(string); ok {
 		client.BMCProtocol = protocol
@@ -3727,6 +3739,7 @@ func (h *Handler) SaveAutoInstallFile(w http.ResponseWriter, r *http.Request) {
 		Distro   string `json:"distro"`
 		Filename string `json:"filename"`
 		Content  string `json:"content"`
+		Force    bool   `json:"force"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Invalid body"})
@@ -3735,6 +3748,13 @@ func (h *Handler) SaveAutoInstallFile(w http.ResponseWriter, r *http.Request) {
 	if h.profileManager != nil {
 		if _, err := h.storage.GetDistroProfile(req.Distro); err != nil {
 			h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: fmt.Sprintf("Unknown distro profile: %s", req.Distro)})
+			return
+		}
+	}
+	force := req.Force || r.URL.Query().Get("force") == "true"
+	if !force {
+		if err := autoinstall.Validate(req.Filename, req.Content); err != nil {
+			h.sendValidationFailure(w, err)
 			return
 		}
 	}
@@ -3778,6 +3798,12 @@ func (h *Handler) UploadAutoInstallFile(w http.ResponseWriter, r *http.Request) 
 		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: "Read failed"})
 		return
 	}
+	if r.FormValue("force") != "true" {
+		if err := autoinstall.Validate(filename, string(buf)); err != nil {
+			h.sendValidationFailure(w, err)
+			return
+		}
+	}
 	if err := h.autoInstallLib.Write(distro, filename, string(buf)); err != nil {
 		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: err.Error()})
 		return
@@ -3812,6 +3838,84 @@ func (h *Handler) DownloadAutoInstallFile(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)))
 	w.Write([]byte(content))
+}
+
+func (h *Handler) sendValidationFailure(w http.ResponseWriter, err error) {
+	h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: err.Error(), Data: map[string]bool{"validation_failed": true}})
+}
+
+func variablesFromPayload(raw interface{}) (models.StringMap, error) {
+	if raw == nil {
+		return models.StringMap{}, nil
+	}
+	obj, ok := raw.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("variables must be an object of string values")
+	}
+	vars := make(models.StringMap, len(obj))
+	for name, value := range obj {
+		str, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("variable %q must be a string", name)
+		}
+		vars[name] = str
+	}
+	if err := autoinstall.ValidateVariableNames(vars); err != nil {
+		return nil, err
+	}
+	return vars, nil
+}
+
+func (h *Handler) RenderAutoInstallFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		h.sendJSON(w, http.StatusMethodNotAllowed, Response{Success: false, Error: "Method not allowed"})
+		return
+	}
+	if h.autoInstallLib == nil {
+		h.sendJSON(w, http.StatusServiceUnavailable, Response{Success: false, Error: "Auto-install manager unavailable"})
+		return
+	}
+	q := r.URL.Query()
+	content, err := h.autoInstallLib.Read(q.Get("distro"), q.Get("filename"))
+	if err != nil {
+		if err == autoinstall.ErrNotFound {
+			h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "File not found"})
+			return
+		}
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: err.Error()})
+		return
+	}
+	ctx := autoinstall.Context{ServerAddr: h.serverAddr, ServerPort: h.httpPort}
+	if mac := normaliseMAC(q.Get("mac")); mac != "" {
+		client, err := h.storage.GetClient(mac)
+		if err != nil {
+			h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "Client not found"})
+			return
+		}
+		ctx.MAC = mac
+		ctx.Client = client
+		if client.ClientGroupID != nil {
+			if group, err := h.storage.GetClientGroup(*client.ClientGroupID); err == nil {
+				ctx.Group = group
+			}
+		}
+	}
+	if imageFilename := q.Get("image"); imageFilename != "" {
+		image, err := h.storage.GetImage(imageFilename)
+		if err != nil {
+			h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "Image not found"})
+			return
+		}
+		ctx.Image = image
+	}
+	vars := ctx.Variables()
+	vars["INSTALL_TOKEN"] = "preview"
+	vars["CALLBACK_URL"] = ctx.ServerURL() + "/install/callback?token=preview"
+	rendered, unresolved := autoinstall.Render(content, vars)
+	h.sendJSON(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{
+		"content":    rendered,
+		"unresolved": unresolved,
+	}})
 }
 
 func (h *Handler) DeleteAutoInstallFile(w http.ResponseWriter, r *http.Request) {
@@ -5193,6 +5297,7 @@ func (h *Handler) ImportClientsCSV(w http.ResponseWriter, r *http.Request) {
 			client.IPMIPassword = existing.IPMIPassword
 			client.IPMIInsecure = existing.IPMIInsecure
 			client.AutoInstallFile = existing.AutoInstallFile
+			client.Variables = existing.Variables
 			if err := h.storage.UpdateClient(mac, client); err != nil {
 				errors = append(errors, fmt.Sprintf("row %d (%s): update failed: %v", rowNum, mac, err))
 				continue
@@ -5278,6 +5383,10 @@ func (h *Handler) CreateClientGroup(w http.ResponseWriter, r *http.Request) {
 		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Group name is required"})
 		return
 	}
+	if err := autoinstall.ValidateVariableNames(group.Variables); err != nil {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: err.Error()})
+		return
+	}
 	if err := h.storage.CreateClientGroup(&group); err != nil {
 		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
 		return
@@ -5302,11 +5411,10 @@ func (h *Handler) UpdateClientGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	group.ID = uint(id)
-	type groupWithMembers struct {
-		Members []string `json:"members"`
+	if err := autoinstall.ValidateVariableNames(group.Variables); err != nil {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: err.Error()})
+		return
 	}
-	var withMembers groupWithMembers
-	_ = withMembers
 
 	if err := h.storage.UpdateClientGroup(uint(id), &group); err != nil {
 		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
