@@ -124,6 +124,8 @@ type Server struct {
 	activeSessions        *ActiveSessions
 	logBroadcaster        *LogBroadcaster
 	audit                 *auditRecorder
+	consoles              consoleSessions
+	openConsole           func(ctx context.Context, t bmc.Target) (bmc.Console, error)
 	activeBootloaderSet   string // name of active set folder, empty = built-in
 	activeBootloaderSetMu sync.RWMutex
 	toolsManager          *tools.Manager
@@ -1673,6 +1675,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/clients/power", adminWrap(adminHandler.PowerClient))
 	mux.HandleFunc("/api/clients/power/status", readWrap(adminHandler.PowerStatusClient))
 	mux.HandleFunc("/api/clients/menu-preview", readWrap(s.handleMenuPreview))
+	mux.HandleFunc("/api/clients/console", s.handleClientConsole)
 
 	mux.HandleFunc("/api/theme", readWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {

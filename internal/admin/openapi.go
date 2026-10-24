@@ -80,6 +80,7 @@ var APISections = []APISection{
 		{Method: "GET", Path: "/api/clients/menu-preview", Summary: "Render the iPXE script a client would receive, without side effects.", Params: []APIParam{{Name: "mac", In: "query", Description: "MAC address of the client; omit or use unknown for the anonymous menu"}}, ReadOnly: true},
 		{Method: "POST", Path: "/api/clients/power", Summary: "BMC (Redfish or Intel AMT) power control.", Params: []APIParam{qMAC("MAC address of the client"), {Name: "action", In: "query", Description: "On, ForceOff, ForceRestart, GracefulShutdown or GracefulRestart", Required: true}}},
 		{Method: "GET", Path: "/api/clients/power/status", Summary: "BMC (Redfish or Intel AMT) power status.", Params: []APIParam{qMAC("MAC address of the client")}, ReadOnly: true},
+		{Method: "GET", Path: "/api/clients/console", Summary: "WebSocket: interactive serial console over Intel AMT Serial-over-LAN or IPMI SOL. Pass the JWT as the token query parameter or as the second Sec-WebSocket-Protocol entry after bearer.", Params: []APIParam{qMAC("MAC address of the client"), {Name: "token", In: "query", Description: "JWT, for clients that cannot set the Sec-WebSocket-Protocol header"}}},
 		{Method: "POST", Path: "/api/clients/import", Summary: "Import clients from a CSV file.", Body: "file", Multipart: true},
 	}},
 	{Tag: "Client Groups", Endpoints: []APIEndpoint{

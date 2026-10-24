@@ -6,6 +6,7 @@
     <title>Bootimus Admin Panel</title>
     <link rel="icon" type="image/png" href="/favicon.png">
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="vendor/xterm.css">
 </head>
 <body>
     <!-- Login Screen -->
@@ -1184,6 +1185,7 @@
                         <button type="button" class="btn btn-sm" onclick="powerClient('GracefulShutdown')">Graceful Off</button>
                         <button type="button" class="btn btn-sm" onclick="powerClient('ForceRestart')">Restart</button>
                         <button type="button" class="btn btn-sm read-ok" onclick="powerStatusClient()">Status</button>
+                        <button type="button" class="btn btn-sm btn-primary" id="open-console-btn" onclick="openClientConsole()" style="display: none;">Open Console</button>
                     </div>
                     <div id="power-client-result" style="font-size: 12px; color: var(--text-secondary);"></div>
                 </details>
@@ -1213,6 +1215,23 @@
                 <div id="client-boot-history-list" style="font-size: 13px;">
                     <p style="color: var(--text-secondary); margin: 0;">Loading…</p>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="console-modal" class="modal">
+        <div class="modal-content" style="max-width: 960px; width: 95%;">
+            <div class="modal-header">
+                <h2>Remote Console <span id="console-title" style="font-weight: normal; font-size: 14px; color: var(--text-secondary);"></span></h2>
+            </div>
+            <p style="color: var(--text-secondary); margin-bottom: 10px; font-size: 13px;">
+                Serial console over the client's BMC. Output appears only while the firmware or operating system writes to the serial port; press Enter if the screen stays blank.
+            </p>
+            <div id="console-terminal" style="height: 440px; background: #000; border-radius: var(--radius-sm); padding: 6px;"></div>
+            <div style="display: flex; gap: 10px; align-items: center; margin-top: 10px;">
+                <button type="button" class="btn btn-danger btn-sm" onclick="disconnectClientConsole()">Disconnect</button>
+                <button type="button" class="btn btn-sm read-ok" onclick="closeModal('console-modal')">Close</button>
+                <span id="console-status" style="font-size: 12px; color: var(--text-secondary);"></span>
             </div>
         </div>
     </div>
@@ -2375,6 +2394,8 @@
         </div>
     </div>
 
+    <script src="vendor/xterm.js"></script>
+    <script src="vendor/addon-fit.js"></script>
     <script src="i18n.js"></script>
     <script src="app.js"></script>
 </body>

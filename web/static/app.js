@@ -235,6 +235,7 @@ function openModal(modalId) {
 function closeModal(modalId) {
     document.getElementById(modalId).classList.remove('active');
     if (modalId === 'get-images-modal' && typeof clearGetISOPolling === 'function') clearGetISOPolling();
+    if (modalId === 'console-modal') disconnectClientConsole();
 }
 
 function injectModalCloseButtons() {
@@ -612,6 +613,103 @@ async function powerClient(action) {
         result.style.color = 'var(--danger)';
     }
 }
+
+let consoleSocket = null;
+let consoleTerm = null;
+let consoleFit = null;
+
+function consoleSetStatus(text, colour) {
+    const el = document.getElementById('console-status');
+    if (!el) return;
+    el.textContent = text;
+    el.style.color = colour || 'var(--text-secondary)';
+}
+
+function openClientConsole(mac) {
+    if (!mac) {
+        const form = document.getElementById('edit-client-form');
+        mac = form ? form.querySelector('[name="mac_address"]').value : '';
+    }
+    if (!mac) return;
+    disconnectClientConsole();
+    document.getElementById('console-title').textContent = mac;
+    showModal('console-modal');
+
+    const host = document.getElementById('console-terminal');
+    host.innerHTML = '';
+    consoleTerm = new Terminal({
+        cursorBlink: true,
+        fontSize: 13,
+        fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+        theme: { background: '#000000' },
+    });
+    consoleFit = new FitAddon.FitAddon();
+    consoleTerm.loadAddon(consoleFit);
+    consoleTerm.open(host);
+    consoleFit.fit();
+
+    const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const url = `${scheme}://${window.location.host}${API_BASE}/clients/console?mac=${encodeURIComponent(mac)}`;
+    const token = getToken();
+    const socket = token ? new WebSocket(url, ['bearer', token]) : new WebSocket(url);
+    socket.binaryType = 'arraybuffer';
+    consoleSocket = socket;
+    consoleSetStatus('Connecting…');
+
+    const encoder = new TextEncoder();
+    socket.onopen = () => {
+        consoleSetStatus('Opening console…');
+        socket.send(JSON.stringify({ type: 'resize', cols: consoleTerm.cols, rows: consoleTerm.rows }));
+    };
+    socket.onmessage = (ev) => {
+        if (!consoleTerm) return;
+        if (typeof ev.data === 'string') {
+            let msg = null;
+            try { msg = JSON.parse(ev.data); } catch (_) { }
+            if (!msg || !msg.type) {
+                consoleTerm.write(ev.data);
+                return;
+            }
+            const failed = msg.type === 'error' || msg.type === 'closed';
+            consoleSetStatus(msg.message || msg.type, failed ? 'var(--danger)' : 'var(--teal, green)');
+            if (failed) consoleTerm.writeln(`\r\n[${msg.message || msg.type}]`);
+            return;
+        }
+        consoleTerm.write(new Uint8Array(ev.data));
+    };
+    socket.onclose = () => {
+        if (consoleSocket === socket) {
+            consoleSocket = null;
+            const status = document.getElementById('console-status');
+            if (status && !status.textContent.startsWith('Console closed') && !status.textContent.startsWith('Intel') && status.style.color !== 'var(--danger)') {
+                consoleSetStatus('Disconnected');
+            }
+        }
+    };
+    socket.onerror = () => consoleSetStatus('Connection error', 'var(--danger)');
+    consoleTerm.onData((data) => {
+        if (socket.readyState === WebSocket.OPEN) socket.send(encoder.encode(data));
+    });
+    consoleTerm.focus();
+}
+
+function disconnectClientConsole() {
+    if (consoleSocket) {
+        const socket = consoleSocket;
+        consoleSocket = null;
+        socket.close();
+        consoleSetStatus('Disconnected');
+    }
+    if (consoleTerm) {
+        consoleTerm.dispose();
+        consoleTerm = null;
+        consoleFit = null;
+    }
+}
+
+window.addEventListener('resize', () => {
+    if (consoleFit) consoleFit.fit();
+});
 
 function updateBMCPortPlaceholder(select) {
     const port = select.form.querySelector('[name="ipmi_port"]');
@@ -1446,6 +1544,7 @@ function clientRowHTML(client, includeGroupCell) {
                             ${!client.static ? '<button class="btn btn-success btn-sm" onclick="promoteClient(\'' + client.mac_address + '\')">Make Static</button>' : ''}
                             <button class="btn btn-success btn-sm" onclick="wakeClient('${client.mac_address}')">Wake</button>
                             <button class="btn btn-primary btn-sm" onclick="showNextBoot('${client.mac_address}')">Next Boot</button>
+                            ${client.ipmi_host ? '<button class="btn btn-sm" onclick="openClientConsole(\'' + client.mac_address + '\')">Console</button>' : ''}
                             <button class="btn btn-sm" onclick="previewBootMenu('${client.mac_address}')">Preview Menu</button>
                         </td>
                     </tr>`;
@@ -1598,6 +1697,8 @@ async function editClient(mac) {
             form.querySelector('[name="ipmi_insecure"]').checked = !!currentClient.ipmi_insecure;
             const powerResult = document.getElementById('power-client-result');
             if (powerResult) powerResult.textContent = '';
+            const consoleBtn = document.getElementById('open-console-btn');
+            if (consoleBtn) consoleBtn.style.display = currentClient.ipmi_host ? '' : 'none';
 
             // Populate bootloader set dropdown
             try {

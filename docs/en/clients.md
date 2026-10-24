@@ -14,6 +14,7 @@ Complete guide for managing network boot clients with MAC-based access control.
 - [Previewing a Client's Boot Menu](#previewing-a-clients-boot-menu)
 - [Wake-on-LAN](#wake-on-lan)
 - [BMC Power Control](#bmc-power-control)
+- [Remote Console](#remote-console)
 - [Hardware Inventory](#hardware-inventory)
 - [Troubleshooting](#troubleshooting)
 
@@ -478,6 +479,28 @@ curl -H "Authorization: Bearer $TOKEN" -X POST "http://localhost:8081/api/client
 ```
 
 `bmc_protocol` accepts `redfish` or `amt`. Leave it empty on a client to inherit the group's protocol; an empty protocol everywhere means Redfish.
+
+## Remote Console
+
+Clients with a BMC host configured get an **Open Console** button in the client edit dialog and a **Console** button in the client list. It opens an interactive serial console in the browser, streamed through Bootimus over a WebSocket, so a machine can be watched through POST, firmware setup and the installer without a monitor attached. The console is for administrators only, one session per client at a time, and closes after 30 minutes without activity.
+
+| Protocol | Transport | Requirements |
+|---|---|---|
+| **Intel AMT** | Serial-over-LAN through the AMT redirection service, implemented natively by Bootimus on port 16994 (16995 when the client uses the TLS management port 16993) | SOL and the redirection listener enabled in MEBx under *Remote Control*, or in the AMT web UI under *Remote Control* → *Redirection*; the same user and password as power control |
+| **Redfish** | IPMI Serial-over-LAN by running `ipmitool sol activate` on the Bootimus host | `ipmitool` on `PATH` (the Docker image includes it), UDP port 623 reachable on the BMC, and SOL enabled for the BMC user. The Redfish port is not used for the console |
+
+The serial console only shows what the firmware or operating system writes to the serial port. On most servers that means enabling *Console Redirection* in the BIOS or UEFI setup, and on Linux adding `console=ttyS0,115200` (or `ttyS1`, depending on the board) to the kernel command line. Intel AMT machines redirect COM1 at 115200 baud once SOL is enabled. If the screen stays blank, press Enter; if nothing appears during boot, console redirection is not switched on in the firmware.
+
+Keystrokes are sent as typed, so the usual terminal shortcuts work. Closing the dialog or clicking **Disconnect** ends the session and, for IPMI, deactivates the SOL payload on the BMC so the next connection starts cleanly.
+
+### Via API
+
+The endpoint is a WebSocket at `/api/clients/console?mac=...` on the admin port. Browsers cannot send an `Authorization` header on a WebSocket, so the JWT is passed either as the second `Sec-WebSocket-Protocol` entry after `bearer`, or as a `token` query parameter. Binary frames carry console output and keystrokes; text frames from Bootimus are JSON status messages such as `{"type":"connected","message":"..."}`.
+
+```bash
+# websocat example: interactive console for a client
+websocat --binary "ws://localhost:8081/api/clients/console?mac=00:11:22:33:44:55&token=$TOKEN"
+```
 
 ## Hardware Inventory
 
