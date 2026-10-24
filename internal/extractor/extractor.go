@@ -231,7 +231,7 @@ func detectDistroFromFilename(filename string) string {
 		"nixos": "nixos", "opensuse": "opensuse", "alpine": "alpine", "gentoo": "gentoo",
 		"void": "void", "slackware": "slackware", "freebsd": "freebsd",
 		"openbsd": "openbsd", "netbsd": "netbsd",
-		"proxmox": "debian", "truenas": "debian", "kali": "kali", "parrot": "parrot",
+		"proxmox": "proxmox", "truenas": "debian", "kali": "kali", "parrot": "parrot",
 	}
 	for pattern, distro := range patterns {
 		if strings.Contains(lower, pattern) {
@@ -1161,6 +1161,7 @@ func (e *Extractor) detectAndExtractUnified(reader FileSystemReader, isoPath str
 		{"Solus", e.detectSolusUnified},
 		{"TinyCore", e.detectTinyCoreUnified},
 		{"ClearLinux", e.detectClearLinuxUnified},
+		{"Flatcar", e.detectFlatcarUnified},
 		{"SystemRescue", e.detectSystemRescueUnified},
 	}
 

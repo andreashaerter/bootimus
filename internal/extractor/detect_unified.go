@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"bootimus/internal/bsdboot"
@@ -54,7 +55,9 @@ func detectDistroNameUnified(reader FileSystemReader, isoPath string) string {
 		"blackarch":       "arch",
 		"parabola":        "arch",
 		"truenas":         "debian",
-		"proxmox":         "debian",
+		"proxmox":         "proxmox",
+		"coreos":          "coreos",
+		"flatcar":         "flatcar",
 		"devuan":          "debian",
 		"antix":           "debian",
 		"mx-":             "debian",
@@ -93,23 +96,35 @@ func detectDistroNameUnified(reader FileSystemReader, isoPath string) string {
 		"clear-linux":     "clearlinux",
 	}
 
-	for pattern, distro := range distroPatterns {
-		if strings.Contains(filename, pattern) {
-			return distro
-		}
+	if distro := matchDistroPattern(distroPatterns, filename); distro != "" {
+		return distro
 	}
 
 	if reader.FileExists("/.disk/info") {
 		if content := reader.ReadFileContent("/.disk/info"); content != "" {
-			contentLower := strings.ToLower(content)
-			for pattern, distro := range distroPatterns {
-				if strings.Contains(contentLower, pattern) {
-					return distro
-				}
-			}
+			return matchDistroPattern(distroPatterns, strings.ToLower(content))
 		}
 	}
 
+	return ""
+}
+
+func matchDistroPattern(distroPatterns map[string]string, text string) string {
+	patterns := make([]string, 0, len(distroPatterns))
+	for pattern := range distroPatterns {
+		patterns = append(patterns, pattern)
+	}
+	sort.Slice(patterns, func(i, j int) bool {
+		if len(patterns[i]) != len(patterns[j]) {
+			return len(patterns[i]) > len(patterns[j])
+		}
+		return patterns[i] < patterns[j]
+	})
+	for _, pattern := range patterns {
+		if strings.Contains(text, pattern) {
+			return distroPatterns[pattern]
+		}
+	}
 	return ""
 }
 
@@ -188,7 +203,7 @@ func (e *Extractor) detectUbuntuDebianUnified(reader FileSystemReader) (*BootFil
 		{"/live/vmlinuz", "/live/initrd.img", "debian", "", ""},
 		{"/live/vmlinuz1", "/live/initrd1.img", "debian", "", ""},
 		{"/vmlinuz", "/initrd.img", "debian", "", ""},
-		{"/boot/linux26", "/boot/initrd.img", "debian", "", ""},
+		{"/boot/linux26", "/boot/initrd.img", "proxmox", "", ""},
 	}
 
 	for _, p := range paths {
@@ -455,6 +470,17 @@ func (e *Extractor) detectClearLinuxUnified(reader FileSystemReader) (*BootFiles
 		}
 	}
 	return nil, fmt.Errorf("not Clear Linux")
+}
+
+func (e *Extractor) detectFlatcarUnified(reader FileSystemReader) (*BootFiles, error) {
+	kernel := "/flatcar/vmlinuz"
+	initrd := "/flatcar/cpio.gz"
+
+	if reader.FileExists(kernel) && reader.FileExists(initrd) {
+		return &BootFiles{Kernel: kernel, Initrd: initrd, Distro: "flatcar"}, nil
+	}
+
+	return nil, fmt.Errorf("not Flatcar Container Linux")
 }
 
 func (e *Extractor) detectSystemRescueUnified(reader FileSystemReader) (*BootFiles, error) {
