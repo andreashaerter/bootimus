@@ -41,6 +41,7 @@ type BootFiles struct {
 	ShimPath        string
 	NetbootRequired bool
 	NetbootURL      string
+	NetbootArch     string
 	InstallWim      string
 }
 
@@ -1239,6 +1240,7 @@ func (e *Extractor) detectAndExtractUnified(reader FileSystemReader, isoPath str
 			if distroName != "" {
 				files.Distro = distroName
 			}
+			resolveNetboot(files)
 			if err := e.cacheBootFilesUnified(files, reader, isoPath); err != nil {
 				return nil, err
 			}

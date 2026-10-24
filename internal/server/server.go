@@ -544,9 +544,8 @@ func (s *Server) Start() error {
 		s.preloadSMBShares(mgr)
 		if err := mgr.Start(); err != nil {
 			log.Printf("Windows SMB: requested but could not start: %v - feature disabled for this run", err)
-		} else {
-			s.smbManager = mgr
 		}
+		s.smbManager = mgr
 	}
 
 	s.wg.Add(1)
