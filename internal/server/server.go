@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -41,6 +43,7 @@ import (
 	"bootimus/internal/scheduler"
 	"bootimus/internal/smb"
 	"bootimus/internal/storage"
+	"bootimus/internal/tlscert"
 	"bootimus/internal/tools"
 	"bootimus/internal/webhook"
 	"bootimus/internal/wol"
@@ -106,12 +109,42 @@ type Config struct {
 
 	WindowsSMBEnabled bool
 	WindowsSMBPort    int
+
+	AdminTLS AdminTLSConfig
+}
+
+type AdminTLSConfig struct {
+	Enabled      bool
+	CertFile     string
+	KeyFile      string
+	SelfSigned   bool
+	RedirectPort int
+}
+
+func (c AdminTLSConfig) Validate() error {
+	if !c.Enabled {
+		return nil
+	}
+	if (c.CertFile == "") != (c.KeyFile == "") {
+		return fmt.Errorf("admin TLS needs both a certificate file and a key file, or neither for a self-signed certificate")
+	}
+	if c.RedirectPort < 0 || c.RedirectPort > 65535 {
+		return fmt.Errorf("admin TLS redirect port %d is out of range", c.RedirectPort)
+	}
+	return nil
+}
+
+func (c AdminTLSConfig) usesSelfSigned() bool {
+	return c.Enabled && (c.SelfSigned || c.CertFile == "")
 }
 
 type Server struct {
 	config                *Config
 	httpServer            *http.Server
 	adminServer           *http.Server
+	adminRedirectServer   *http.Server
+	adminTLS              *tlscert.Reloader
+	adminTLSMode          string
 	tftpServer            *tftp.Server
 	proxyDHCPServer       *proxydhcp.Server
 	proxyDHCPRecorder     *proxydhcp.Recorder
@@ -812,6 +845,14 @@ func (s *Server) Shutdown() error {
 		}
 	}
 
+	if s.adminRedirectServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+		if err := s.adminRedirectServer.Shutdown(ctx); err != nil {
+			log.Printf("Admin redirect server shutdown error: %v", err)
+		}
+	}
+
 	if s.tftpServer != nil {
 		s.tftpServer.Shutdown()
 		log.Println("TFTP server stopped")
@@ -1303,8 +1344,102 @@ func (s *Server) startHTTPServer() error {
 	return nil
 }
 
+func (s *Server) prepareAdminTLS() error {
+	cfg := s.config.AdminTLS
+	if !cfg.Enabled {
+		return nil
+	}
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	var load func() (tls.Certificate, error)
+	if cfg.usesSelfSigned() {
+		dir := filepath.Join(s.config.DataDir, "tls")
+		hosts := []string{s.config.ServerAddr}
+		load = func() (tls.Certificate, error) {
+			cert, created, err := tlscert.LoadOrCreateSelfSigned(dir, hosts)
+			if created {
+				log.Printf("Admin TLS: generated a self-signed certificate in %s", dir)
+			}
+			return cert, err
+		}
+		s.adminTLSMode = "self-signed"
+	} else {
+		certFile, keyFile := cfg.CertFile, cfg.KeyFile
+		load = func() (tls.Certificate, error) { return tlscert.Load(certFile, keyFile) }
+		s.adminTLSMode = "certificate"
+	}
+	reloader, err := tlscert.NewReloader(load)
+	if err != nil {
+		return err
+	}
+	s.adminTLS = reloader
+	log.Printf("Admin TLS: enabled (%s), SHA-256 fingerprint %s", s.adminTLSMode, tlscert.Fingerprint(reloader.Certificate()))
+	return nil
+}
+
+func (s *Server) ReloadTLS() error {
+	if s.adminTLS == nil {
+		return nil
+	}
+	if err := s.adminTLS.Reload(); err != nil {
+		return err
+	}
+	log.Printf("Admin TLS: certificate reloaded, SHA-256 fingerprint %s", tlscert.Fingerprint(s.adminTLS.Certificate()))
+	return nil
+}
+
+func (s *Server) AdminTLSStatus() string {
+	if s.adminTLS == nil {
+		return "Disabled (plain HTTP)"
+	}
+	return fmt.Sprintf("Enabled (%s, SHA-256 %s)", s.adminTLSMode, tlscert.Fingerprint(s.adminTLS.Certificate()))
+}
+
+func (s *Server) AdminTLSEnabled() bool {
+	return s.adminTLS != nil
+}
+
+func httpsRedirectHandler(httpsPort int) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		target := url.URL{Scheme: "https", Host: net.JoinHostPort(host, strconv.Itoa(httpsPort)), Path: r.URL.Path, RawQuery: r.URL.RawQuery}
+		http.Redirect(w, r, target.String(), http.StatusMovedPermanently)
+	})
+}
+
+func (s *Server) startAdminRedirectServer() {
+	port := s.config.AdminTLS.RedirectPort
+	if s.adminTLS == nil || port == 0 {
+		return
+	}
+	addr := fmt.Sprintf(":%d", port)
+	s.adminRedirectServer = &http.Server{Addr: addr, Handler: httpsRedirectHandler(s.config.AdminPort)}
+	ln, err := netbind.Listen(s.config.BindInterface, "tcp", addr)
+	if err != nil {
+		log.Printf("Admin TLS: redirect listener on port %d failed: %v", port, err)
+		return
+	}
+	log.Printf("Admin TLS: redirecting plain HTTP on port %d to HTTPS", port)
+	go func() {
+		if err := s.adminRedirectServer.Serve(ln); err != nil && err != http.ErrServerClosed {
+			log.Printf("Admin TLS: redirect server error: %v", err)
+		}
+	}()
+}
+
 func (s *Server) startAdminServer() error {
-	log.Printf("Starting Admin server on port %d...", s.config.AdminPort)
+	if err := s.prepareAdminTLS(); err != nil {
+		return fmt.Errorf("Admin TLS: %w", err)
+	}
+	if s.adminTLS != nil {
+		log.Printf("Starting Admin server on port %d (HTTPS)...", s.config.AdminPort)
+	} else {
+		log.Printf("Starting Admin server on port %d...", s.config.AdminPort)
+	}
 
 	mux := http.NewServeMux()
 
@@ -1328,6 +1463,14 @@ func (s *Server) startAdminServer() error {
 	if err != nil {
 		return fmt.Errorf("Admin server failed: %w", err)
 	}
+	if s.adminTLS != nil {
+		s.adminServer.TLSConfig = s.adminTLS.Config()
+		s.startAdminRedirectServer()
+		if err := s.adminServer.ServeTLS(ln, "", ""); err != nil && err != http.ErrServerClosed {
+			return fmt.Errorf("Admin server failed: %w", err)
+		}
+		return nil
+	}
 	if err := s.adminServer.Serve(ln); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("Admin server failed: %w", err)
 	}
@@ -1339,6 +1482,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	log.Println("Setting up admin interface")
 
 	adminHandler := admin.NewHandler(s.config.Storage, s.config.DataDir, s.config.ISODir, s.config.BootDir, Version, s, s.toolsManager, s.config.WOLBroadcastAddr, s.config.ProfileManager, s.config.ProxyDHCPEnabled, s.config.HTTPPort, s.config.ServerAddr, s.config.WindowsSMBPort, s.smbManager, s.config.WindowsSMBEnabled, s.autoInstallLib)
+	adminHandler.AdminTLSStatus = s.AdminTLSStatus
 	if s.scheduler != nil {
 		adminHandler.SchedulerReload = s.scheduler.Reload
 		adminHandler.SchedulerRunNow = s.scheduler.RunNow

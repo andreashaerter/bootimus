@@ -60,6 +60,7 @@ type Handler struct {
 	wolBroadcastAddr   string
 	profileManager     *profiles.Manager
 	proxyDHCPEnabled   bool
+	AdminTLSStatus     func() string
 	httpPort           int
 	serverAddr         string
 	smbPort            int
@@ -2748,6 +2749,12 @@ func (h *Handler) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 				return "Unavailable (install wimtools / wimlib-imagex to enable boot.wim patching)"
 			}(),
 			"http_port": fmt.Sprintf("%d", h.httpPort),
+			"admin_tls": func() string {
+				if h.AdminTLSStatus == nil {
+					return "Disabled (plain HTTP)"
+				}
+				return h.AdminTLSStatus()
+			}(),
 		},
 		"environment": map[string]string{
 			"BOOTIMUS_TFTP_PORT":        os.Getenv("BOOTIMUS_TFTP_PORT"),
