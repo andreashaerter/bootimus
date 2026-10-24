@@ -154,6 +154,10 @@
                         <div class="stat-value" id="stat-boots">-</div>
                         <div class="stat-label" data-i18n="stats.total_boots">Total Boots</div>
                     </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-updates">-</div>
+                        <div class="stat-label">Updates Available</div>
+                    </div>
                 </div>
 
                 <!-- Active Sessions Panel -->
@@ -872,6 +876,12 @@
                             <input type="number" id="housekeeping-audit-days" min="0" step="1" value="365">
                         </div>
                     </div>
+                    <div class="form-group checkbox-group" style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="housekeeping-catalogue-check" checked>
+                        <label for="housekeeping-catalogue-check" style="margin: 0;">Check the catalogue daily for newer releases of installed images and tools</label>
+                        <button type="button" class="btn btn-sm" id="catalogue-check-btn" onclick="checkCatalogueNow()" style="margin-left: auto;">Check now</button>
+                    </div>
+                    <div id="catalogue-check-result" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;"></div>
                     <div style="display: flex; gap: 8px; align-items: center;">
                         <button type="submit" class="btn">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
@@ -1733,6 +1743,15 @@
             </div>
             <div id="image-props-warn-wimlib" class="guide-warning" style="display:none;">
                 <span class="gw-text" data-i18n="props.warn.wimlib_missing">wimlib-imagex is not installed on the server. boot.wim cannot be patched without it. Install wimtools (or wimlib-imagex) on the host running bootimus, then restart.</span>
+            </div>
+            <div id="image-props-update" class="guide-warning" style="display:none; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <span class="gw-text" id="image-props-update-text"></span>
+                <button type="button" class="btn btn-sm" onclick="downloadNewerImage()">Download newer version</button>
+            </div>
+            <div id="image-props-integrity" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 16px; font-size: 13px; color: var(--text-secondary);">
+                <span id="image-props-checksum-status"></span>
+                <input type="text" id="image-props-checksum-input" placeholder="SHA-256 or URL of a SHA256SUMS file" style="flex: 1; min-width: 240px; font-family: monospace; font-size: 12px; padding: 6px 8px;">
+                <button type="button" class="btn btn-sm" id="image-props-verify-btn" onclick="verifyImageFromProperties()">Verify</button>
             </div>
 
             <div class="subtabs" style="margin: 0 0 20px;">

@@ -29,6 +29,7 @@ import (
 	"bootimus/internal/bmc"
 	_ "bootimus/internal/bmc/amt"
 	_ "bootimus/internal/bmc/redfish"
+	"bootimus/internal/catalogue"
 	"bootimus/internal/housekeeping"
 	"bootimus/internal/imagescan"
 	"bootimus/internal/metrics"
@@ -118,6 +119,7 @@ type Server struct {
 	webhookNotifier       *webhook.Notifier
 	scheduler             *scheduler.Scheduler
 	housekeeping          *housekeeping.Runner
+	catalogue             *catalogue.Checker
 	bootLogDedup          map[string]time.Time
 	bootLogDedupMu        sync.Mutex
 	wg                    sync.WaitGroup
@@ -328,6 +330,8 @@ func New(cfg *Config) *Server {
 	s.scheduler = scheduler.New(cfg.Storage, s.executeScheduledTask)
 	if cfg.Storage != nil {
 		s.housekeeping = housekeeping.New(cfg.Storage)
+		s.catalogue = catalogue.NewChecker(cfg.Storage, tm.DisableRemoteCheck)
+		s.housekeeping.Register(s.catalogue)
 	}
 	s.loadBootloaderConfig()
 	return s
@@ -1345,6 +1349,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	}
 	adminHandler.WebhookNotifier = s.webhookNotifier
 	adminHandler.Housekeeping = s.housekeeping
+	adminHandler.Catalogue = s.catalogue
 
 	staticFS, err := fs.Sub(web.Static, "static")
 	if err != nil {
@@ -1552,6 +1557,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/users/reset-password", adminWrap(adminHandler.ResetUserPassword))
 
 	mux.HandleFunc("/api/images/download", adminWrap(adminHandler.DownloadISO))
+	mux.HandleFunc("/api/images/verify", adminWrap(adminHandler.VerifyImage))
 	mux.HandleFunc("/api/downloads", readWrap(adminHandler.ListDownloads))
 	mux.HandleFunc("/api/downloads/progress", readWrap(adminHandler.GetDownloadProgress))
 
@@ -1637,6 +1643,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 		}
 	}))
 	mux.HandleFunc("/api/housekeeping/run", adminWrap(adminHandler.RunHousekeeping))
+	mux.HandleFunc("/api/catalogue/check", adminWrap(adminHandler.CheckCatalogue))
 
 	mux.HandleFunc("/api/client-groups", readWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
