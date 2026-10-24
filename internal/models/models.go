@@ -276,6 +276,13 @@ type AuditLog struct {
 	Summary   string    `json:"summary"`
 }
 
+type ReplicaState struct {
+	ID        uint       `gorm:"primarykey" json:"id"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	LastSync  *time.Time `json:"last_sync,omitempty"`
+	Report    string     `gorm:"type:text" json:"report,omitempty"`
+}
+
 type HousekeepingSettings struct {
 	ID                   uint       `gorm:"primarykey" json:"id"`
 	UpdatedAt            time.Time  `json:"updated_at"`

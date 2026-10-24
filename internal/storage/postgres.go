@@ -103,6 +103,7 @@ func (s *PostgresStore) AutoMigrate() error {
 		&models.DiskJob{},
 		&models.APIToken{},
 		&models.InstallRecord{},
+		&models.ReplicaState{},
 		&models.SANTarget{},
 	); err != nil {
 		return err

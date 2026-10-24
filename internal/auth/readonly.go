@@ -56,18 +56,21 @@ func (m *Manager) HandleMe(w http.ResponseWriter, r *http.Request) {
 		source = user.AuthSource()
 		totpEnabled = user.TOTPEnabled
 	}
+	data := map[string]interface{}{
+		"username":     claims.Username,
+		"is_admin":     claims.IsAdmin,
+		"role":         role,
+		"principal":    principal,
+		"source":       source,
+		"totp_enabled": totpEnabled,
+	}
+	if m.MeExtras != nil {
+		for k, v := range m.MeExtras() {
+			data[k] = v
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"data": map[string]interface{}{
-			"username":     claims.Username,
-			"is_admin":     claims.IsAdmin,
-			"role":         role,
-			"principal":    principal,
-			"source":       source,
-			"totp_enabled": totpEnabled,
-		},
-	})
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": data})
 }
 
 type redactingWriter struct {
