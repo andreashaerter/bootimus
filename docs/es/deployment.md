@@ -14,6 +14,7 @@ Guía completa para desplegar Bootimus en varios entornos con configuraciones de
 - [Opciones de base de datos](#opciones-de-base-de-datos)
 - [Actualizaciones remotas y privacidad](#actualizaciones-remotas-y-privacidad)
 - [Despliegue en producción](#despliegue-en-producción)
+- [Multi-sitio](#multi-sitio)
 
 ## Inicio rápido
 
@@ -619,6 +620,10 @@ rm /opt/bootimus/data/isos/old-image.iso
 # Scan for new ISOs to update database
 curl -u admin:password -X POST http://localhost:8081/api/scan
 ```
+
+## Multi-sitio
+
+Las sucursales pueden ejecutar una réplica de solo lectura que refleja esta instancia y arranca los clientes locales desde copias locales. Consulta la [guía multi-sitio](multi-site.md).
 
 ## Siguientes pasos
 

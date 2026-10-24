@@ -296,16 +296,42 @@ document.addEventListener('click', (e) => {
 function loadCurrentUser() {
     const username = localStorage.getItem('bootimus_username') || 'admin';
     document.getElementById('current-username').textContent = username;
-    document.getElementById('current-user-role').textContent = isReadOnly() ? 'Read-only' : 'Administrator';
+    const admin = localStorage.getItem('bootimus_is_admin') === 'true';
+    document.getElementById('current-user-role').textContent = admin ? (isReplica() ? 'Administrator (replica)' : 'Administrator') : 'Read-only';
 }
 
 function isReadOnly() {
-    return localStorage.getItem('bootimus_is_admin') !== 'true';
+    return localStorage.getItem('bootimus_is_admin') !== 'true' || isReplica();
+}
+
+function isReplica() {
+    return !!replicaInfo();
+}
+
+function replicaInfo() {
+    try {
+        const raw = localStorage.getItem('bootimus_replica');
+        return raw ? JSON.parse(raw) : null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function renderReplicaBanner() {
+    const banner = document.getElementById('replica-banner');
+    const info = replicaInfo();
+    document.body.classList.toggle('replica', !!info);
+    if (!banner || !info) return;
+    const last = info.last_sync ? new Date(info.last_sync).toLocaleString() : 'never';
+    let text = `Replica of ${escapeHtml(info.primary_url || '')}. Last successful sync: ${escapeHtml(last)}. Make changes on the primary.`;
+    if (info.last_error) text += ` Last sync error: ${escapeHtml(info.last_error)}`;
+    banner.innerHTML = text;
 }
 
 function applyRole() {
     const readOnly = isReadOnly();
     document.body.classList.toggle('read-only', readOnly);
+    renderReplicaBanner();
     loadCurrentUser();
     const active = document.querySelector('.sidebar-nav .nav-item.active');
     if (readOnly && active && active.classList.contains('admin-only')) {
@@ -320,6 +346,11 @@ async function refreshRole() {
         if (data.success) {
             localStorage.setItem('bootimus_username', data.data.username);
             localStorage.setItem('bootimus_is_admin', data.data.is_admin);
+            if (data.data.replica) {
+                localStorage.setItem('bootimus_replica', JSON.stringify(data.data.replica));
+            } else {
+                localStorage.removeItem('bootimus_replica');
+            }
             applyRole();
         }
     } catch (err) {
@@ -415,6 +446,7 @@ function initApp() {
     refreshRole();
     loadStats();
     loadServerInfo();
+    loadReplicaStatus();
     loadProfileCache();
     loadClients();
     loadImages();
@@ -439,7 +471,7 @@ function initApp() {
     // Refresh server info more frequently for live stats (every 5 seconds)
     setInterval(() => {
         const activeTab = (document.querySelector('.nav-item.active') || document.querySelector('.tab.active')).dataset.tab;
-        if (activeTab === 'server') loadServerInfo();
+        if (activeTab === 'server') { loadServerInfo(); loadReplicaStatus(); }
     }, 5000);
 
     // Refresh active sessions more frequently (every 3 seconds)
@@ -8988,5 +9020,86 @@ async function editDiskImageDescription(id) {
         loadDiskImages();
     } catch (err) {
         showAlert('Failed to update disk image', 'error');
+    }
+}
+
+const REPLICA_KIND_LABELS = {
+    san_targets: 'SAN targets',
+    image_groups: 'Image groups',
+    images: 'Images',
+    client_groups: 'Client groups',
+    clients: 'Clients',
+    theme: 'Boot menu theme',
+    profiles: 'Custom distro profiles',
+    tools: 'Boot tools',
+    autoinstall_files: 'Auto-install files',
+    custom_files: 'Custom files',
+    bootloader_set: 'Active bootloader set',
+};
+
+async function loadReplicaStatus() {
+    const card = document.getElementById('replica-card');
+    if (!card) return;
+    try {
+        const res = await authFetch(`${API_BASE}/replica/status`);
+        const data = await res.json();
+        if (!data.success || !data.data.enabled) {
+            card.style.display = 'none';
+            return;
+        }
+        card.style.display = '';
+        renderReplicaStatus(data.data.status);
+    } catch (err) {
+        card.style.display = 'none';
+    }
+}
+
+function renderReplicaStatus(status) {
+    const line = document.getElementById('replica-status-line');
+    const kinds = document.getElementById('replica-kinds');
+    const syncBtn = document.getElementById('replica-sync-btn');
+    if (syncBtn) syncBtn.style.display = localStorage.getItem('bootimus_is_admin') === 'true' ? '' : 'none';
+    const lastRun = status.last_run ? new Date(status.last_run).toLocaleString() : 'never';
+    const lastOk = status.last_success ? new Date(status.last_success).toLocaleString() : 'never';
+    let text = `Primary ${status.primary_url} · every ${status.interval_seconds}s · ISOs ${status.sync_isos ? 'copied locally' : 'served from the primary'} · last run ${lastRun} · last success ${lastOk}`;
+    if (status.running) text += ' · sync in progress';
+    line.textContent = text;
+    if (status.last_error) {
+        line.innerHTML += ` <span style="color: var(--danger);">${escapeHtml(status.last_error)}</span>`;
+    }
+    const rows = (status.kinds || []).map(k => {
+        let state;
+        if (k.error) state = `<span class="badge badge-danger" title="${escapeHtml(k.error)}">Failed</span>`;
+        else if (k.skipped) state = `<span class="badge badge-info">Skipped</span>`;
+        else state = `<span class="badge badge-success">OK</span>`;
+        return `<tr>
+            <td>${escapeHtml(REPLICA_KIND_LABELS[k.name] || k.name)}</td>
+            <td>${state}</td>
+            <td>${k.skipped ? '-' : k.count}</td>
+            <td>${k.skipped ? '-' : k.changed}</td>
+            <td>${k.skipped ? '-' : k.removed}</td>
+            <td style="color: var(--text-secondary); font-size: 12px;">${escapeHtml(k.error || k.note || '')}</td>
+        </tr>`;
+    }).join('');
+    kinds.innerHTML = rows
+        ? `<div class="table-scroll"><table><thead><tr><th>Kind</th><th>State</th><th>On primary</th><th>Changed</th><th>Removed</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table></div>`
+        : '<p style="color: var(--text-secondary);">No sync has run yet.</p>';
+}
+
+async function runReplicaSync() {
+    const btn = document.getElementById('replica-sync-btn');
+    const line = document.getElementById('replica-status-line');
+    if (btn) btn.disabled = true;
+    if (line) line.textContent = 'Syncing from the primary…';
+    try {
+        const res = await authFetch(`${API_BASE}/replica/sync`, { method: 'POST' });
+        const data = await res.json();
+        if (data.data) renderReplicaStatus(data.data);
+        showAlert(data.success ? 'Sync finished' : (data.error || 'Sync failed'), data.success ? 'success' : 'error');
+        refreshRole();
+    } catch (err) {
+        showAlert('Sync failed: ' + err.message, 'error');
+    } finally {
+        if (btn) btn.disabled = false;
     }
 }

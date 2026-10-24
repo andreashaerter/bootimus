@@ -27,6 +27,7 @@ type Manager struct {
 	oidc        *oidcClient
 	loginLimit  *loginLimiter
 	limiterOnce sync.Once
+	MeExtras    func() map[string]interface{}
 	touches     tokenTouches
 }
 

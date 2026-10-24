@@ -453,6 +453,20 @@ GET /api/stats
 | `PUT` | `/api/images/winpe?filename=<name>` | Выбрать WIM-файл и индекс образа, которые грузит образ Windows или WinPE. Тело: `{wim_path, wim_index}` |
 | `POST` | `/api/scan` | Сканировать новые ISO |
 
+#### Disk Images
+
+| Метод | Эндпоинт | Описание |
+|-------|----------|----------|
+| `GET` | `/api/disk-images` | Статус готовности и список снятых образов дисков |
+| `PUT` | `/api/disk-images?id=<id>` | Обновить описание образа |
+| `DELETE` | `/api/disk-images?id=<id>` | Удалить образ и его файлы |
+| `POST` | `/api/disk-images/capture` | Поставить снятие образа в очередь: `{mac_address, name, description, disk, wake}` |
+| `POST` | `/api/disk-images/deploy` | Поставить развёртывание в очередь: `{mac_address` или `client_group_id, image_id, disk, wake}` |
+| `GET` | `/api/disk-images/jobs?mac=<MAC>&limit=<n>` | Последние задания снятия и развёртывания |
+| `DELETE` | `/api/disk-images/jobs?id=<id>` | Отменить ожидающее или выполняющееся задание |
+
+Порядок работы описан в [руководстве по образам дисков](disk-imaging.md).
+
 #### Downloads
 
 | Метод | Эндпоинт | Описание |
