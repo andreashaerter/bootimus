@@ -27,7 +27,7 @@ const (
 	oidcStateLifetime = 10 * time.Minute
 )
 
-var errNotPermitted = errors.New("not a member of a group permitted to use Bootimus")
+var errNotPermitted = errors.New("not in an allowed or admin group or user list")
 
 type OIDCConfig struct {
 	Issuer        string
@@ -39,6 +39,8 @@ type OIDCConfig struct {
 	GroupsClaim   string
 	AdminGroups   []string
 	AllowedGroups []string
+	AdminUsers    []string
+	AllowedUsers  []string
 	DisplayName   string
 	SkipVerify    bool
 }
@@ -175,14 +177,45 @@ func (c *oidcClient) authenticate(ctx context.Context, code string, state *oidcS
 	if username == "" {
 		return "", false, fmt.Errorf("no %q claim in ID token or userinfo", c.config.usernameClaim())
 	}
+	if c.config.usernameClaim() == "email" && !claimTrue(claims, "email_verified") {
+		return "", false, fmt.Errorf("email %s is not marked as verified by the provider", username)
+	}
 
 	groups := claimStrings(claims, c.config.groupsClaim())
-	isAdmin := groupsIntersect(groups, c.config.AdminGroups)
-	if len(c.config.AllowedGroups) > 0 && !isAdmin && !groupsIntersect(groups, c.config.AllowedGroups) {
+	isAdmin := groupsIntersect(groups, c.config.AdminGroups) || userMatches(username, c.config.AdminUsers)
+	restricted := len(c.config.AllowedGroups) > 0 || len(c.config.AllowedUsers) > 0
+	if restricted && !isAdmin && !groupsIntersect(groups, c.config.AllowedGroups) && !userMatches(username, c.config.AllowedUsers) {
 		return username, false, errNotPermitted
 	}
 
 	return username, isAdmin, nil
+}
+
+func claimTrue(claims map[string]interface{}, name string) bool {
+	switch v := claims[name].(type) {
+	case bool:
+		return v
+	case string:
+		return strings.EqualFold(v, "true")
+	}
+	return false
+}
+
+func userMatches(username string, entries []string) bool {
+	for _, entry := range entries {
+		entry = strings.ToLower(strings.TrimSpace(entry))
+		if entry == "" {
+			continue
+		}
+		if strings.HasPrefix(entry, "@") {
+			if strings.HasSuffix(username, entry) {
+				return true
+			}
+		} else if username == entry {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *oidcClient) mergeUserInfo(ctx context.Context, provider *oidc.Provider, token *oauth2.Token, subject string, claims map[string]interface{}) {

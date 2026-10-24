@@ -64,8 +64,11 @@ func NewManager(userStore database.UserStore, ldapConfig *LDAPConfig, oidcConfig
 	if oidcConfig != nil && oidcConfig.IsConfigured() {
 		m.oidc = newOIDCClient(oidcConfig)
 		log.Printf("OIDC authentication enabled (issuer: %s)", oidcConfig.Issuer)
-		if len(oidcConfig.AdminGroups) == 0 {
-			log.Println("OIDC: No admin groups configured; OIDC users will not be given admin rights")
+		if len(oidcConfig.AdminGroups) == 0 && len(oidcConfig.AdminUsers) == 0 {
+			log.Println("OIDC: No admin groups or users configured; OIDC users will not be given admin rights")
+		}
+		if len(oidcConfig.AllowedGroups) == 0 && len(oidcConfig.AllowedUsers) == 0 {
+			log.Println("OIDC: No allowed groups or users configured; anyone the provider authenticates can sign in with read-only access")
 		}
 	} else if oidcConfig != nil {
 		log.Println("OIDC: Issuer, client ID and redirect URL are all required; OIDC authentication disabled")

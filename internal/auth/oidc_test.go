@@ -283,3 +283,59 @@ func TestClaimStrings(t *testing.T) {
 		t.Errorf("missing: got %v", got)
 	}
 }
+
+func TestUserMatches(t *testing.T) {
+	entries := []string{"Alice@Example.com", "@ops.example.com", " "}
+	cases := map[string]bool{
+		"alice@example.com":         true,
+		"bob@example.com":           false,
+		"carol@ops.example.com":     true,
+		"dave@evil-ops.example.com": false,
+		"erin@ops.example.com.evil": false,
+		"ops.example.com":           false,
+	}
+	for username, want := range cases {
+		if got := userMatches(username, entries); got != want {
+			t.Errorf("%s: want %v, got %v", username, want, got)
+		}
+	}
+}
+
+func TestOIDCUserListsWithoutGroups(t *testing.T) {
+	p := newFakeProvider(t)
+	m, store := newOIDCTestManager(p, OIDCConfig{
+		UsernameClaim: "email",
+		AdminUsers:    []string{"alice@example.com"},
+		AllowedUsers:  []string{"@example.com"},
+	})
+
+	p.idClaims = map[string]interface{}{"email": "Alice@example.com", "email_verified": true}
+	if res := runOIDCFlow(t, m, p, nil); res.token == "" {
+		t.Fatalf("admin user: %q", res.err)
+	}
+	if u := store.users["alice@example.com"]; u == nil || !u.IsAdmin {
+		t.Fatalf("admin user not made admin: %+v", u)
+	}
+
+	p.idClaims = map[string]interface{}{"email": "bob@example.com", "email_verified": true}
+	if res := runOIDCFlow(t, m, p, nil); res.token == "" {
+		t.Fatalf("domain user: %q", res.err)
+	}
+	if store.users["bob@example.com"].IsAdmin {
+		t.Fatal("domain user should be read-only")
+	}
+
+	p.idClaims = map[string]interface{}{"email": "mallory@gmail.com", "email_verified": true}
+	if res := runOIDCFlow(t, m, p, nil); res.token != "" {
+		t.Fatal("user outside the allowed domain signed in")
+	}
+
+	p.idClaims = map[string]interface{}{"email": "carol@example.com", "email_verified": false}
+	if res := runOIDCFlow(t, m, p, nil); res.token != "" {
+		t.Fatal("unverified email signed in")
+	}
+	p.idClaims = map[string]interface{}{"email": "dave@example.com"}
+	if res := runOIDCFlow(t, m, p, nil); res.token != "" {
+		t.Fatal("email without email_verified signed in")
+	}
+}

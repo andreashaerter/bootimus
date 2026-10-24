@@ -75,6 +75,8 @@ func init() {
 	rootCmd.PersistentFlags().String("oidc-groups-claim", "groups", "OIDC claim listing the user's groups")
 	rootCmd.PersistentFlags().String("oidc-admin-groups", "", "Comma-separated OIDC groups whose members are administrators")
 	rootCmd.PersistentFlags().String("oidc-allowed-groups", "", "Comma-separated OIDC groups allowed to sign in (empty allows anyone the provider authenticates)")
+	rootCmd.PersistentFlags().String("oidc-admin-users", "", "Comma-separated OIDC usernames, or @domain entries, who are administrators")
+	rootCmd.PersistentFlags().String("oidc-allowed-users", "", "Comma-separated OIDC usernames, or @domain entries, allowed to sign in")
 	rootCmd.PersistentFlags().String("oidc-display-name", "SSO", "Name shown on the OIDC sign-in button")
 	rootCmd.PersistentFlags().Bool("oidc-skip-verify", false, "Skip TLS certificate verification when talking to the OIDC provider")
 
@@ -129,6 +131,8 @@ func init() {
 	viper.BindPFlag("oidc.groups_claim", rootCmd.PersistentFlags().Lookup("oidc-groups-claim"))
 	viper.BindPFlag("oidc.admin_groups", rootCmd.PersistentFlags().Lookup("oidc-admin-groups"))
 	viper.BindPFlag("oidc.allowed_groups", rootCmd.PersistentFlags().Lookup("oidc-allowed-groups"))
+	viper.BindPFlag("oidc.admin_users", rootCmd.PersistentFlags().Lookup("oidc-admin-users"))
+	viper.BindPFlag("oidc.allowed_users", rootCmd.PersistentFlags().Lookup("oidc-allowed-users"))
 	viper.BindPFlag("oidc.display_name", rootCmd.PersistentFlags().Lookup("oidc-display-name"))
 	viper.BindPFlag("oidc.skip_verify", rootCmd.PersistentFlags().Lookup("oidc-skip-verify"))
 

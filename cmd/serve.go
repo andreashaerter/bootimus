@@ -189,6 +189,8 @@ func runServe(cmd *cobra.Command, args []string) {
 			GroupsClaim:   viper.GetString("oidc.groups_claim"),
 			AdminGroups:   splitList(viper.GetString("oidc.admin_groups")),
 			AllowedGroups: splitList(viper.GetString("oidc.allowed_groups")),
+			AdminUsers:    splitList(viper.GetString("oidc.admin_users")),
+			AllowedUsers:  splitList(viper.GetString("oidc.allowed_users")),
 			DisplayName:   viper.GetString("oidc.display_name"),
 			SkipVerify:    viper.GetBool("oidc.skip_verify"),
 		}

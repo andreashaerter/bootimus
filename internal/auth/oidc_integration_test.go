@@ -398,14 +398,43 @@ func TestOIDCIntegrationEmailUsernameClaim(t *testing.T) {
 	cfg.UsernameClaim = "email"
 	env := newIntegrationEnv(t, cfg)
 	res := env.signIn(t, "grace", map[string]interface{}{
-		"email":  "Grace@Example.com",
-		"groups": []string{"bootimus-operators"},
+		"email":          "Grace@Example.com",
+		"email_verified": true,
+		"groups":         []string{"bootimus-operators"},
 	})
 	if res.token == "" {
 		t.Fatalf("sign-in failed: %q", res.err)
 	}
 	if _, err := env.store.GetUser("grace@example.com"); err != nil {
 		t.Fatalf("user not stored under email: %v", err)
+	}
+}
+
+func TestOIDCIntegrationUserListsWithoutGroups(t *testing.T) {
+	env := newIntegrationEnv(t, auth.OIDCConfig{
+		UsernameClaim: "email",
+		AdminUsers:    []string{"owner@example.com"},
+		AllowedUsers:  []string{"@example.com"},
+	})
+
+	admin := env.signIn(t, "owner", map[string]interface{}{"email": "owner@example.com", "email_verified": true})
+	if code := env.status(t, "/api/users", admin.token); code != http.StatusOK {
+		t.Fatalf("listed admin user: want 200, got %d (%q)", code, admin.err)
+	}
+
+	member := env.signIn(t, "staff", map[string]interface{}{"email": "staff@example.com", "email_verified": true})
+	if code := env.status(t, "/api/users", member.token); code != http.StatusForbidden {
+		t.Fatalf("domain user: want read-only, got %d (%q)", code, member.err)
+	}
+
+	outsider := env.signIn(t, "outsider", map[string]interface{}{"email": "outsider@gmail.com", "email_verified": true})
+	if outsider.token != "" || !strings.Contains(outsider.err, "not permitted") {
+		t.Fatalf("user outside the domain: want refusal, got %+v", outsider)
+	}
+
+	unverified := env.signIn(t, "spoof", map[string]interface{}{"email": "owner@example.com", "email_verified": false})
+	if unverified.token != "" {
+		t.Fatal("unverified email was accepted")
 	}
 }
 
