@@ -477,7 +477,11 @@ func (h *Handler) CreateClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client.MACAddress = strings.ToLower(strings.ReplaceAll(client.MACAddress, "-", ":"))
+	client.MACAddress = normaliseMAC(client.MACAddress)
+	if client.MACAddress == "" {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "MAC address is required"})
+		return
+	}
 
 	client.Enabled = true
 	client.Static = true
@@ -487,7 +491,8 @@ func (h *Handler) CreateClient(w http.ResponseWriter, r *http.Request) {
 			h.sendJSON(w, http.StatusConflict, Response{Success: false, Error: "A client with this MAC address already exists"})
 			return
 		}
-		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
+		log.Printf("Admin: Failed to create client %s: %v", client.MACAddress, err)
+		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: "Failed to create client"})
 		return
 	}
 

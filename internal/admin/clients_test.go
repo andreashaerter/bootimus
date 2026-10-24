@@ -36,7 +36,9 @@ func TestCreateClientStatus(t *testing.T) {
 	}{
 		{"new MAC", store, `{"mac_address":"aa:bb:cc:dd:ee:21"}`, http.StatusCreated, ""},
 		{"existing MAC", store, `{"mac_address":"AA-BB-CC-DD-EE-20"}`, http.StatusConflict, "A client with this MAC address already exists"},
-		{"storage failure", unmigrated, `{"mac_address":"aa:bb:cc:dd:ee:22"}`, http.StatusInternalServerError, ""},
+		{"missing MAC", store, `{"name":"no mac"}`, http.StatusBadRequest, "MAC address is required"},
+		{"blank MAC", store, `{"mac_address":"  "}`, http.StatusBadRequest, "MAC address is required"},
+		{"storage failure", unmigrated, `{"mac_address":"aa:bb:cc:dd:ee:22"}`, http.StatusInternalServerError, "Failed to create client"},
 	}
 
 	for _, tt := range tests {
