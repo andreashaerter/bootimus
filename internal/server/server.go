@@ -113,6 +113,7 @@ type Server struct {
 	adminServer           *http.Server
 	tftpServer            *tftp.Server
 	proxyDHCPServer       *proxydhcp.Server
+	proxyDHCPRecorder     *proxydhcp.Recorder
 	webhookNotifier       *webhook.Notifier
 	scheduler             *scheduler.Scheduler
 	bootLogDedup          map[string]time.Time
@@ -315,10 +316,11 @@ func New(cfg *Config) *Server {
 		activeSessions: &ActiveSessions{
 			sessions: make(map[string]*ActiveSession),
 		},
-		logBroadcaster:  lb,
-		toolsManager:    tm,
-		bootLogDedup:    make(map[string]time.Time),
-		webhookNotifier: webhook.New(cfg.Storage),
+		logBroadcaster:    lb,
+		toolsManager:      tm,
+		bootLogDedup:      make(map[string]time.Time),
+		webhookNotifier:   webhook.New(cfg.Storage),
+		proxyDHCPRecorder: proxydhcp.NewRecorder(proxydhcp.DefaultRecorderSize),
 	}
 	s.scheduler = scheduler.New(cfg.Storage, s.executeScheduledTask)
 	s.loadBootloaderConfig()
@@ -732,6 +734,7 @@ func (s *Server) Start() error {
 			NoVendorOption:   s.config.ProxyDHCPNoVendorOption,
 			OmitVendorOption: s.proxyDHCPOmitVendorOption,
 			Bootfiles:        s.proxyDHCPBootfilesForClient,
+			Observer:         s.proxyDHCPRecorder.Record,
 		})
 		if err != nil {
 			log.Printf("proxyDHCP: failed to construct server: %v", err)
@@ -1505,6 +1508,9 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 
 	mux.HandleFunc("/api/logs/stream", adminWrap(s.handleLogsStream))
 	mux.HandleFunc("/api/logs/buffer", adminWrap(s.handleLogsBuffer))
+	mux.HandleFunc("/api/proxydhcp/events", readWrap(s.handleProxyDHCPEvents))
+	mux.HandleFunc("/api/proxydhcp/stream", readWrap(s.handleProxyDHCPStream))
+	mux.HandleFunc("/api/proxydhcp/events/clear", adminWrap(s.handleProxyDHCPEventsClear))
 
 	mux.HandleFunc("/api/users", adminWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
