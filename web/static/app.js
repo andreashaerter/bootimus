@@ -469,7 +469,7 @@ function setupTabs() {
             if (item.dataset.tab === 'autoinstall') loadAutoInstallFiles();
             if (item.dataset.tab === 'clusters') loadClustersTab();
             if (item.dataset.tab === 'boot-menu') loadTheme();
-            if (item.dataset.tab === 'settings') { loadUSBImages(); loadWebhookConfig(); }
+            if (item.dataset.tab === 'settings') { loadUSBImages(); loadWebhookConfig(); loadRestoreStatus(); }
             if (item.dataset.tab === 'api-reference') showAPIReference();
         });
     });
@@ -859,6 +859,71 @@ async function downloadBackup() {
         URL.revokeObjectURL(a.href);
     } catch (err) {
         showAlert('Backup download failed: ' + err.message, 'error');
+    }
+}
+
+function setRestorePendingNotice(pending) {
+    const notice = document.getElementById('restore-pending-notice');
+    if (notice) notice.style.display = pending ? 'flex' : 'none';
+}
+
+async function loadRestoreStatus() {
+    try {
+        const res = await authFetch(`${API_BASE}/backup/import`);
+        const data = await res.json();
+        setRestorePendingNotice(!!(data.success && data.data && data.data.pending));
+    } catch (err) {
+        console.error('Failed to load restore status:', err);
+    }
+}
+
+async function uploadRestore() {
+    const input = document.getElementById('restore-file');
+    const status = document.getElementById('restore-status');
+    const btn = document.getElementById('restore-upload-btn');
+    const file = input && input.files && input.files[0];
+    if (!file) {
+        showAlert('Choose a backup file first', 'error');
+        return;
+    }
+    if (!confirm(`Restore "${file.name}"?\n\nThe current database, bootloader configuration and settings will be replaced the next time Bootimus restarts. ISOs are not affected.`)) return;
+    const form = new FormData();
+    form.append('backup', file);
+    btn.disabled = true;
+    status.textContent = 'Uploading…';
+    try {
+        const res = await authFetch(`${API_BASE}/backup/import`, { method: 'POST', body: form });
+        const data = await res.json();
+        if (data.success) {
+            status.textContent = '';
+            input.value = '';
+            setRestorePendingNotice(true);
+            showAlert(data.message || 'Restore staged. Restart Bootimus to apply it.', 'success');
+        } else {
+            status.textContent = '';
+            showAlert(data.error || 'Restore upload failed', 'error');
+        }
+    } catch (err) {
+        status.textContent = '';
+        showAlert('Restore upload failed: ' + err.message, 'error');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function cancelRestore() {
+    if (!confirm('Discard the staged restore?')) return;
+    try {
+        const res = await authFetch(`${API_BASE}/backup/import`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+            setRestorePendingNotice(false);
+            showAlert('Staged restore cancelled', 'success');
+        } else {
+            showAlert(data.error || 'Failed to cancel restore', 'error');
+        }
+    } catch (err) {
+        showAlert('Failed to cancel restore: ' + err.message, 'error');
     }
 }
 
@@ -2968,7 +3033,10 @@ const API_REFERENCE = [
     { category: 'Settings', endpoints: [
         { method: 'GET',    path: '/api/theme',                    desc: 'Menu theme + defaults.' },
         { method: 'PUT',    path: '/api/theme',                    desc: 'Body: <code>{title, menu_timeout, default_menu_item}</code>' },
-        { method: 'GET',    path: '/api/backup/export',            desc: 'Export full DB backup as JSON.' },
+        { method: 'GET',    path: '/api/backup/export',            desc: 'Download a <code>.tar.gz</code> backup of the database and data directory (ISOs and tools excluded).' },
+        { method: 'POST',   path: '/api/backup/import',            desc: 'Multipart field <code>backup</code>: stage a backup for restore on the next restart.' },
+        { method: 'GET',    path: '/api/backup/import',            desc: 'Is a restore staged?' },
+        { method: 'DELETE', path: '/api/backup/import',            desc: 'Discard the staged restore.' },
     ]},
     { category: 'Logs', endpoints: [
         { method: 'GET',    path: '/api/logs',                     desc: 'Boot log entries.' },

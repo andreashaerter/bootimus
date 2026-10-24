@@ -1582,6 +1582,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 
 	mux.HandleFunc("/api/clients/import", adminWrap(adminHandler.ImportClientsCSV))
 	mux.HandleFunc("/api/backup/export", adminWrap(adminHandler.ExportBackup))
+	mux.HandleFunc("/api/backup/import", adminWrap(adminHandler.ImportBackup))
 
 	mux.HandleFunc("/api/webhook", adminWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
