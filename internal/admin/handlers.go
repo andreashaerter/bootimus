@@ -29,6 +29,7 @@ import (
 	_ "bootimus/internal/bmc/amt"
 	_ "bootimus/internal/bmc/redfish"
 	"bootimus/internal/extractor"
+	"bootimus/internal/housekeeping"
 	"bootimus/internal/imagescan"
 	"bootimus/internal/models"
 	"bootimus/internal/profiles"
@@ -72,6 +73,7 @@ type Handler struct {
 	SchedulerReload    func() error
 	SchedulerRunNow    func(id uint) error
 	WebhookNotifier    *webhook.Notifier
+	Housekeeping       *housekeeping.Runner
 }
 
 type extractionState struct {
@@ -4483,6 +4485,95 @@ func (h *Handler) TestWebhook(w http.ResponseWriter, r *http.Request) {
 		Success: resp.StatusCode < 300,
 		Message: fmt.Sprintf("Downstream HTTP %d", resp.StatusCode),
 	})
+}
+
+type housekeepingView struct {
+	Settings   *models.HousekeepingSettings `json:"settings"`
+	LastReport *housekeeping.Report         `json:"last_report,omitempty"`
+	Usage      *housekeeping.Usage          `json:"usage,omitempty"`
+	UsageError string                       `json:"usage_error,omitempty"`
+}
+
+func (h *Handler) housekeepingView() (*housekeepingView, error) {
+	settings, err := h.storage.GetHousekeepingSettings()
+	if err != nil {
+		return nil, err
+	}
+	view := &housekeepingView{Settings: settings, LastReport: housekeeping.ParseReport(settings.LastReport)}
+	settings.LastReport = ""
+	if h.dataDir != "" {
+		if usage, usageErr := housekeeping.DataDirUsage(h.dataDir); usageErr != nil {
+			view.UsageError = usageErr.Error()
+		} else {
+			view.Usage = usage
+		}
+	}
+	return view, nil
+}
+
+func (h *Handler) GetHousekeeping(w http.ResponseWriter, r *http.Request) {
+	view, err := h.housekeepingView()
+	if err != nil {
+		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
+		return
+	}
+	h.sendJSON(w, http.StatusOK, Response{Success: true, Data: view})
+}
+
+func (h *Handler) UpdateHousekeeping(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		BootLogDays          int `json:"boot_log_days"`
+		InventoryHistoryDays int `json:"inventory_history_days"`
+		DiscoveredClientDays int `json:"discovered_client_days"`
+		AuditLogDays         int `json:"audit_log_days"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Invalid body"})
+		return
+	}
+	if body.BootLogDays < 0 || body.InventoryHistoryDays < 0 || body.DiscoveredClientDays < 0 || body.AuditLogDays < 0 {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Retention periods cannot be negative"})
+		return
+	}
+	settings, err := h.storage.GetHousekeepingSettings()
+	if err != nil {
+		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
+		return
+	}
+	settings.BootLogDays = body.BootLogDays
+	settings.InventoryHistoryDays = body.InventoryHistoryDays
+	settings.DiscoveredClientDays = body.DiscoveredClientDays
+	settings.AuditLogDays = body.AuditLogDays
+	if err := h.storage.UpdateHousekeepingSettings(settings); err != nil {
+		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
+		return
+	}
+	settings.LastReport = ""
+	h.sendJSON(w, http.StatusOK, Response{Success: true, Message: "Housekeeping settings saved", Data: settings})
+}
+
+func (h *Handler) RunHousekeeping(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		h.sendJSON(w, http.StatusMethodNotAllowed, Response{Success: false, Error: "Method not allowed"})
+		return
+	}
+	if h.Housekeeping == nil {
+		h.sendJSON(w, http.StatusServiceUnavailable, Response{Success: false, Error: "Housekeeping is not available"})
+		return
+	}
+	report := h.Housekeeping.RunNow()
+	housekeeping.InvalidateUsage()
+	view, err := h.housekeepingView()
+	if err != nil {
+		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
+		return
+	}
+	view.LastReport = report
+	message := "Housekeeping completed"
+	if report.Status != housekeeping.StatusOK {
+		message = "Housekeeping finished with errors"
+	}
+	h.sendJSON(w, http.StatusOK, Response{Success: report.Status != housekeeping.StatusFailed, Message: message, Data: view})
 }
 
 func (h *Handler) ExportBackup(w http.ResponseWriter, r *http.Request) {

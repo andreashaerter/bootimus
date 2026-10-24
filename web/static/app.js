@@ -469,7 +469,7 @@ function setupTabs() {
             if (item.dataset.tab === 'autoinstall') loadAutoInstallFiles();
             if (item.dataset.tab === 'clusters') loadClustersTab();
             if (item.dataset.tab === 'boot-menu') { loadTheme(); populateMenuPreviewMACs(); }
-            if (item.dataset.tab === 'settings') { loadUSBImages(); loadWebhookConfig(); loadRestoreStatus(); }
+            if (item.dataset.tab === 'settings') { loadUSBImages(); loadWebhookConfig(); loadRestoreStatus(); loadHousekeeping(); }
             if (item.dataset.tab === 'api-reference') showAPIReference();
             if (item.dataset.tab === 'audit') loadAuditLog();
             if (item.dataset.tab === 'pxe-debug') loadPXEDebug();
@@ -839,6 +839,114 @@ async function testWebhook() {
     } catch (err) {
         result.textContent = '✗ ' + err.message;
         result.style.color = 'var(--danger)';
+    }
+}
+
+const HOUSEKEEPING_TASK_LABELS = {
+    boot_logs: 'Boot logs',
+    inventory_history: 'Inventory history',
+    discovered_clients: 'Discovered clients',
+    audit_logs: 'Audit log',
+};
+
+function renderHousekeeping(view) {
+    const settings = view.settings || {};
+    document.getElementById('housekeeping-boot-log-days').value = settings.boot_log_days ?? 0;
+    document.getElementById('housekeeping-inventory-days').value = settings.inventory_history_days ?? 0;
+    document.getElementById('housekeeping-discovered-days').value = settings.discovered_client_days ?? 0;
+    document.getElementById('housekeeping-audit-days').value = settings.audit_log_days ?? 0;
+
+    const lastRun = document.getElementById('housekeeping-last-run');
+    if (settings.last_run) {
+        const status = settings.last_status || 'ok';
+        const badge = status === 'ok' ? 'badge-success' : (status === 'partial' ? 'badge-warning' : 'badge-danger');
+        lastRun.innerHTML = `Last run ${new Date(settings.last_run).toLocaleString()} <span class="badge ${badge}">${escapeHtml(status)}</span>`;
+    } else {
+        lastRun.textContent = 'Not run yet';
+    }
+
+    const reportEl = document.getElementById('housekeeping-report');
+    const report = view.last_report;
+    if (report && Array.isArray(report.tasks) && report.tasks.length) {
+        let html = '<div class="table-scroll"><table><thead><tr><th>Task</th><th>Result</th></tr></thead><tbody>';
+        for (const t of report.tasks) {
+            const label = HOUSEKEEPING_TASK_LABELS[t.name] || t.name;
+            let result;
+            if (t.error) result = `<span style="color: var(--danger);">${escapeHtml(t.error)}</span>`;
+            else if (t.skipped) result = '<span style="color: var(--text-muted);">Disabled</span>';
+            else result = `${t.affected} removed`;
+            html += `<tr><td>${escapeHtml(label)}</td><td>${result}</td></tr>`;
+        }
+        html += '</tbody></table></div>';
+        reportEl.innerHTML = html;
+    } else {
+        reportEl.innerHTML = '';
+    }
+
+    const usageEl = document.getElementById('housekeeping-usage');
+    if (view.usage && Array.isArray(view.usage.entries)) {
+        let html = `<div class="table-scroll"><table><thead><tr><th>Entry</th><th>Files</th><th>Size</th></tr></thead><tbody>`;
+        for (const e of view.usage.entries) {
+            html += `<tr><td><code>${escapeHtml(e.name)}${e.dir ? '/' : ''}</code></td><td>${e.files}</td><td>${formatBytes(e.bytes)}</td></tr>`;
+        }
+        html += `<tr><td><strong>Total</strong></td><td></td><td><strong>${formatBytes(view.usage.total_bytes)}</strong></td></tr>`;
+        html += '</tbody></table></div>';
+        html += `<div style="font-size: 12px; color: var(--text-muted); margin-top: 6px;">${escapeHtml(view.usage.data_dir)} · measured ${new Date(view.usage.measured_at).toLocaleTimeString()}</div>`;
+        usageEl.innerHTML = html;
+    } else {
+        usageEl.textContent = view.usage_error ? 'Could not measure data directory: ' + view.usage_error : 'No usage information available.';
+    }
+}
+
+async function loadHousekeeping() {
+    if (!document.getElementById('housekeeping-form')) return;
+    try {
+        const res = await authFetch(`${API_BASE}/housekeeping`);
+        const data = await res.json();
+        if (data.success && data.data) renderHousekeeping(data.data);
+    } catch (err) {
+        console.error('Failed to load housekeeping settings:', err);
+    }
+}
+
+async function saveHousekeeping(e) {
+    if (e) e.preventDefault();
+    const body = {
+        boot_log_days: parseInt(document.getElementById('housekeeping-boot-log-days').value, 10) || 0,
+        inventory_history_days: parseInt(document.getElementById('housekeeping-inventory-days').value, 10) || 0,
+        discovered_client_days: parseInt(document.getElementById('housekeeping-discovered-days').value, 10) || 0,
+        audit_log_days: parseInt(document.getElementById('housekeeping-audit-days').value, 10) || 0,
+    };
+    try {
+        const res = await authFetch(`${API_BASE}/housekeeping`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (data.success) {
+            showAlert('Housekeeping settings saved', 'success');
+            loadHousekeeping();
+        } else {
+            showAlert(data.error || 'Save failed', 'error');
+        }
+    } catch (err) {
+        showAlert('Save failed: ' + err.message, 'error');
+    }
+}
+
+async function runHousekeeping() {
+    const btn = document.getElementById('housekeeping-run-btn');
+    btn.disabled = true;
+    try {
+        const res = await authFetch(`${API_BASE}/housekeeping/run`, { method: 'POST' });
+        const data = await res.json();
+        if (data.data) renderHousekeeping(data.data);
+        showAlert(data.message || data.error || 'Housekeeping finished', data.success ? 'success' : 'error');
+    } catch (err) {
+        showAlert('Housekeeping failed: ' + err.message, 'error');
+    } finally {
+        btn.disabled = false;
     }
 }
 
@@ -2902,6 +3010,8 @@ function setupForms() {
     document.getElementById('add-profile-form').addEventListener('submit', createProfile);
     const wf = document.getElementById('webhook-form');
     if (wf) wf.addEventListener('submit', saveWebhookConfig);
+    const hf = document.getElementById('housekeeping-form');
+    if (hf) hf.addEventListener('submit', saveHousekeeping);
 }
 
 const API_REFERENCE = [
@@ -3043,6 +3153,9 @@ const API_REFERENCE = [
         { method: 'POST',   path: '/api/backup/import',            desc: 'Multipart field <code>backup</code>: stage a backup for restore on the next restart.' },
         { method: 'GET',    path: '/api/backup/import',            desc: 'Is a restore staged?' },
         { method: 'DELETE', path: '/api/backup/import',            desc: 'Discard the staged restore.' },
+        { method: 'GET',    path: '/api/housekeeping',             desc: 'Retention settings, last housekeeping report and data directory usage.' },
+        { method: 'PUT',    path: '/api/housekeeping',             desc: 'Body: <code>{boot_log_days, inventory_history_days, discovered_client_days, audit_log_days}</code>. 0 keeps forever.' },
+        { method: 'POST',   path: '/api/housekeeping/run',         desc: 'Run housekeeping now and return the report.' },
     ]},
     { category: 'Logs', endpoints: [
         { method: 'GET',    path: '/api/logs',                     desc: 'Boot log entries.' },

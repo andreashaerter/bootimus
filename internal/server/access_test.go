@@ -48,6 +48,7 @@ var viewerReadRoutes = map[string]bool{
 	"/api/usb":                       true,
 	"/api/usb/download":              true,
 	"/api/images/files":              true,
+	"/api/housekeeping":              true,
 	"/api/proxydhcp/events":          true,
 	"/api/proxydhcp/stream":          true,
 }

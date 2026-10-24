@@ -34,7 +34,7 @@ func NewSQLiteStore(dataDir string) (*SQLiteStore, error) {
 }
 
 func (s *SQLiteStore) AutoMigrate() error {
-	if err := s.db.AutoMigrate(&models.User{}, &models.ClientGroup{}, &models.NodeImage{}, &models.Cluster{}, &models.Client{}, &models.ImageGroup{}, &models.Image{}, &models.BootLog{}, &models.CustomFile{}, &models.DriverPack{}, &models.MenuTheme{}, &models.BootTool{}, &models.HardwareInventory{}, &models.DistroProfile{}, &models.WebhookConfig{}, &models.ScheduledTask{}, &models.AuditLog{}); err != nil {
+	if err := s.db.AutoMigrate(&models.User{}, &models.ClientGroup{}, &models.NodeImage{}, &models.Cluster{}, &models.Client{}, &models.ImageGroup{}, &models.Image{}, &models.BootLog{}, &models.CustomFile{}, &models.DriverPack{}, &models.MenuTheme{}, &models.BootTool{}, &models.HardwareInventory{}, &models.DistroProfile{}, &models.WebhookConfig{}, &models.ScheduledTask{}, &models.AuditLog{}, &models.HousekeepingSettings{}); err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 
@@ -921,4 +921,28 @@ func (s *SQLiteStore) ListClientsInGroup(groupID uint) ([]*models.Client, error)
 func (s *SQLiteStore) SetClientGroup(mac string, groupID *uint) error {
 	return s.db.Model(&models.Client{}).Where("mac_address = ?", mac).
 		Update("client_group_id", groupID).Error
+}
+
+func (s *SQLiteStore) GetHousekeepingSettings() (*models.HousekeepingSettings, error) {
+	return getHousekeepingSettings(s.db)
+}
+
+func (s *SQLiteStore) UpdateHousekeepingSettings(settings *models.HousekeepingSettings) error {
+	return updateHousekeepingSettings(s.db, settings)
+}
+
+func (s *SQLiteStore) RecordHousekeepingRun(status, report string) error {
+	return recordHousekeepingRun(s.db, status, report)
+}
+
+func (s *SQLiteStore) DeleteBootLogsBefore(cutoff time.Time) (int64, error) {
+	return deleteBootLogsBefore(s.db, cutoff)
+}
+
+func (s *SQLiteStore) DeleteInventoryHistoryBefore(cutoff time.Time) (int64, error) {
+	return deleteInventoryHistoryBefore(s.db, cutoff)
+}
+
+func (s *SQLiteStore) DeleteDiscoveredClientsNotSeenSince(cutoff time.Time) (int64, error) {
+	return deleteDiscoveredClientsNotSeenSince(s.db, cutoff)
 }
