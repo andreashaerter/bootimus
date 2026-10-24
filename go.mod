@@ -12,6 +12,7 @@ require (
 	github.com/insomniacslk/dhcp v0.0.0-20260407060928-11b94ed970f2
 	github.com/kdomanski/iso9660 v0.4.0
 	github.com/pin/tftp/v3 v3.1.0
+	github.com/pquerna/otp v1.5.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/shirou/gopsutil/v3 v3.24.5
@@ -31,6 +32,7 @@ require (
 require (
 	github.com/Azure/go-ntlmssp v0.1.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect

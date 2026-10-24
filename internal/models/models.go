@@ -49,6 +49,10 @@ type User struct {
 	IsAdmin   bool       `gorm:"default:false" json:"is_admin"`
 	Source    string     `gorm:"default:local" json:"source"`
 	LastLogin *time.Time `json:"last_login,omitempty"`
+
+	TOTPSecret    string `json:"-"`
+	TOTPEnabled   bool   `gorm:"default:false" json:"totp_enabled"`
+	RecoveryCodes string `gorm:"type:text" json:"-"`
 }
 
 const (
