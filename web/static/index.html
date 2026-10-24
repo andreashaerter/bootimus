@@ -43,6 +43,10 @@
                 </div>
                 <div id="login-error" style="display: none; color: var(--danger); font-size: 13px; margin-bottom: 12px;"></div>
                 <button type="submit" data-i18n="login.signin" id="login-submit">Sign In</button>
+                <div id="login-sso" style="display: none;">
+                    <div class="login-sso-divider"><span data-i18n="login.or">or</span></div>
+                    <div id="login-sso-buttons"></div>
+                </div>
             </form>
         </div>
     </div>
@@ -1353,6 +1357,7 @@
                     <input type="checkbox" name="enabled">
                     <label>Enabled</label>
                 </div>
+                <p id="edit-user-external-note" style="display: none; color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;"></p>
                 <button type="submit" class="btn btn-primary">Update User</button>
                 <button type="button" class="btn" onclick="closeModal('edit-user-modal')">Cancel</button>
             </form>

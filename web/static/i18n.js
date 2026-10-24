@@ -37,6 +37,8 @@ const TRANSLATIONS = {
         'login.username': 'Username',
         'login.password': 'Password',
         'login.signin': 'Sign In',
+        'login.or': 'or',
+        'login.signin_with': 'Sign in with {{name}}',
 
         'about.website': 'Website',
         'about.github': 'GitHub',
@@ -214,6 +216,8 @@ const TRANSLATIONS = {
         'login.username': 'Benutzername',
         'login.password': 'Passwort',
         'login.signin': 'Anmelden',
+        'login.or': 'oder',
+        'login.signin_with': 'Mit {{name}} anmelden',
 
         'about.website': 'Website',
         'about.github': 'GitHub',
@@ -391,6 +395,8 @@ const TRANSLATIONS = {
         'login.username': "Nom d'utilisateur",
         'login.password': 'Mot de passe',
         'login.signin': 'Connexion',
+        'login.or': 'ou',
+        'login.signin_with': 'Se connecter avec {{name}}',
 
         'about.website': 'Site web',
         'about.github': 'GitHub',
@@ -568,6 +574,8 @@ const TRANSLATIONS = {
         'login.username': 'Nombre de usuario',
         'login.password': 'Contraseña',
         'login.signin': 'Iniciar sesión',
+        'login.or': 'o',
+        'login.signin_with': 'Iniciar sesión con {{name}}',
 
         'about.website': 'Sitio web',
         'about.github': 'GitHub',
@@ -745,6 +753,8 @@ const TRANSLATIONS = {
         'login.username': 'Nome utente',
         'login.password': 'Password',
         'login.signin': 'Accedi',
+        'login.or': 'oppure',
+        'login.signin_with': 'Accedi con {{name}}',
 
         'about.website': 'Sito web',
         'about.github': 'GitHub',
@@ -922,6 +932,8 @@ const TRANSLATIONS = {
         'login.username': 'Gebruikersnaam',
         'login.password': 'Wachtwoord',
         'login.signin': 'Inloggen',
+        'login.or': 'of',
+        'login.signin_with': 'Inloggen met {{name}}',
 
         'about.website': 'Website',
         'about.github': 'GitHub',
@@ -1099,6 +1111,8 @@ const TRANSLATIONS = {
         'login.username': 'Имя пользователя',
         'login.password': 'Пароль',
         'login.signin': 'Войти',
+        'login.or': 'или',
+        'login.signin_with': 'Войти через {{name}}',
 
         'about.website': 'Сайт',
         'about.github': 'GitHub',
@@ -1276,6 +1290,8 @@ const TRANSLATIONS = {
         'login.username': '用户名',
         'login.password': '密码',
         'login.signin': '登录',
+        'login.or': '或',
+        'login.signin_with': '使用 {{name}} 登录',
 
         'about.website': '官网',
         'about.github': 'GitHub',

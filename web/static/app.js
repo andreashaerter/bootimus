@@ -41,17 +41,29 @@ async function showLoginScreen() {
     try {
         const res = await fetch(`${API_BASE}/auth-info`);
         const data = await res.json();
-        if (data.success && data.data && data.data.length > 1) {
+        const backends = (data.success && data.data) || [];
+        const passwordBackends = backends.filter(b => b.type !== 'redirect');
+        const redirectBackends = backends.filter(b => b.type === 'redirect');
+        if (passwordBackends.length > 1) {
             const select = document.getElementById('login-auth-method');
-            select.innerHTML = data.data.map(b =>
-                `<option value="${b.id}">${b.name}</option>`
+            select.innerHTML = passwordBackends.map(b =>
+                `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`
             ).join('');
             document.getElementById('login-auth-selector').style.display = 'block';
         } else {
             document.getElementById('login-auth-selector').style.display = 'none';
         }
+        renderSSOButtons(redirectBackends);
     } catch (e) {
         document.getElementById('login-auth-selector').style.display = 'none';
+        renderSSOButtons([]);
+    }
+
+    if (pendingLoginError) {
+        const errorDiv = document.getElementById('login-error');
+        errorDiv.textContent = pendingLoginError;
+        errorDiv.style.display = 'block';
+        pendingLoginError = null;
     }
 
     // Only auto-focus the username field if the user isn't already
@@ -62,6 +74,39 @@ async function showLoginScreen() {
     if (!active || !active.closest || !active.closest('#login-form')) {
         document.getElementById('login-username').focus();
     }
+}
+
+function renderSSOButtons(backends) {
+    const container = document.getElementById('login-sso-buttons');
+    container.innerHTML = backends.map(b =>
+        `<a class="login-sso-button" href="${escapeHtml(b.url)}">${escapeHtml(t('login.signin_with', { name: b.name }))}</a>`
+    ).join('');
+    document.getElementById('login-sso').style.display = backends.length ? 'block' : 'none';
+}
+
+let pendingLoginError = null;
+
+function decodeTokenClaims(token) {
+    try {
+        const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        return JSON.parse(atob(payload.padEnd(payload.length + (4 - payload.length % 4) % 4, '=')));
+    } catch {
+        return {};
+    }
+}
+
+function consumeOIDCRedirect() {
+    if (!location.hash.startsWith('#oidc_')) return;
+    const params = new URLSearchParams(location.hash.slice(1));
+    history.replaceState(null, '', location.pathname + location.search);
+    const token = params.get('oidc_token');
+    if (token) {
+        const claims = decodeTokenClaims(token);
+        setToken(token);
+        localStorage.setItem('bootimus_username', claims.username || '');
+        localStorage.setItem('bootimus_is_admin', claims.is_admin === true);
+    }
+    pendingLoginError = params.get('oidc_error');
 }
 
 function showApp() {
@@ -351,6 +396,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupForms();
     setupUpload();
     document.getElementById('login-form').addEventListener('submit', handleLogin);
+    consumeOIDCRedirect();
     checkAuth();
 });
 
@@ -4016,6 +4062,7 @@ function renderUsersTable(users) {
                 <tr>
                     <th>Username</th>
                     <th>Role</th>
+                    <th>Source</th>
                     <th>Status</th>
                     <th>Last Login</th>
                     <th>Created</th>
@@ -4027,6 +4074,8 @@ function renderUsersTable(users) {
 
     users.forEach(user => {
         const role = user.is_admin ? '<span class="badge badge-info">Admin</span>' : '<span class="badge badge-success">User</span>';
+        const source = { local: 'Local', ldap: 'LDAP', oidc: 'OIDC' }[user.source || 'local'] || user.source;
+        const isLocal = !user.source || user.source === 'local';
         const status = user.enabled ? '<span class="badge badge-success">Enabled</span>' : '<span class="badge badge-danger">Disabled</span>';
         const lastLogin = user.last_login ? new Date(user.last_login).toLocaleString() : 'Never';
         const created = new Date(user.created_at).toLocaleString();
@@ -4035,12 +4084,13 @@ function renderUsersTable(users) {
             <tr>
                 <td><strong>${escapeHtml(user.username)}</strong></td>
                 <td>${role}</td>
+                <td>${escapeHtml(source)}</td>
                 <td>${status}</td>
                 <td>${lastLogin}</td>
                 <td>${created}</td>
                 <td>
                     <button class="btn btn-info btn-sm" onclick='editUser(${JSON.stringify(user)})'>Edit</button>
-                    <button class="btn btn-sm" onclick='showResetPasswordModal(${JSON.stringify(user)})'>Reset Password</button>
+                    ${isLocal ? `<button class="btn btn-sm" onclick='showResetPasswordModal(${JSON.stringify(user)})'>Reset Password</button>` : ''}
                     ${user.username !== 'admin' ? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${user.username}')">Delete</button>` : ''}
                 </td>
             </tr>
@@ -4074,6 +4124,14 @@ function editUser(user) {
     form.elements['is_admin'].title = lockTitle;
     form.elements['enabled'].disabled = lockOut;
     form.elements['enabled'].title = lockTitle;
+
+    const note = document.getElementById('edit-user-external-note');
+    if (user.source && user.source !== 'local') {
+        note.textContent = `This user signs in via ${user.source.toUpperCase()}. Administrator rights are reset from their groups at each sign-in.`;
+        note.style.display = 'block';
+    } else {
+        note.style.display = 'none';
+    }
 
     openModal('edit-user-modal');
 }
