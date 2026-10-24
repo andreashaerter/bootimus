@@ -110,8 +110,8 @@ type Client struct {
 	InstallState     string     `json:"install_state,omitempty"`
 	InstallImage     string     `json:"install_image,omitempty"`
 	InstallUpdatedAt *time.Time `json:"install_updated_at,omitempty"`
-	SANTargetID *uint `gorm:"index" json:"san_target_id,omitempty"`
-	BootFromSAN bool  `gorm:"default:false" json:"boot_from_san"`
+	SANTargetID      *uint      `gorm:"index" json:"san_target_id,omitempty"`
+	BootFromSAN      bool       `gorm:"default:false" json:"boot_from_san"`
 
 	ProxyDHCPNoVendorOption bool `gorm:"default:false" json:"proxy_dhcp_no_vendor_option"`
 
