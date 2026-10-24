@@ -37,6 +37,8 @@ const TRANSLATIONS = {
         'login.username': 'Username',
         'login.password': 'Password',
         'login.signin': 'Sign In',
+        'login.or': 'or',
+        'login.signin_with': 'Sign in with {{name}}',
 
         'about.website': 'Website',
         'about.github': 'GitHub',
@@ -49,6 +51,7 @@ const TRANSLATIONS = {
         'user.role.admin': 'Admin',
 
         'ui.toggle_dark_mode': 'Toggle dark mode',
+        'ui.read_only_banner': 'You have read-only access. Ask an administrator if you need to make changes.',
 
         'server.info.title': 'Server Information',
         'server.info.loading': 'Loading server info...',
@@ -141,6 +144,7 @@ const TRANSLATIONS = {
         'props.boot_method.kernel': 'Kernel/Initrd',
         'props.boot_method.nbd': 'NBD Mount',
         'props.boot_method.nfs': 'NFS Mount',
+        'props.boot_method.uki': 'Unified Kernel Image (UKI)',
 
         'props.action.extract': 'Extract',
         'props.action.re_extract': 'Re-Extract',
@@ -213,6 +217,8 @@ const TRANSLATIONS = {
         'login.username': 'Benutzername',
         'login.password': 'Passwort',
         'login.signin': 'Anmelden',
+        'login.or': 'oder',
+        'login.signin_with': 'Mit {{name}} anmelden',
 
         'about.website': 'Website',
         'about.github': 'GitHub',
@@ -225,6 +231,7 @@ const TRANSLATIONS = {
         'user.role.admin': 'Administrator',
 
         'ui.toggle_dark_mode': 'Dunkelmodus umschalten',
+        'ui.read_only_banner': 'Sie haben nur Lesezugriff. Wenden Sie sich an einen Administrator, wenn Sie etwas ändern müssen.',
 
         'server.info.title': 'Serverinformationen',
         'server.info.loading': 'Serverinfo wird geladen…',
@@ -317,6 +324,7 @@ const TRANSLATIONS = {
         'props.boot_method.kernel': 'Kernel/Initrd',
         'props.boot_method.nbd': 'NBD-Mount',
         'props.boot_method.nfs': 'NFS-Mount',
+        'props.boot_method.uki': 'Unified Kernel Image (UKI)',
 
         'props.action.extract': 'Extrahieren',
         'props.action.re_extract': 'Neu extrahieren',
@@ -389,6 +397,8 @@ const TRANSLATIONS = {
         'login.username': "Nom d'utilisateur",
         'login.password': 'Mot de passe',
         'login.signin': 'Connexion',
+        'login.or': 'ou',
+        'login.signin_with': 'Se connecter avec {{name}}',
 
         'about.website': 'Site web',
         'about.github': 'GitHub',
@@ -401,6 +411,7 @@ const TRANSLATIONS = {
         'user.role.admin': 'Administrateur',
 
         'ui.toggle_dark_mode': 'Basculer le mode sombre',
+        'ui.read_only_banner': 'Vous avez un accès en lecture seule. Demandez à un administrateur si vous devez effectuer des modifications.',
 
         'server.info.title': 'Informations du serveur',
         'server.info.loading': 'Chargement des informations du serveur…',
@@ -493,6 +504,7 @@ const TRANSLATIONS = {
         'props.boot_method.kernel': 'Noyau/Initrd',
         'props.boot_method.nbd': 'Montage NBD',
         'props.boot_method.nfs': 'Montage NFS',
+        'props.boot_method.uki': 'Image noyau unifiée (UKI)',
 
         'props.action.extract': 'Extraire',
         'props.action.re_extract': 'Ré-extraire',
@@ -565,6 +577,8 @@ const TRANSLATIONS = {
         'login.username': 'Nombre de usuario',
         'login.password': 'Contraseña',
         'login.signin': 'Iniciar sesión',
+        'login.or': 'o',
+        'login.signin_with': 'Iniciar sesión con {{name}}',
 
         'about.website': 'Sitio web',
         'about.github': 'GitHub',
@@ -577,6 +591,7 @@ const TRANSLATIONS = {
         'user.role.admin': 'Administrador',
 
         'ui.toggle_dark_mode': 'Alternar modo oscuro',
+        'ui.read_only_banner': 'Tiene acceso de solo lectura. Pida a un administrador que realice los cambios que necesite.',
 
         'server.info.title': 'Información del servidor',
         'server.info.loading': 'Cargando información del servidor…',
@@ -669,6 +684,7 @@ const TRANSLATIONS = {
         'props.boot_method.kernel': 'Kernel/Initrd',
         'props.boot_method.nbd': 'Montaje NBD',
         'props.boot_method.nfs': 'Montaje NFS',
+        'props.boot_method.uki': 'Imagen de kernel unificada (UKI)',
 
         'props.action.extract': 'Extraer',
         'props.action.re_extract': 'Volver a extraer',
@@ -741,6 +757,8 @@ const TRANSLATIONS = {
         'login.username': 'Nome utente',
         'login.password': 'Password',
         'login.signin': 'Accedi',
+        'login.or': 'oppure',
+        'login.signin_with': 'Accedi con {{name}}',
 
         'about.website': 'Sito web',
         'about.github': 'GitHub',
@@ -753,6 +771,7 @@ const TRANSLATIONS = {
         'user.role.admin': 'Amministratore',
 
         'ui.toggle_dark_mode': 'Attiva/disattiva modalità scura',
+        'ui.read_only_banner': 'Hai accesso in sola lettura. Chiedi a un amministratore se devi apportare modifiche.',
 
         'server.info.title': 'Informazioni sul server',
         'server.info.loading': 'Caricamento informazioni sul server…',
@@ -845,6 +864,7 @@ const TRANSLATIONS = {
         'props.boot_method.kernel': 'Kernel/Initrd',
         'props.boot_method.nbd': 'Montaggio NBD',
         'props.boot_method.nfs': 'Montaggio NFS',
+        'props.boot_method.uki': 'Immagine kernel unificata (UKI)',
 
         'props.action.extract': 'Estrai',
         'props.action.re_extract': 'Estrai di nuovo',
@@ -917,6 +937,8 @@ const TRANSLATIONS = {
         'login.username': 'Gebruikersnaam',
         'login.password': 'Wachtwoord',
         'login.signin': 'Inloggen',
+        'login.or': 'of',
+        'login.signin_with': 'Inloggen met {{name}}',
 
         'about.website': 'Website',
         'about.github': 'GitHub',
@@ -929,6 +951,7 @@ const TRANSLATIONS = {
         'user.role.admin': 'Beheerder',
 
         'ui.toggle_dark_mode': 'Donkere modus wisselen',
+        'ui.read_only_banner': 'Je hebt alleen-lezen toegang. Vraag een beheerder als je iets moet wijzigen.',
 
         'server.info.title': 'Serverinformatie',
         'server.info.loading': 'Serverinfo laden…',
@@ -1021,6 +1044,7 @@ const TRANSLATIONS = {
         'props.boot_method.kernel': 'Kernel/Initrd',
         'props.boot_method.nbd': 'NBD-mount',
         'props.boot_method.nfs': 'NFS-mount',
+        'props.boot_method.uki': 'Unified Kernel Image (UKI)',
 
         'props.action.extract': 'Uitpakken',
         'props.action.re_extract': 'Opnieuw uitpakken',
@@ -1093,6 +1117,8 @@ const TRANSLATIONS = {
         'login.username': 'Имя пользователя',
         'login.password': 'Пароль',
         'login.signin': 'Войти',
+        'login.or': 'или',
+        'login.signin_with': 'Войти через {{name}}',
 
         'about.website': 'Сайт',
         'about.github': 'GitHub',
@@ -1105,6 +1131,7 @@ const TRANSLATIONS = {
         'user.role.admin': 'Администратор',
 
         'ui.toggle_dark_mode': 'Переключить тёмную тему',
+        'ui.read_only_banner': 'У вас доступ только для чтения. Если нужно что-то изменить, обратитесь к администратору.',
 
         'server.info.title': 'Информация о сервере',
         'server.info.loading': 'Загрузка информации о сервере…',
@@ -1197,6 +1224,7 @@ const TRANSLATIONS = {
         'props.boot_method.kernel': 'Ядро/Initrd',
         'props.boot_method.nbd': 'Монтирование NBD',
         'props.boot_method.nfs': 'Монтирование NFS',
+        'props.boot_method.uki': 'Унифицированный образ ядра (UKI)',
 
         'props.action.extract': 'Извлечь',
         'props.action.re_extract': 'Извлечь заново',
@@ -1269,6 +1297,8 @@ const TRANSLATIONS = {
         'login.username': '用户名',
         'login.password': '密码',
         'login.signin': '登录',
+        'login.or': '或',
+        'login.signin_with': '使用 {{name}} 登录',
 
         'about.website': '官网',
         'about.github': 'GitHub',
@@ -1281,6 +1311,7 @@ const TRANSLATIONS = {
         'user.role.admin': '管理员',
 
         'ui.toggle_dark_mode': '切换深色模式',
+        'ui.read_only_banner': '你只有只读权限。如需修改,请联系管理员。',
 
         'server.info.title': '服务器信息',
         'server.info.loading': '正在加载服务器信息…',
@@ -1373,6 +1404,7 @@ const TRANSLATIONS = {
         'props.boot_method.kernel': '内核 / Initrd',
         'props.boot_method.nbd': 'NBD 挂载',
         'props.boot_method.nfs': 'NFS 挂载',
+        'props.boot_method.uki': '统一内核镜像 (UKI)',
 
         'props.action.extract': '解包',
         'props.action.re_extract': '重新解包',

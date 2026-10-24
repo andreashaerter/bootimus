@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -26,6 +25,7 @@ import (
 	"bootimus/bootloaders"
 	"bootimus/internal/autoinstall"
 	"bootimus/internal/extractor"
+	"bootimus/internal/imagescan"
 	"bootimus/internal/models"
 	"bootimus/internal/profiles"
 	"bootimus/internal/redfish"
@@ -33,6 +33,7 @@ import (
 	"bootimus/internal/storage"
 	"bootimus/internal/sysstats"
 	"bootimus/internal/tools"
+	"bootimus/internal/uki"
 	"bootimus/internal/webhook"
 	"bootimus/internal/wim"
 	"bootimus/internal/wol"
@@ -546,6 +547,9 @@ func (h *Handler) UpdateClient(w http.ResponseWriter, r *http.Request) {
 	if insecure, ok := updates["ipmi_insecure"].(bool); ok {
 		client.IPMIInsecure = insecure
 	}
+	if noVendor, ok := updates["proxy_dhcp_no_vendor_option"].(bool); ok {
+		client.ProxyDHCPNoVendorOption = noVendor
+	}
 	if groupID, ok := updates["client_group_id"]; ok {
 		if groupID == nil {
 			client.ClientGroupID = nil
@@ -739,40 +743,7 @@ func (h *Handler) GetClientInventoryHistory(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *Handler) syncFilesystemToDatabase() {
-	var isoFiles []models.SyncFile
-
-	err := filepath.WalkDir(h.isoDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if !strings.HasSuffix(strings.ToLower(d.Name()), ".iso") {
-			return nil
-		}
-
-		info, err := d.Info()
-		if err != nil {
-			log.Printf("Failed to get file info for %s: %v", path, err)
-			return nil
-		}
-
-		relPath, _ := filepath.Rel(h.isoDir, path)
-		groupPath := filepath.Dir(relPath)
-		if groupPath == "." {
-			groupPath = ""
-		}
-
-		isoFiles = append(isoFiles, models.SyncFile{
-			Name:      strings.TrimSuffix(d.Name(), filepath.Ext(d.Name())),
-			Filename:  relPath,
-			Size:      info.Size(),
-			GroupPath: groupPath,
-		})
-
-		return nil
-	})
+	isoFiles, err := imagescan.Scan(h.isoDir)
 	if err != nil {
 		log.Printf("Failed to walk ISO directory for sync: %v", err)
 		return
@@ -1193,10 +1164,10 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 		switch part.FormName() {
 		case "file":
 			filename = filepath.Base(part.FileName())
-			if !strings.HasSuffix(strings.ToLower(filename), ".iso") {
+			if !imagescan.IsSupportedFilename(filename) {
 				part.Close()
 				log.Printf("Upload rejected: invalid file type: %s", filename)
-				h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Only .iso files are allowed"})
+				h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Only .iso files and unified kernel images (.efi) are allowed"})
 				return
 			}
 
@@ -1252,6 +1223,16 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var ukiImage *uki.Image
+	if strings.EqualFold(filepath.Ext(filename), ".efi") {
+		if ukiImage, err = uki.Inspect(filePath); err != nil {
+			cleanup()
+			log.Printf("Upload rejected: %s is not a unified kernel image: %v", filename, err)
+			h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "This .efi file is not a unified kernel image"})
+			return
+		}
+	}
+
 	existingImage, err := h.storage.GetImage(filename)
 	if err == nil && existingImage != nil {
 		existingImage.Size = size
@@ -1263,7 +1244,9 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 			existingImage.Description = description
 		}
 
-		h.detectAndSetDistro(existingImage)
+		if ukiImage == nil {
+			h.detectAndSetDistro(existingImage)
+		}
 
 		if err := h.storage.UpdateImage(filename, existingImage); err != nil {
 			cleanup()
@@ -1289,7 +1272,12 @@ func (h *Handler) UploadImage(w http.ResponseWriter, r *http.Request) {
 		Description: description,
 	}
 
-	h.detectAndSetDistro(&image)
+	if ukiImage != nil {
+		image.BootMethod = imagescan.BootMethodUKI
+		image.BootParams = ukiImage.Cmdline
+	} else {
+		h.detectAndSetDistro(&image)
+	}
 
 	if err := h.storage.CreateImage(&image); err != nil {
 		cleanup()
@@ -1368,6 +1356,10 @@ func (h *Handler) ExtractImage(w http.ResponseWriter, r *http.Request) {
 	image, err := h.storage.GetImage(filename)
 	if err != nil {
 		h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "Image not found"})
+		return
+	}
+	if image.BootMethod == imagescan.BootMethodUKI {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Unified kernel images boot directly and need no extraction"})
 		return
 	}
 
@@ -2032,41 +2024,11 @@ func (h *Handler) ScanImages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	existingFiles := make(map[string]bool)
-	var isoFiles []models.SyncFile
-
-	err := filepath.WalkDir(h.isoDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if !strings.HasSuffix(strings.ToLower(d.Name()), ".iso") {
-			return nil
-		}
-
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-
-		relPath, _ := filepath.Rel(h.isoDir, path)
-		groupPath := filepath.Dir(relPath)
-		if groupPath == "." {
-			groupPath = ""
-		}
-
-		existingFiles[relPath] = true
-		isoFiles = append(isoFiles, models.SyncFile{
-			Name:      strings.TrimSuffix(d.Name(), filepath.Ext(d.Name())),
-			Filename:  relPath,
-			Size:      info.Size(),
-			GroupPath: groupPath,
-		})
-
-		return nil
-	})
+	isoFiles, err := imagescan.Scan(h.isoDir)
+	existingFiles := make(map[string]bool, len(isoFiles))
+	for _, f := range isoFiles {
+		existingFiles[f.Filename] = true
+	}
 	if err != nil {
 		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
 		return
@@ -2728,6 +2690,12 @@ func (h *Handler) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 				}
 				return "Disabled"
 			}(),
+			"oidc_enabled": func() string {
+				if os.Getenv("BOOTIMUS_OIDC_ISSUER") != "" {
+					return os.Getenv("BOOTIMUS_OIDC_ISSUER")
+				}
+				return "Disabled"
+			}(),
 			"proxy_dhcp": func() string {
 				if h.proxyDHCPEnabled {
 					return "Enabled (standalone — no external DHCP PXE config needed)"
@@ -2766,6 +2734,7 @@ func (h *Handler) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 			"BOOTIMUS_SERVER_ADDR":      os.Getenv("BOOTIMUS_SERVER_ADDR"),
 			"BOOTIMUS_LDAP_HOST":        os.Getenv("BOOTIMUS_LDAP_HOST"),
 			"BOOTIMUS_LDAP_BASE_DN":     os.Getenv("BOOTIMUS_LDAP_BASE_DN"),
+			"BOOTIMUS_OIDC_ISSUER":      os.Getenv("BOOTIMUS_OIDC_ISSUER"),
 		},
 		"system_stats": sysStats,
 	}
@@ -2804,6 +2773,7 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		Username: req.Username,
 		IsAdmin:  req.IsAdmin,
 		Enabled:  req.Enabled,
+		Source:   models.UserSourceLocal,
 	}
 
 	if err := user.SetPassword(req.Password); err != nil {
@@ -2923,6 +2893,11 @@ func (h *Handler) ResetUserPassword(w http.ResponseWriter, r *http.Request) {
 	user, err := h.storage.GetUser(req.Username)
 	if err != nil {
 		h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "User not found"})
+		return
+	}
+
+	if user.AuthSource() != models.UserSourceLocal {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Passwords for " + strings.ToUpper(user.AuthSource()) + " users are managed by their identity provider"})
 		return
 	}
 
@@ -3055,16 +3030,16 @@ func formatBytes(bytes int64) string {
 func isoDownloadFilename(rawURL, requested string) (string, error) {
 	if requested == "" {
 		filename := filepath.Base(rawURL)
-		if !strings.HasSuffix(strings.ToLower(filename), ".iso") {
-			return "", fmt.Errorf("URL must point to an .iso file")
+		if !imagescan.IsSupportedFilename(filename) {
+			return "", fmt.Errorf("URL must point to an .iso file or a unified kernel image (.efi)")
 		}
 		return filename, nil
 	}
 	if requested == "." || requested == ".." || strings.ContainsAny(requested, `/\`) {
 		return "", fmt.Errorf("filename must be a plain file name without directories")
 	}
-	if !strings.HasSuffix(strings.ToLower(requested), ".iso") {
-		return "", fmt.Errorf("filename must end in .iso")
+	if !imagescan.IsSupportedFilename(requested) {
+		return "", fmt.Errorf("filename must end in .iso or .efi")
 	}
 	return requested, nil
 }
@@ -3181,13 +3156,24 @@ func (h *Handler) downloadISO(url, filename, destPath, description string) {
 		}
 	}
 
+	syncFile := models.SyncFile{Name: strings.TrimSuffix(filename, filepath.Ext(filename)), Filename: filename, Size: downloaded}
+	if strings.EqualFold(filepath.Ext(filename), ".efi") {
+		img, err := uki.Inspect(destPath)
+		if err != nil {
+			log.Printf("Downloaded %s is not a unified kernel image: %v", filename, err)
+			downloadMgr.Error(filename, "not a unified kernel image")
+			os.Remove(destPath)
+			return
+		}
+		syncFile.BootMethod = imagescan.BootMethodUKI
+		syncFile.BootParams = img.Cmdline
+	}
+
 	downloadMgr.Complete(filename)
 	log.Printf("Completed ISO download: %s (%d bytes)", filename, downloaded)
 
 	if h.storage != nil {
-		isoFiles := []models.SyncFile{
-			{Name: strings.TrimSuffix(filename, filepath.Ext(filename)), Filename: filename, Size: downloaded},
-		}
+		isoFiles := []models.SyncFile{syncFile}
 
 		if err := h.storage.SyncImages(isoFiles); err != nil {
 			log.Printf("Failed to sync downloaded ISO to database: %v", err)
@@ -3199,9 +3185,11 @@ func (h *Handler) downloadISO(url, filename, destPath, description string) {
 				img.Description = description
 				changed = true
 			}
-			h.detectAndSetDistro(img)
-			if img.Distro != "" {
-				changed = true
+			if syncFile.BootMethod == "" {
+				h.detectAndSetDistro(img)
+				if img.Distro != "" {
+					changed = true
+				}
 			}
 			if changed {
 				if err := h.storage.UpdateImage(filename, img); err != nil {
@@ -4688,7 +4676,20 @@ func (h *Handler) ImportClientsCSV(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		if _, err := h.storage.GetClient(mac); err == nil {
+		existing, existsErr := h.storage.GetClient(mac)
+		if v := get(row, "proxy_dhcp_no_vendor_option"); v != "" {
+			client.ProxyDHCPNoVendorOption = toBool(v)
+		} else if existsErr == nil {
+			client.ProxyDHCPNoVendorOption = existing.ProxyDHCPNoVendorOption
+		}
+
+		if existsErr == nil {
+			client.IPMIHost = existing.IPMIHost
+			client.IPMIPort = existing.IPMIPort
+			client.IPMIUsername = existing.IPMIUsername
+			client.IPMIPassword = existing.IPMIPassword
+			client.IPMIInsecure = existing.IPMIInsecure
+			client.AutoInstallFile = existing.AutoInstallFile
 			if err := h.storage.UpdateClient(mac, client); err != nil {
 				errors = append(errors, fmt.Sprintf("row %d (%s): update failed: %v", rowNum, mac, err))
 				continue

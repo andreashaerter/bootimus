@@ -27,6 +27,7 @@ import (
 	"bootimus/internal/admin"
 	"bootimus/internal/auth"
 	"bootimus/internal/autoinstall"
+	"bootimus/internal/imagescan"
 	"bootimus/internal/metrics"
 	"bootimus/internal/models"
 	"bootimus/internal/nbd"
@@ -98,6 +99,7 @@ type Config struct {
 	ProxyDHCPBootfileUEFI     string
 	ProxyDHCPBootfileARM      string
 	ProxyDHCPNoBootfileOption bool
+	ProxyDHCPNoVendorOption   bool
 
 	WindowsSMBEnabled bool
 	WindowsSMBPort    int
@@ -394,6 +396,14 @@ func (s *Server) activeSetManifest() *bootloaders.Manifest {
 	return m
 }
 
+func (s *Server) proxyDHCPOmitVendorOption(mac net.HardwareAddr) bool {
+	if s.config.Storage == nil || len(mac) == 0 {
+		return false
+	}
+	client, err := s.config.Storage.GetClient(strings.ToLower(mac.String()))
+	return err == nil && client != nil && client.ProxyDHCPNoVendorOption
+}
+
 // proxyDHCPBootfiles returns the bootfile names proxyDHCP should advertise.
 // Precedence: explicitly configured value (differs from the compiled default)
 // > active bootloader set manifest > compiled default. Evaluated per DHCP
@@ -511,26 +521,16 @@ func (s *Server) Start() error {
 		log.Printf("Auto-install files directory: %s", mgr.Root())
 	}
 
-	isos, err := s.scanISOs()
+	isoFiles, err := imagescan.Scan(s.config.ISODir)
 	if err != nil {
 		log.Printf("Warning: Failed to scan ISOs: %v", err)
 	} else {
-		log.Printf("Found %d ISO image(s)", len(isos))
-		for _, iso := range isos {
-			log.Printf("  - %s (%s)", iso.Name, iso.SizeStr)
+		log.Printf("Found %d image(s)", len(isoFiles))
+		for _, f := range isoFiles {
+			log.Printf("  - %s (%s)", f.Name, formatBytes(f.Size))
 		}
 
 		if s.config.Storage != nil {
-			isoFiles := make([]models.SyncFile, len(isos))
-			for i, iso := range isos {
-				isoFiles[i] = models.SyncFile{
-					Name:      iso.Name,
-					Filename:  iso.Filename,
-					Size:      iso.Size,
-					GroupPath: iso.GroupPath,
-				}
-			}
-
 			if err := s.config.Storage.SyncImages(isoFiles); err != nil {
 				log.Printf("Warning: Failed to sync images with database: %v", err)
 			}
@@ -609,14 +609,16 @@ func (s *Server) Start() error {
 
 	if s.config.ProxyDHCPEnabled {
 		pd, err := proxydhcp.NewServer(proxydhcp.Config{
-			ServerIP:        net.ParseIP(s.config.ServerAddr),
-			ServerHTTPPort:  s.config.HTTPPort,
-			Interface:       s.config.BindInterface,
-			BootfileBIOS:    s.config.ProxyDHCPBootfileBIOS,
-			BootfileUEFI:    s.config.ProxyDHCPBootfileUEFI,
-			BootfileARM64:   s.config.ProxyDHCPBootfileARM,
-			NoBootfileption: s.config.ProxyDHCPNoBootfileOption,
-			Bootfiles:       s.proxyDHCPBootfiles,
+			ServerIP:         net.ParseIP(s.config.ServerAddr),
+			ServerHTTPPort:   s.config.HTTPPort,
+			Interface:        s.config.BindInterface,
+			BootfileBIOS:     s.config.ProxyDHCPBootfileBIOS,
+			BootfileUEFI:     s.config.ProxyDHCPBootfileUEFI,
+			BootfileARM64:    s.config.ProxyDHCPBootfileARM,
+			NoBootfileption:  s.config.ProxyDHCPNoBootfileOption,
+			NoVendorOption:   s.config.ProxyDHCPNoVendorOption,
+			OmitVendorOption: s.proxyDHCPOmitVendorOption,
+			Bootfiles:        s.proxyDHCPBootfiles,
 		})
 		if err != nil {
 			log.Printf("proxyDHCP: failed to construct server: %v", err)
@@ -713,45 +715,20 @@ func (s *Server) Shutdown() error {
 }
 
 func (s *Server) scanISOs() ([]ISOImage, error) {
-	var isos []ISOImage
-
-	err := filepath.WalkDir(s.config.ISODir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if !strings.HasSuffix(strings.ToLower(d.Name()), ".iso") {
-			return nil
-		}
-
-		info, err := d.Info()
-		if err != nil {
-			log.Printf("Warning: Failed to get info for %s: %v", path, err)
-			return nil
-		}
-
-		relPath, _ := filepath.Rel(s.config.ISODir, path)
-		groupPath := filepath.Dir(relPath)
-		if groupPath == "." {
-			groupPath = ""
-		}
-
-		displayName := strings.TrimSuffix(d.Name(), filepath.Ext(d.Name()))
-
-		isos = append(isos, ISOImage{
-			Name:      displayName,
-			Filename:  relPath,
-			Size:      info.Size(),
-			SizeStr:   formatBytes(info.Size()),
-			GroupPath: groupPath,
-		})
-
-		return nil
-	})
+	files, err := imagescan.Scan(s.config.ISODir)
 	if err != nil {
 		return nil, err
+	}
+
+	isos := make([]ISOImage, 0, len(files))
+	for _, f := range files {
+		isos = append(isos, ISOImage{
+			Name:      f.Name,
+			Filename:  f.Filename,
+			Size:      f.Size,
+			SizeStr:   formatBytes(f.Size),
+			GroupPath: f.GroupPath,
+		})
 	}
 
 	sort.Slice(isos, func(i, j int) bool {
@@ -1241,6 +1218,13 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 		return handler
 	}
 
+	readWrap := func(handler http.HandlerFunc) http.HandlerFunc {
+		if useAuth {
+			return s.config.Auth.ReadMiddleware(handler)
+		}
+		return handler
+	}
+
 	mux.Handle("/", http.FileServer(http.FS(staticFS)))
 
 	mux.HandleFunc("/logout", func(w http.ResponseWriter, r *http.Request) {
@@ -1265,14 +1249,39 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 		}
 	})
 
-	mux.HandleFunc("/api/server-info", adminWrap(adminHandler.GetServerInfo))
-	mux.HandleFunc("/api/stats", adminWrap(adminHandler.GetStats))
-	mux.HandleFunc("/api/logs", adminWrap(adminHandler.GetBootLogs))
+	mux.HandleFunc("/api/me", func(w http.ResponseWriter, r *http.Request) {
+		if s.config.Auth != nil {
+			s.config.Auth.HandleMe(w, r)
+		} else {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"success":true,"data":{"username":"admin","is_admin":true,"role":"admin"}}`))
+		}
+	})
+
+	mux.HandleFunc("/api/oidc/login", func(w http.ResponseWriter, r *http.Request) {
+		if s.config.Auth != nil {
+			s.config.Auth.HandleOIDCLogin(w, r)
+		} else {
+			http.NotFound(w, r)
+		}
+	})
+
+	mux.HandleFunc("/api/oidc/callback", func(w http.ResponseWriter, r *http.Request) {
+		if s.config.Auth != nil {
+			s.config.Auth.HandleOIDCCallback(w, r)
+		} else {
+			http.NotFound(w, r)
+		}
+	})
+
+	mux.HandleFunc("/api/server-info", readWrap(adminHandler.GetServerInfo))
+	mux.HandleFunc("/api/stats", readWrap(adminHandler.GetStats))
+	mux.HandleFunc("/api/logs", readWrap(adminHandler.GetBootLogs))
 	mux.HandleFunc("/api/scan", adminWrap(adminHandler.ScanImages))
 	mux.HandleFunc("/api/images/upload", adminWrap(adminHandler.UploadImage))
 	mux.HandleFunc("/api/assign-images", adminWrap(adminHandler.AssignImages))
 
-	mux.HandleFunc("/api/clients", adminWrap(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/clients", readWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			id := r.URL.Query().Get("id")
@@ -1293,7 +1302,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 		}
 	}))
 
-	mux.HandleFunc("/api/images", adminWrap(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/images", readWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			filename := r.URL.Query().Get("filename")
@@ -1311,16 +1320,16 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 		}
 	}))
 
-	mux.HandleFunc("/api/clusters", adminWrap(adminHandler.Clusters))
+	mux.HandleFunc("/api/clusters", readWrap(adminHandler.Clusters))
 	mux.HandleFunc("/api/clusters/update", adminWrap(adminHandler.UpdateCluster))
 	mux.HandleFunc("/api/clusters/delete", adminWrap(adminHandler.DeleteCluster))
 	mux.HandleFunc("/api/clusters/config", adminWrap(adminHandler.ClusterConfig))
 	mux.HandleFunc("/api/clusters/config/template", adminWrap(adminHandler.ConfigTemplate))
-	mux.HandleFunc("/api/clusters/nodes", adminWrap(adminHandler.ClusterNodes))
-	mux.HandleFunc("/api/node-images", adminWrap(adminHandler.NodeImages))
+	mux.HandleFunc("/api/clusters/nodes", readWrap(adminHandler.ClusterNodes))
+	mux.HandleFunc("/api/node-images", readWrap(adminHandler.NodeImages))
 	mux.HandleFunc("/api/node-images/delete", adminWrap(adminHandler.DeleteNodeImage))
 	mux.HandleFunc("/api/node-images/download", adminWrap(adminHandler.DownloadNodeImage))
-	mux.HandleFunc("/api/kubernetes/providers", adminWrap(adminHandler.KubernetesProviders))
+	mux.HandleFunc("/api/kubernetes/providers", readWrap(adminHandler.KubernetesProviders))
 	mux.HandleFunc("/api/clusters/nodes/assign", adminWrap(adminHandler.AssignNode))
 	mux.HandleFunc("/api/clusters/nodes/unassign", adminWrap(adminHandler.UnassignNode))
 	mux.HandleFunc("/api/clusters/nodes/reinstall", adminWrap(adminHandler.ReinstallNode))
@@ -1329,29 +1338,29 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/clients/wake", adminWrap(adminHandler.WakeClient))
 	mux.HandleFunc("/api/clients/next-boot", adminWrap(adminHandler.SetNextBootImage))
 	mux.HandleFunc("/api/clients/promote", adminWrap(adminHandler.PromoteClient))
-	mux.HandleFunc("/api/clients/inventory", adminWrap(adminHandler.GetClientInventory))
-	mux.HandleFunc("/api/clients/inventory/history", adminWrap(adminHandler.GetClientInventoryHistory))
+	mux.HandleFunc("/api/clients/inventory", readWrap(adminHandler.GetClientInventory))
+	mux.HandleFunc("/api/clients/inventory/history", readWrap(adminHandler.GetClientInventoryHistory))
 
-	mux.HandleFunc("/api/bootloaders", adminWrap(adminHandler.ListBootloaders))
+	mux.HandleFunc("/api/bootloaders", readWrap(adminHandler.ListBootloaders))
 	mux.HandleFunc("/api/bootloaders/create", adminWrap(adminHandler.CreateBootloaderSet))
 	mux.HandleFunc("/api/bootloaders/upload", adminWrap(adminHandler.UploadBootloader))
 	mux.HandleFunc("/api/bootloaders/delete", adminWrap(adminHandler.DeleteBootloader))
 	mux.HandleFunc("/api/bootloaders/select", adminWrap(adminHandler.SelectBootloader))
 
-	mux.HandleFunc("/api/tools", adminWrap(adminHandler.ListTools))
+	mux.HandleFunc("/api/tools", readWrap(adminHandler.ListTools))
 	mux.HandleFunc("/api/tools/toggle", adminWrap(adminHandler.ToggleTool))
 	mux.HandleFunc("/api/tools/download", adminWrap(adminHandler.DownloadTool))
 	mux.HandleFunc("/api/tools/delete", adminWrap(adminHandler.DeleteTool))
-	mux.HandleFunc("/api/tools/progress", adminWrap(adminHandler.ToolProgress))
+	mux.HandleFunc("/api/tools/progress", readWrap(adminHandler.ToolProgress))
 	mux.HandleFunc("/api/tools/url", adminWrap(adminHandler.UpdateToolURL))
 	mux.HandleFunc("/api/tools/custom", adminWrap(adminHandler.CreateCustomTool))
 	mux.HandleFunc("/api/tools/custom/delete", adminWrap(adminHandler.DeleteCustomTool))
 	mux.HandleFunc("/api/tools/update", adminWrap(adminHandler.UpdateTools))
 
 	mux.HandleFunc("/api/images/extract", adminWrap(adminHandler.ExtractImage))
-	mux.HandleFunc("/api/images/extract-progress", adminWrap(adminHandler.ExtractProgress))
+	mux.HandleFunc("/api/images/extract-progress", readWrap(adminHandler.ExtractProgress))
 	mux.HandleFunc("/api/images/redetect", adminWrap(adminHandler.RedetectImage))
-	mux.HandleFunc("/api/images/boot-candidates", adminWrap(adminHandler.BootFileCandidates))
+	mux.HandleFunc("/api/images/boot-candidates", readWrap(adminHandler.BootFileCandidates))
 	mux.HandleFunc("/api/images/patch-smb", adminWrap(adminHandler.PatchImageSMB))
 	mux.HandleFunc("/api/images/unpatch-smb", adminWrap(adminHandler.UnpatchImageSMB))
 	mux.HandleFunc("/api/autoinstall-files", adminWrap(adminHandler.ListAutoInstallFiles))
@@ -1361,14 +1370,14 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/autoinstall-files/download", adminWrap(adminHandler.DownloadAutoInstallFile))
 	mux.HandleFunc("/api/autoinstall-files/delete", adminWrap(adminHandler.DeleteAutoInstallFile))
 
-	mux.HandleFunc("/api/profiles", adminWrap(adminHandler.ListDistroProfiles))
+	mux.HandleFunc("/api/profiles", readWrap(adminHandler.ListDistroProfiles))
 	mux.HandleFunc("/api/profiles/save", adminWrap(adminHandler.SaveDistroProfile))
 	mux.HandleFunc("/api/profiles/delete", adminWrap(adminHandler.DeleteDistroProfile))
 	mux.HandleFunc("/api/profiles/update", adminWrap(adminHandler.UpdateDistroProfiles))
-	mux.HandleFunc("/api/iso-catalog", adminWrap(adminHandler.GetISOCatalogue))
+	mux.HandleFunc("/api/iso-catalog", readWrap(adminHandler.GetISOCatalogue))
 	mux.HandleFunc("/api/images/boot-method", adminWrap(adminHandler.SetBootMethod))
 
-	mux.HandleFunc("/api/active-sessions", adminWrap(s.handleActiveSessions))
+	mux.HandleFunc("/api/active-sessions", readWrap(s.handleActiveSessions))
 
 	mux.HandleFunc("/api/logs/stream", adminWrap(s.handleLogsStream))
 	mux.HandleFunc("/api/logs/buffer", adminWrap(s.handleLogsBuffer))
@@ -1390,8 +1399,8 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/users/reset-password", adminWrap(adminHandler.ResetUserPassword))
 
 	mux.HandleFunc("/api/images/download", adminWrap(adminHandler.DownloadISO))
-	mux.HandleFunc("/api/downloads", adminWrap(adminHandler.ListDownloads))
-	mux.HandleFunc("/api/downloads/progress", adminWrap(adminHandler.GetDownloadProgress))
+	mux.HandleFunc("/api/downloads", readWrap(adminHandler.ListDownloads))
+	mux.HandleFunc("/api/downloads/progress", readWrap(adminHandler.GetDownloadProgress))
 
 	mux.HandleFunc("/api/images/netboot/download", adminWrap(adminHandler.DownloadNetboot))
 
@@ -1406,7 +1415,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 		}
 	}))
 
-	mux.HandleFunc("/api/files", adminWrap(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/files", readWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			if r.URL.Query().Get("id") != "" {
@@ -1422,7 +1431,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/files/update", adminWrap(adminHandler.UpdateCustomFile))
 	mux.HandleFunc("/api/files/delete", adminWrap(adminHandler.DeleteCustomFile))
 
-	mux.HandleFunc("/api/drivers", adminWrap(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/drivers", readWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			adminHandler.ListDriverPacks(w, r)
@@ -1434,7 +1443,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/drivers/delete", adminWrap(adminHandler.DeleteDriverPack))
 	mux.HandleFunc("/api/drivers/rebuild", adminWrap(adminHandler.RebuildImageBootWim))
 
-	mux.HandleFunc("/api/groups", adminWrap(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/groups", readWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			adminHandler.ListImageGroups(w, r)
@@ -1462,7 +1471,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	}))
 	mux.HandleFunc("/api/webhook/test", adminWrap(adminHandler.TestWebhook))
 
-	mux.HandleFunc("/api/client-groups", adminWrap(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/client-groups", readWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			adminHandler.ListClientGroups(w, r)
@@ -1472,7 +1481,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
-	mux.HandleFunc("/api/client-groups/get", adminWrap(adminHandler.GetClientGroup))
+	mux.HandleFunc("/api/client-groups/get", readWrap(adminHandler.GetClientGroup))
 	mux.HandleFunc("/api/client-groups/update", adminWrap(adminHandler.UpdateClientGroup))
 	mux.HandleFunc("/api/client-groups/delete", adminWrap(adminHandler.DeleteClientGroup))
 	mux.HandleFunc("/api/client-groups/membership", adminWrap(adminHandler.SetClientGroupMembership))
@@ -1480,7 +1489,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/client-groups/next-boot", adminWrap(adminHandler.SetNextBootForClientGroup))
 	mux.HandleFunc("/api/client-groups/power", adminWrap(adminHandler.PowerClientGroup))
 
-	mux.HandleFunc("/api/scheduled-tasks", adminWrap(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/scheduled-tasks", readWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			adminHandler.ListScheduledTasks(w, r)
@@ -1495,9 +1504,9 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/scheduled-tasks/run", adminWrap(adminHandler.RunScheduledTask))
 
 	mux.HandleFunc("/api/clients/power", adminWrap(adminHandler.PowerClient))
-	mux.HandleFunc("/api/clients/power/status", adminWrap(adminHandler.PowerStatusClient))
+	mux.HandleFunc("/api/clients/power/status", readWrap(adminHandler.PowerStatusClient))
 
-	mux.HandleFunc("/api/theme", adminWrap(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/theme", readWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			adminHandler.GetMenuTheme(w, r)
@@ -1508,10 +1517,10 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 		}
 	}))
 
-	mux.HandleFunc("/api/usb", adminWrap(adminHandler.ListUSBImages))
-	mux.HandleFunc("/api/usb/download", adminWrap(adminHandler.DownloadUSBImage))
+	mux.HandleFunc("/api/usb", readWrap(adminHandler.ListUSBImages))
+	mux.HandleFunc("/api/usb/download", readWrap(adminHandler.DownloadUSBImage))
 
-	mux.HandleFunc("/api/images/files", adminWrap(adminHandler.ListImageFiles))
+	mux.HandleFunc("/api/images/files", readWrap(adminHandler.ListImageFiles))
 	mux.HandleFunc("/api/images/files/delete", adminWrap(adminHandler.DeleteImageFile))
 }
 

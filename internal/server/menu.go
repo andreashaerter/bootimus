@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bootimus/internal/imagescan"
 	"bootimus/internal/models"
 	"bootimus/internal/profiles"
 	"bootimus/internal/tools"
@@ -321,6 +322,16 @@ func (mb *MenuBuilder) buildImageBootSections() string {
 
 			sb.WriteString(mb.buildKernelBootSection(&img, encodedFilename, cacheDir))
 
+		case imagescan.BootMethodUKI:
+			baseURL := fmt.Sprintf("http://%s:%d", mb.serverAddr, mb.httpPort)
+			params := mb.resolveBootParams(&img, baseURL, encodedFilename, cacheDir)
+			if params != "" {
+				params = " " + params
+			}
+			sb.WriteString("iseq ${platform} efi || goto uki_needs_uefi\n")
+			sb.WriteString(fmt.Sprintf("kernel %s/isos/%s?mac=%s%s\n", baseURL, encodedFilename, mb.macAddress, params))
+			sb.WriteString("boot || goto failed\n")
+
 		default:
 			sb.WriteString(fmt.Sprintf("sanboot --no-describe --drive 0x80 http://%s:%d/isos/%s?mac=%s\n", mb.serverAddr, mb.httpPort, encodedFilename, mb.macAddress))
 		}
@@ -454,7 +465,7 @@ func (mb *MenuBuilder) resolveBootParams(img *models.Image, baseURL, encodedFile
 		params = mb.profileManager.GetBootParams(img.Distro, hasSquashfs)
 	}
 
-	if params == "" && !strings.HasPrefix(img.Distro, "windows") {
+	if params == "" && !strings.HasPrefix(img.Distro, "windows") && img.BootMethod != imagescan.BootMethodUKI {
 		params = fmt.Sprintf("iso-url=%s/isos/%s ip=dhcp", baseURL, encodedFilename)
 	}
 
@@ -526,6 +537,10 @@ shell
 
 :reboot
 reboot
+
+:uki_needs_uefi
+echo This image is a unified kernel image and needs a UEFI client.
+goto failed
 
 :failed
 echo Boot failed, returning to menu in 5 seconds...

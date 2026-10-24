@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"bootimus/internal/database"
+	"bootimus/internal/models"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -19,6 +20,7 @@ type Manager struct {
 	userStore  database.UserStore
 	jwtSecret  []byte
 	ldapConfig *LDAPConfig
+	oidc       *oidcClient
 }
 
 type Claims struct {
@@ -39,7 +41,7 @@ type LoginResponse struct {
 	IsAdmin  bool   `json:"is_admin"`
 }
 
-func NewManager(userStore database.UserStore, ldapConfig ...*LDAPConfig) (*Manager, error) {
+func NewManager(userStore database.UserStore, ldapConfig *LDAPConfig, oidcConfig *OIDCConfig) (*Manager, error) {
 	if userStore == nil {
 		return nil, fmt.Errorf("userStore is required for authentication")
 	}
@@ -54,9 +56,22 @@ func NewManager(userStore database.UserStore, ldapConfig ...*LDAPConfig) (*Manag
 		jwtSecret: secret,
 	}
 
-	if len(ldapConfig) > 0 && ldapConfig[0] != nil && ldapConfig[0].IsConfigured() {
-		m.ldapConfig = ldapConfig[0]
+	if ldapConfig != nil && ldapConfig.IsConfigured() {
+		m.ldapConfig = ldapConfig
 		log.Printf("LDAP authentication enabled (server: %s)", m.ldapConfig.serverURL())
+	}
+
+	if oidcConfig != nil && oidcConfig.IsConfigured() {
+		m.oidc = newOIDCClient(oidcConfig)
+		log.Printf("OIDC authentication enabled (issuer: %s)", oidcConfig.Issuer)
+		if len(oidcConfig.AdminGroups) == 0 && len(oidcConfig.AdminUsers) == 0 {
+			log.Println("OIDC: No admin groups or users configured; OIDC users will not be given admin rights")
+		}
+		if len(oidcConfig.AllowedGroups) == 0 && len(oidcConfig.AllowedUsers) == 0 {
+			log.Println("OIDC: No allowed groups or users configured; anyone the provider authenticates can sign in with read-only access")
+		}
+	} else if oidcConfig != nil {
+		log.Println("OIDC: Issuer, client ID and redirect URL are all required; OIDC authentication disabled")
 	}
 
 	username, password, created, err := userStore.EnsureAdminUser()
@@ -120,7 +135,7 @@ func (m *Manager) ValidateCredentials(username, password string) bool {
 		return false
 	}
 
-	if !user.Enabled {
+	if !user.Enabled || user.AuthSource() != models.UserSourceLocal {
 		return false
 	}
 
@@ -151,6 +166,14 @@ func (m *Manager) HandleAuthInfo(w http.ResponseWriter, r *http.Request) {
 		}
 		backends = append(backends, map[string]string{"id": "ldap", "name": name})
 	}
+	if m.oidc != nil {
+		backends = append(backends, map[string]string{
+			"id":   "oidc",
+			"name": m.oidc.config.displayName(),
+			"type": "redirect",
+			"url":  "/api/oidc/login",
+		})
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": backends})
 }
@@ -176,6 +199,7 @@ func (m *Manager) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	if method == "" {
 		method = "local"
 	}
+	username := req.Username
 
 	switch method {
 	case "ldap":
@@ -190,8 +214,17 @@ func (m *Manager) HandleLogin(w http.ResponseWriter, r *http.Request) {
 			log.Printf("LDAP: Error authenticating %s: %v", req.Username, err)
 		}
 		if ldapOk {
+			username = strings.ToLower(req.Username)
+			user, err := m.provisionExternalUser(username, models.UserSourceLDAP, ldapAdmin)
+			if err != nil {
+				log.Printf("LDAP: Login refused for %s: %v", username, err)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Login refused: " + err.Error()})
+				return
+			}
 			authenticated = true
-			isAdmin = ldapAdmin
+			isAdmin = user.IsAdmin
 		}
 	default:
 		if m.ValidateCredentials(req.Username, req.Password) {
@@ -207,7 +240,7 @@ func (m *Manager) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := m.GenerateToken(req.Username, isAdmin)
+	token, err := m.GenerateToken(username, isAdmin)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -215,14 +248,14 @@ func (m *Manager) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Auth: User '%s' logged in", req.Username)
+	log.Printf("Auth: User '%s' logged in", username)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"data": LoginResponse{
 			Token:    token,
-			Username: req.Username,
+			Username: username,
 			IsAdmin:  isAdmin,
 		},
 	})

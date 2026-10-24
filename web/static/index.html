@@ -43,6 +43,10 @@
                 </div>
                 <div id="login-error" style="display: none; color: var(--danger); font-size: 13px; margin-bottom: 12px;"></div>
                 <button type="submit" data-i18n="login.signin" id="login-submit">Sign In</button>
+                <div id="login-sso" style="display: none;">
+                    <div class="login-sso-divider"><span data-i18n="login.or">or</span></div>
+                    <div id="login-sso-buttons"></div>
+                </div>
             </form>
         </div>
     </div>
@@ -93,7 +97,7 @@
                     <span class="nav-group-label" data-i18n="nav.group.management">Management</span>
                     <button class="nav-item" data-tab="images" data-i18n="nav.images"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg> Images</button>
                     <button class="nav-item" data-tab="public-files" data-i18n="nav.public_files"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Public Files</button>
-                    <button class="nav-item" data-tab="autoinstall" data-i18n="nav.autoinstall"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg> Auto-Install</button>
+                    <button class="nav-item admin-only" data-tab="autoinstall" data-i18n="nav.autoinstall"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg> Auto-Install</button>
                     <button class="nav-item" data-tab="profiles" data-i18n="nav.profiles"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg> Distro Profiles</button>
                 </div>
                 <div class="nav-group">
@@ -106,11 +110,11 @@
                     <span class="nav-group-label" data-i18n="nav.group.access">Access</span>
                     <button class="nav-item" data-tab="clients" data-i18n="nav.clients"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg> Clients</button>
                     <button class="nav-item" data-tab="clusters" data-i18n="nav.kubernetes"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="9" x2="12" y2="5.5"/><line x1="12" y1="15" x2="12" y2="18.5"/><line x1="9.4" y1="10.5" x2="6.2" y2="8.7"/><line x1="14.6" y1="13.5" x2="17.8" y2="15.3"/><line x1="9.4" y1="13.5" x2="6.2" y2="15.3"/><line x1="14.6" y1="10.5" x2="17.8" y2="8.7"/></svg> Kubernetes</button>
-                    <button class="nav-item" data-tab="users" data-i18n="nav.users"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> Users</button>
+                    <button class="nav-item admin-only" data-tab="users" data-i18n="nav.users"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> Users</button>
                 </div>
                 <div class="nav-group">
                     <span class="nav-group-label" data-i18n="nav.group.system">System</span>
-                    <button class="nav-item" data-tab="settings" data-i18n="nav.settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> Settings</button>
+                    <button class="nav-item admin-only" data-tab="settings" data-i18n="nav.settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> Settings</button>
                     <button class="nav-item" data-tab="api-reference"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg> API Reference</button>
                     <button class="nav-item" data-tab="logs" data-i18n="nav.logs"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg> Logs</button>
                 </div>
@@ -124,6 +128,7 @@
 
         <!-- Main Content -->
         <main class="main-content">
+            <div class="read-only-banner" data-i18n="ui.read_only_banner">You have read-only access. Ask an administrator if you need to make changes.</div>
             <div class="content-area">
 
                 <div id="stats-container" class="stats">
@@ -201,7 +206,7 @@
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
                             Refresh
                         </button>
-                        <button id="clients-group-toggle" class="btn btn-toggle" type="button" onclick="toggleClientGrouping()" aria-pressed="false" title="Group clients by their assigned client group">
+                        <button id="clients-group-toggle" class="btn btn-toggle read-ok" type="button" onclick="toggleClientGrouping()" aria-pressed="false" title="Group clients by their assigned client group">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                                 <path d="M20 10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2.5a1 1 0 0 1-.8-.4l-.9-1.2A1 1 0 0 0 15 3h-2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"/>
                                 <path d="M20 21a1 1 0 0 0 1-1v-3a1 1 0 0 0-1-1h-2.9a1 1 0 0 1-.88-.55l-.42-.85a1 1 0 0 0-.92-.6H13a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"/>
@@ -210,11 +215,11 @@
                             </svg>
                             Group
                         </button>
-                        <button class="btn btn-toggle" type="button" id="clients-autorefresh-btn" onclick="toggleClientsAutoRefresh()" aria-pressed="false" title="Auto-refresh client list every 5 seconds">
+                        <button class="btn btn-toggle read-ok" type="button" id="clients-autorefresh-btn" onclick="toggleClientsAutoRefresh()" aria-pressed="false" title="Auto-refresh client list every 5 seconds">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
                             Auto-refresh
                         </button>
-                        <button class="btn" type="button" onclick="exportClientsCSV()">
+                        <button class="btn read-ok" type="button" onclick="exportClientsCSV()">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                             Export CSV
                         </button>
@@ -256,7 +261,7 @@
                             </svg>
                             Delete
                         </button>
-                        <button class="btn" type="button" onclick="clearClientSelection()" title="Clear selection">
+                        <button class="btn read-ok" type="button" onclick="clearClientSelection()" title="Clear selection">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                                 <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                             </svg>
@@ -405,7 +410,7 @@
                             </svg>
                             Scan for ISOs
                         </button>
-                        <button id="images-group-toggle" class="btn btn-toggle" type="button" onclick="toggleImageGrouping()" aria-pressed="false" title="Group images by their assigned folder">
+                        <button id="images-group-toggle" class="btn btn-toggle read-ok" type="button" onclick="toggleImageGrouping()" aria-pressed="false" title="Group images by their assigned folder">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                                 <path d="M20 10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2.5a1 1 0 0 1-.8-.4l-.9-1.2A1 1 0 0 0 15 3h-2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"/>
                                 <path d="M20 21a1 1 0 0 0 1-1v-3a1 1 0 0 0-1-1h-2.9a1 1 0 0 1-.88-.55l-.42-.85a1 1 0 0 0-.92-.6H13a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"/>
@@ -442,7 +447,7 @@
                             </svg>
                             Delete
                         </button>
-                        <button class="btn" type="button" onclick="clearImageSelection()" title="Clear selection">
+                        <button class="btn read-ok" type="button" onclick="clearImageSelection()" title="Clear selection">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                                 <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                             </svg>
@@ -828,7 +833,7 @@
 
         <!-- Logs Tab -->
         <div id="logs-tab" class="tab-content">
-            <div class="card">
+            <div class="card admin-only">
                 <h2 data-i18n="page.logs.title">Server Logs</h2>
                 <p data-i18n="page.logs.intro" style="color: var(--text-secondary); margin: 0 12px 8px; font-size: 13px;">
                     Live server log output for TFTP, HTTP, and PXE boot activity.
@@ -969,6 +974,13 @@
                     <small style="color: var(--text-secondary);">Override the global bootloader set for this client.</small>
                 </div>
                 <div class="form-group">
+                    <div class="checkbox-group">
+                        <input type="checkbox" name="proxy_dhcp_no_vendor_option" id="edit-client-no-vendor-option">
+                        <label for="edit-client-no-vendor-option">Omit PXE vendor option (43) from proxyDHCP offers</label>
+                    </div>
+                    <small style="color: var(--text-secondary);">Some UEFI firmware (for example Intel I219-V) ignores proxyDHCP offers that carry option 43. Tick this if this machine never requests a bootfile.</small>
+                </div>
+                <div class="form-group">
                     <label>Client Group</label>
                     <select name="client_group_id" id="edit-client-group-select">
                         <option value="">(none)</option>
@@ -1017,7 +1029,7 @@
                         <button type="button" class="btn btn-sm btn-danger" onclick="powerClient('ForceOff')">Force Off</button>
                         <button type="button" class="btn btn-sm" onclick="powerClient('GracefulShutdown')">Graceful Off</button>
                         <button type="button" class="btn btn-sm" onclick="powerClient('ForceRestart')">Restart</button>
-                        <button type="button" class="btn btn-sm" onclick="powerStatusClient()">Status</button>
+                        <button type="button" class="btn btn-sm read-ok" onclick="powerStatusClient()">Status</button>
                     </div>
                     <div id="power-client-result" style="font-size: 12px; color: var(--text-secondary);"></div>
                 </details>
@@ -1037,7 +1049,7 @@
             <div id="client-hardware-info" style="display:none; margin-top: 20px; border-top: 1px solid var(--border); padding-top: 16px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                     <h3 style="font-size: 14px; font-weight: 600; color: var(--text-primary);">Hardware Information</h3>
-                    <button type="button" class="btn btn-sm" onclick="showInventoryHistory()">View History</button>
+                    <button type="button" class="btn btn-sm read-ok" onclick="showInventoryHistory()">View History</button>
                 </div>
                 <div id="client-hw-details"></div>
             </div>
@@ -1251,7 +1263,7 @@
                 <div class="form-group">
                     <div class="upload-area" id="upload-area">
                         <p>📁 Click to select or drag & drop ISO file</p>
-                        <input type="file" name="file" accept=".iso" style="display:none;" id="file-input">
+                        <input type="file" name="file" accept=".iso,.efi" style="display:none;" id="file-input">
                         <p id="file-name" style="margin-top: 10px; color: var(--accent);"></p>
                     </div>
                 </div>
@@ -1346,6 +1358,7 @@
                     <input type="checkbox" name="enabled">
                     <label>Enabled</label>
                 </div>
+                <p id="edit-user-external-note" style="display: none; color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;"></p>
                 <button type="submit" class="btn btn-primary">Update User</button>
                 <button type="button" class="btn" onclick="closeModal('edit-user-modal')">Cancel</button>
             </form>
@@ -1557,7 +1570,7 @@
 
             <div class="subtabs" style="margin: 0 0 20px;">
                 <button type="button" class="subtab active" data-props-tab="general" onclick="switchPropsTab('general')" data-i18n="props.tab.properties">Properties</button>
-                <button type="button" class="subtab" data-props-tab="autoinstall" onclick="switchPropsTab('autoinstall')" data-i18n="props.tab.autoinstall">Auto-Install</button>
+                <button type="button" class="subtab admin-only" data-props-tab="autoinstall" onclick="switchPropsTab('autoinstall')" data-i18n="props.tab.autoinstall">Auto-Install</button>
                 <button type="button" class="subtab" data-props-tab="files" onclick="switchPropsTab('files')" data-i18n="props.tab.files">Files</button>
             </div>
 
@@ -1592,6 +1605,7 @@
                             <option value="kernel" data-i18n="props.boot_method.kernel">Kernel/Initrd</option>
                             <option value="nbd" data-i18n="props.boot_method.nbd">NBD Mount</option>
                             <option value="nfs" data-i18n="props.boot_method.nfs">NFS Mount</option>
+                            <option value="uki" data-i18n="props.boot_method.uki" hidden>Unified Kernel Image (UKI)</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -1689,7 +1703,7 @@
                 <button id="image-props-patch-smb-btn" class="btn" style="display: none;" onclick="patchSmbFromProperties()" title="Rewrite boot.wim so WinPE auto-mounts the SMB share and launches setup.exe">Patch SMB</button>
                 <button id="image-props-unpatch-smb-btn" class="btn" style="display: none;" onclick="unpatchSmbFromProperties()" title="Restore the original boot.wim and remove the SMB share">Unpatch SMB</button>
                 <button id="image-props-netboot-btn" class="btn" style="display: none;" onclick="downloadNetbootFromProperties()" data-i18n-title="props.action.download_netboot_tooltip" data-i18n="props.action.download_netboot" title="Download the kernel/initrd netboot bundle from the distro mirror"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download netboot files</button>
-                <button id="image-props-download-btn" class="btn" onclick="downloadISOFromProperties()" data-i18n="props.action.download_iso"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download ISO</button>
+                <button id="image-props-download-btn" class="btn read-ok" onclick="downloadISOFromProperties()" data-i18n="props.action.download_iso"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download ISO</button>
                 <button id="image-props-delete-btn" class="btn btn-danger" onclick="deleteFromProperties()">Delete</button>
                 <div style="flex: 1;"></div>
                 <button class="btn" onclick="closeModal('image-properties-modal')">Cancel</button>
@@ -1837,7 +1851,7 @@
                 CSV columns: <code>mac_address</code> (required), <code>name</code>, <code>description</code>,
                 <code>enabled</code>, <code>show_public_images</code>, <code>static</code>,
                 <code>bootloader_set</code>, <code>client_group</code>, <code>allowed_images</code>
-                (pipe-separated), <code>next_boot_image</code>. A header row is expected.
+                (pipe-separated), <code>next_boot_image</code>, <code>proxy_dhcp_no_vendor_option</code>. A header row is expected.
                 Existing clients (matched by MAC) are updated; unknown MACs are created.
             </p>
             <form id="import-clients-form" onsubmit="event.preventDefault(); importClientsCSV();">

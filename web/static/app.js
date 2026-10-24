@@ -41,17 +41,29 @@ async function showLoginScreen() {
     try {
         const res = await fetch(`${API_BASE}/auth-info`);
         const data = await res.json();
-        if (data.success && data.data && data.data.length > 1) {
+        const backends = (data.success && data.data) || [];
+        const passwordBackends = backends.filter(b => b.type !== 'redirect');
+        const redirectBackends = backends.filter(b => b.type === 'redirect');
+        if (passwordBackends.length > 1) {
             const select = document.getElementById('login-auth-method');
-            select.innerHTML = data.data.map(b =>
-                `<option value="${b.id}">${b.name}</option>`
+            select.innerHTML = passwordBackends.map(b =>
+                `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`
             ).join('');
             document.getElementById('login-auth-selector').style.display = 'block';
         } else {
             document.getElementById('login-auth-selector').style.display = 'none';
         }
+        renderSSOButtons(redirectBackends);
     } catch (e) {
         document.getElementById('login-auth-selector').style.display = 'none';
+        renderSSOButtons([]);
+    }
+
+    if (pendingLoginError) {
+        const errorDiv = document.getElementById('login-error');
+        errorDiv.textContent = pendingLoginError;
+        errorDiv.style.display = 'block';
+        pendingLoginError = null;
     }
 
     // Only auto-focus the username field if the user isn't already
@@ -64,7 +76,41 @@ async function showLoginScreen() {
     }
 }
 
+function renderSSOButtons(backends) {
+    const container = document.getElementById('login-sso-buttons');
+    container.innerHTML = backends.map(b =>
+        `<a class="login-sso-button" href="${escapeHtml(b.url)}">${escapeHtml(t('login.signin_with', { name: b.name }))}</a>`
+    ).join('');
+    document.getElementById('login-sso').style.display = backends.length ? 'block' : 'none';
+}
+
+let pendingLoginError = null;
+
+function decodeTokenClaims(token) {
+    try {
+        const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        return JSON.parse(atob(payload.padEnd(payload.length + (4 - payload.length % 4) % 4, '=')));
+    } catch {
+        return {};
+    }
+}
+
+function consumeOIDCRedirect() {
+    if (!location.hash.startsWith('#oidc_')) return;
+    const params = new URLSearchParams(location.hash.slice(1));
+    history.replaceState(null, '', location.pathname + location.search);
+    const token = params.get('oidc_token');
+    if (token) {
+        const claims = decodeTokenClaims(token);
+        setToken(token);
+        localStorage.setItem('bootimus_username', claims.username || '');
+        localStorage.setItem('bootimus_is_admin', claims.is_admin === true);
+    }
+    pendingLoginError = params.get('oidc_error');
+}
+
 function showApp() {
+    applyRole();
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('main-header').style.display = '';
     document.getElementById('main-app').style.display = '';
@@ -181,7 +227,9 @@ function escapeHtml(text) {
 }
 
 function openModal(modalId) {
-    document.getElementById(modalId).classList.add('active');
+    const modal = document.getElementById(modalId);
+    applyReadOnlyToModal(modal);
+    modal.classList.add('active');
 }
 
 function closeModal(modalId) {
@@ -234,9 +282,49 @@ document.addEventListener('click', (e) => {
 
 function loadCurrentUser() {
     const username = localStorage.getItem('bootimus_username') || 'admin';
-    const isAdmin = localStorage.getItem('bootimus_is_admin') === 'true';
     document.getElementById('current-username').textContent = username;
-    document.getElementById('current-user-role').textContent = isAdmin ? 'Administrator' : 'User';
+    document.getElementById('current-user-role').textContent = isReadOnly() ? 'Read-only' : 'Administrator';
+}
+
+function isReadOnly() {
+    return localStorage.getItem('bootimus_is_admin') !== 'true';
+}
+
+function applyRole() {
+    const readOnly = isReadOnly();
+    document.body.classList.toggle('read-only', readOnly);
+    loadCurrentUser();
+    const active = document.querySelector('.sidebar-nav .nav-item.active');
+    if (readOnly && active && active.classList.contains('admin-only')) {
+        document.querySelector('.sidebar-nav .nav-item[data-tab="server"]').click();
+    }
+}
+
+async function refreshRole() {
+    try {
+        const res = await authFetch(`${API_BASE}/me`);
+        const data = await res.json();
+        if (data.success) {
+            localStorage.setItem('bootimus_username', data.data.username);
+            localStorage.setItem('bootimus_is_admin', data.data.is_admin);
+            applyRole();
+        }
+    } catch (err) {
+        console.error('Failed to refresh role:', err);
+    }
+}
+
+function applyReadOnlyToModal(modal) {
+    const readOnly = isReadOnly();
+    modal.querySelectorAll('form input, form select, form textarea').forEach(el => {
+        if (readOnly && !el.disabled) {
+            el.disabled = true;
+            el.dataset.readOnlyDisabled = '1';
+        } else if (!readOnly && el.dataset.readOnlyDisabled) {
+            el.disabled = false;
+            delete el.dataset.readOnlyDisabled;
+        }
+    });
 }
 
 function showNotification(message, type = 'info') {
@@ -311,7 +399,7 @@ function initApp() {
     if (appInitialised) return;
     appInitialised = true;
 
-    loadCurrentUser();
+    refreshRole();
     loadStats();
     loadServerInfo();
     loadProfileCache();
@@ -319,7 +407,7 @@ function initApp() {
     loadImages();
     loadPublicFiles();
     loadLogs();
-    loadUsers();
+    if (!isReadOnly()) loadUsers();
     loadActiveSessions();
 
     // Refresh every 30 seconds
@@ -331,7 +419,7 @@ function initApp() {
         if (activeTab === 'images') loadImages();
         if (activeTab === 'public-files') loadPublicFiles();
         if (activeTab === 'logs') loadLogs();
-        if (activeTab === 'users') loadUsers();
+        if (activeTab === 'users' && !isReadOnly()) loadUsers();
     }, 30000);
 
     // Refresh server info more frequently for live stats (every 5 seconds)
@@ -351,6 +439,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupForms();
     setupUpload();
     document.getElementById('login-form').addEventListener('submit', handleLogin);
+    consumeOIDCRedirect();
     checkAuth();
 });
 
@@ -1313,6 +1402,7 @@ async function editClient(mac) {
             form.querySelector('[name="description"]').value = currentClient.description || '';
             form.querySelector('[name="enabled"]').checked = currentClient.enabled || false;
             form.querySelector('[name="show_public_images"]').checked = currentClient.show_public_images !== false;
+            form.querySelector('[name="proxy_dhcp_no_vendor_option"]').checked = !!currentClient.proxy_dhcp_no_vendor_option;
 
             // BMC / Redfish
             form.querySelector('[name="ipmi_host"]').value = currentClient.ipmi_host || '';
@@ -1383,20 +1473,20 @@ async function loadClientBootHistory(mac) {
     if (!container) return;
     container.innerHTML = '<p style="color: var(--text-secondary); margin: 0;">Loading…</p>';
     try {
-        const res = await authFetch(`${API_BASE}/boot-logs?mac=${encodeURIComponent(mac)}&limit=50`);
+        const res = await authFetch(`${API_BASE}/logs?mac=${encodeURIComponent(mac)}&limit=50`);
         const data = await res.json();
         if (!data.success || !data.data || data.data.length === 0) {
             container.innerHTML = '<p style="color: var(--text-secondary); margin: 0;">No boot history for this client yet.</p>';
             return;
         }
         const rows = data.data.map(entry => {
-            const when = entry.CreatedAt ? new Date(entry.CreatedAt).toLocaleString() : '-';
-            const img = entry.ImageName || '(unknown)';
-            const ok = entry.Success
+            const when = entry.created_at ? new Date(entry.created_at).toLocaleString() : '-';
+            const img = entry.image_name || '(unknown)';
+            const ok = entry.success
                 ? '<span class="status-dot on" title="Success"></span>'
                 : '<span class="status-dot off" title="Failed"></span>';
-            const err = entry.ErrorMsg ? `<div style="color: var(--danger); font-size: 12px;">${escapeHtml(entry.ErrorMsg)}</div>` : '';
-            const ip = entry.IPAddress ? `<span style="color: var(--text-muted); font-size: 12px;">${escapeHtml(entry.IPAddress)}</span>` : '';
+            const err = entry.error_msg ? `<div style="color: var(--danger); font-size: 12px;">${escapeHtml(entry.error_msg)}</div>` : '';
+            const ip = entry.ip_address ? `<span style="color: var(--text-muted); font-size: 12px;">${escapeHtml(entry.ip_address)}</span>` : '';
             return `
                 <div style="padding: 8px 0; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: center;">
                     <div style="width: 14px;">${ok}</div>
@@ -2124,6 +2214,8 @@ function imageRowHTML(img, includeGroupCell, depth = 0) {
                         <td style="white-space: nowrap;">
                             ${img.boot_method === 'kernel' ?
                                 '<span class="badge badge-success">Kernel</span>' :
+                                img.boot_method === 'uki' ?
+                                '<span class="badge badge-success">UKI</span>' :
                                 img.boot_method === 'nbd' ?
                                 '<span class="badge badge-warning">NBD</span>' :
                                 img.boot_method === 'nfs' ?
@@ -2679,6 +2771,7 @@ function setupForms() {
             enabled: formData.get('enabled') === 'on',
             show_public_images: formData.get('show_public_images') === 'on',
             bootloader_set: formData.get('bootloader_set') || '',
+            proxy_dhcp_no_vendor_option: formData.get('proxy_dhcp_no_vendor_option') === 'on',
             client_group_id: groupIdRaw ? parseInt(groupIdRaw, 10) : null,
             ipmi_host: formData.get('ipmi_host') || '',
             ipmi_port: ipmiPortRaw ? parseInt(ipmiPortRaw, 10) : 0,
@@ -3487,7 +3580,7 @@ async function loadBootloaders() {
             // Header row
             html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">`;
             html += `<div style="display: flex; align-items: center; gap: 12px;">`;
-            html += `<input type="radio" name="active-bootloader-set" value="${escapedName}" ${isActive ? 'checked' : ''} onchange="selectBootloaderSet('${escapedName}')" style="width: auto; accent-color: var(--success); transform: scale(1.3);">`;
+            html += `<input type="radio" name="active-bootloader-set" value="${escapedName}" ${isActive ? 'checked' : ''} ${isReadOnly() ? 'disabled' : ''} onchange="selectBootloaderSet('${escapedName}')" style="width: auto; accent-color: var(--success); transform: scale(1.3);">`;
             html += `<div>`;
             html += `<strong style="font-size: 16px;">${escapedName}</strong>`;
             if (isActive) html += ` <span class="badge badge-success">Active</span>`;
@@ -3756,7 +3849,7 @@ function setupUpload() {
         }
         pendingUploads.set(filename, {
             filename,
-            name: filename.replace(/\.iso$/i, ''),
+            name: filename.replace(/\.(iso|efi)$/i, ''),
             size: file.size,
             progress: 0,
             status: 'Starting…',
@@ -3834,7 +3927,9 @@ function showUploadModal() {
 
 // Utilities
 function showModal(id) {
-    document.getElementById(id).classList.add('active');
+    const modal = document.getElementById(id);
+    applyReadOnlyToModal(modal);
+    modal.classList.add('active');
 }
 
 function closeModal(id) {
@@ -4012,6 +4107,7 @@ function renderUsersTable(users) {
                 <tr>
                     <th>Username</th>
                     <th>Role</th>
+                    <th>Source</th>
                     <th>Status</th>
                     <th>Last Login</th>
                     <th>Created</th>
@@ -4022,7 +4118,9 @@ function renderUsersTable(users) {
     `;
 
     users.forEach(user => {
-        const role = user.is_admin ? '<span class="badge badge-info">Admin</span>' : '<span class="badge badge-success">User</span>';
+        const role = user.is_admin ? '<span class="badge badge-info">Admin</span>' : '<span class="badge badge-success">Read-only</span>';
+        const source = { local: 'Local', ldap: 'LDAP', oidc: 'OIDC' }[user.source || 'local'] || user.source;
+        const isLocal = !user.source || user.source === 'local';
         const status = user.enabled ? '<span class="badge badge-success">Enabled</span>' : '<span class="badge badge-danger">Disabled</span>';
         const lastLogin = user.last_login ? new Date(user.last_login).toLocaleString() : 'Never';
         const created = new Date(user.created_at).toLocaleString();
@@ -4031,12 +4129,13 @@ function renderUsersTable(users) {
             <tr>
                 <td><strong>${escapeHtml(user.username)}</strong></td>
                 <td>${role}</td>
+                <td>${escapeHtml(source)}</td>
                 <td>${status}</td>
                 <td>${lastLogin}</td>
                 <td>${created}</td>
                 <td>
                     <button class="btn btn-info btn-sm" onclick='editUser(${JSON.stringify(user)})'>Edit</button>
-                    <button class="btn btn-sm" onclick='showResetPasswordModal(${JSON.stringify(user)})'>Reset Password</button>
+                    ${isLocal ? `<button class="btn btn-sm" onclick='showResetPasswordModal(${JSON.stringify(user)})'>Reset Password</button>` : ''}
                     ${user.username !== 'admin' ? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${user.username}')">Delete</button>` : ''}
                 </td>
             </tr>
@@ -4070,6 +4169,14 @@ function editUser(user) {
     form.elements['is_admin'].title = lockTitle;
     form.elements['enabled'].disabled = lockOut;
     form.elements['enabled'].title = lockTitle;
+
+    const note = document.getElementById('edit-user-external-note');
+    if (user.source && user.source !== 'local') {
+        note.textContent = `This user signs in via ${user.source.toUpperCase()}. Administrator rights are reset from their groups at each sign-in.`;
+        note.style.display = 'block';
+    } else {
+        note.style.display = 'none';
+    }
 
     openModal('edit-user-modal');
 }
@@ -5175,7 +5282,11 @@ async function showImagePropertiesModal(filename, opts) {
     document.getElementById('image-props-display-name').value = img.name || '';
     document.getElementById('image-props-description').value = img.description || '';
     document.getElementById('image-props-order').value = img.order || 0;
-    document.getElementById('image-props-boot-method').value = img.boot_method || 'sanboot';
+    const bootMethodSelect = document.getElementById('image-props-boot-method');
+    const isUKI = img.boot_method === 'uki';
+    bootMethodSelect.querySelector('option[value="uki"]').hidden = !isUKI;
+    bootMethodSelect.disabled = isUKI;
+    bootMethodSelect.value = img.boot_method || 'sanboot';
 
     // Populate distro profile dropdown
     const distroSelect = document.getElementById('image-props-distro');
@@ -5218,7 +5329,10 @@ async function showImagePropertiesModal(filename, opts) {
     // Toggle action buttons based on image state
     const extractBtn = document.getElementById('image-props-extract-btn');
     const netbootBtn = document.getElementById('image-props-netboot-btn');
-    if (extractionProgress[filename]) {
+    if (isUKI) {
+        extractBtn.style.display = 'none';
+        netbootBtn.style.display = 'none';
+    } else if (extractionProgress[filename]) {
         extractBtn.style.display = 'inline-block';
         extractBtn.disabled = true;
         extractBtn.style.opacity = '0.5';
@@ -6019,6 +6133,7 @@ function exportClientsCSV() {
     const header = [
         'mac_address', 'name', 'description', 'enabled', 'show_public_images',
         'static', 'bootloader_set', 'client_group', 'allowed_images', 'next_boot_image',
+        'proxy_dhcp_no_vendor_option',
     ];
     const rows = clients.map(c => [
         c.mac_address,
@@ -6031,6 +6146,7 @@ function exportClientsCSV() {
         c.client_group_id ? (groupsById[c.client_group_id] || '') : '',
         (c.allowed_images || []).join('|'),
         c.next_boot_image || '',
+        c.proxy_dhcp_no_vendor_option ? 'true' : 'false',
     ]);
     const csv = [header, ...rows].map(r => r.map(csvEscape).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });

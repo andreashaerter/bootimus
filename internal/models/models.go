@@ -44,7 +44,21 @@ type User struct {
 	Password  string     `gorm:"not null" json:"-"`
 	Enabled   bool       `gorm:"default:true" json:"enabled"`
 	IsAdmin   bool       `gorm:"default:false" json:"is_admin"`
+	Source    string     `gorm:"default:local" json:"source"`
 	LastLogin *time.Time `json:"last_login,omitempty"`
+}
+
+const (
+	UserSourceLocal = "local"
+	UserSourceLDAP  = "ldap"
+	UserSourceOIDC  = "oidc"
+)
+
+func (u *User) AuthSource() string {
+	if u.Source == "" {
+		return UserSourceLocal
+	}
+	return u.Source
 }
 
 func (u *User) SetPassword(password string) error {
@@ -88,6 +102,8 @@ type Client struct {
 	IPMIInsecure bool   `gorm:"default:false" json:"ipmi_insecure,omitempty"`
 
 	AutoInstallFile string `json:"auto_install_file,omitempty"`
+
+	ProxyDHCPNoVendorOption bool `gorm:"default:false" json:"proxy_dhcp_no_vendor_option"`
 
 	EnrollmentState string     `gorm:"default:'';index" json:"enrollment_state,omitempty"`
 	ClusterID       *uint      `gorm:"index" json:"cluster_id,omitempty"`
@@ -202,10 +218,12 @@ type ClientGroup struct {
 }
 
 type SyncFile struct {
-	Name      string
-	Filename  string
-	Size      int64
-	GroupPath string // relative directory path from isoDir, empty for root
+	Name       string
+	Filename   string
+	Size       int64
+	GroupPath  string // relative directory path from isoDir, empty for root
+	BootMethod string
+	BootParams string
 }
 
 type ImageGroup struct {

@@ -237,7 +237,7 @@ func (s *PostgresStore) CreateClient(client *models.Client) error {
 func (s *PostgresStore) UpdateClient(mac string, client *models.Client) error {
 	return s.db.Model(&models.Client{}).Where("mac_address = ?", mac).
 		Select("Name", "Description", "Enabled", "ShowPublicImages", "BootloaderSet", "Static", "ClientGroupID",
-			"IPMIHost", "IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "UpdatedAt").
+			"IPMIHost", "IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "ProxyDHCPNoVendorOption", "UpdatedAt").
 		Updates(client).Error
 }
 
@@ -304,6 +304,10 @@ func (s *PostgresStore) SyncImages(isoFiles []models.SyncFile) error {
 				Enabled:  true,
 				Public:   true,
 				GroupID:  groupID,
+			}
+			if iso.BootMethod != "" {
+				image.BootMethod = iso.BootMethod
+				image.BootParams = iso.BootParams
 			}
 			if err := s.db.Create(&image).Error; err != nil {
 				return fmt.Errorf("failed to create image %s: %w", iso.Name, err)
@@ -537,7 +541,7 @@ func (s *PostgresStore) CreateUser(user *models.User) error {
 }
 
 func (s *PostgresStore) UpdateUser(username string, user *models.User) error {
-	return s.db.Model(&models.User{}).Where("username = ?", username).Updates(user).Error
+	return s.db.Model(&models.User{}).Where("username = ?", username).Select("*").Updates(user).Error
 }
 
 func (s *PostgresStore) DeleteUser(username string) error {
