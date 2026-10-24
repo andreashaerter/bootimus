@@ -6,8 +6,10 @@ Bootimus nutzt JWT-Authentifizierung (JSON Web Token) für das Admin-Panel. Opti
 
 - [Lokale Authentifizierung](#lokale-authentifizierung)
 - [Login-Ablauf](#login-ablauf)
+  - [Zwei-Faktor-Authentifizierung](#zwei-faktor-authentifizierung)
 - [Rollen](#rollen)
 - [API-Authentifizierung](#api-authentifizierung)
+  - [API-Token](#api-token)
 - [LDAP / Active Directory](#ldap--active-directory)
 - [OIDC / Single Sign-On](#oidc--single-sign-on)
 - [Nutzer aus LDAP und OIDC](#nutzer-aus-ldap-und-oidc)
@@ -84,6 +86,32 @@ konfigurierte Datenbank (SQLite oder PostgreSQL):
 6. Der Token wird im Browser gespeichert und mit allen API-Requests mitgeschickt
 7. Bei Logout oder Token-Ablauf wird wieder die Login-Seite gezeigt
 
+### Zwei-Faktor-Authentifizierung
+
+Lokale Konten können ein zeitbasiertes Einmalpasswort (TOTP) als zweiten Faktor hinzufügen. LDAP- und OIDC-Nutzern wird es hier nicht angeboten; dort ist der Identity-Provider für den zweiten Faktor zuständig.
+
+**Aktivieren.** Öffne **Users** → **Two-Factor Authentication**, klicke **Set up**, scanne den QR-Code mit einer Authenticator-App (oder tippe das Secret ein) und bestätige mit einem Code aus der App. Bootimus zeigt dann zehn einmal verwendbare Recovery-Codes. Bewahre sie auf; sie werden nicht noch einmal angezeigt.
+
+**Anmelden.** Nach einem korrekten Passwort fragt die Login-Seite nach dem sechsstelligen Code. Ein Recovery-Code funktioniert stattdessen, einmalig. Falsche Codes zählen wie falsche Passwörter zur [Brute-Force-Sperre](#brute-force-schutz).
+
+**Gerät verloren.** Ein Administrator kann neben dem Nutzer **Reset 2FA** klicken oder `POST /api/users/totp/reset?id=<id>` aufrufen. Ist der einzige Administrator ausgesperrt, führe das auf dem Server aus:
+
+```bash
+bootimus user reset-totp admin
+```
+
+**Per API.** Skripte sollten [API-Token](#api-token) statt Passwort und TOTP verwenden. Meldest du dich doch mit einem TOTP-geschützten Konto an, antwortet `POST /api/login` zuerst mit `401` und `{"error":"totp_required","totp_required":true}`; wiederhole den Request mit denselben Zugangsdaten plus `"code":"123456"`.
+
+### Brute-Force-Schutz
+
+Passwort-Logins (lokal und LDAP) werden im Speicher ratenbegrenzt:
+
+- Nach **5 Fehlversuchen** für denselben Benutzernamen innerhalb von 15 Minuten wird dieser Benutzername für 1 Minute gesperrt. Jeder weitere Fehlversuch, solange die letzten Fehlversuche noch im Zeitfenster liegen, verdoppelt die Sperre, bis zu 15 Minuten.
+- Nach **20 Fehlversuchen** von derselben Client-Adresse innerhalb von 15 Minuten wird diese Adresse nach demselben Schema gesperrt. Die höhere Schwelle sorgt dafür, dass eine gemeinsam genutzte Reverse-Proxy-Adresse nicht durch die Tippfehler einer einzelnen Person gesperrt wird.
+- Ein erfolgreicher Login setzt den Fehlerzähler des Benutzernamens zurück.
+
+Während der Sperre antwortet die API mit `429 Too Many Requests` und einem `Retry-After`-Header, und die Login-Seite zeigt an, wie lange zu warten ist. Falsche Zugangsdaten liefern weiterhin das übliche `401`, die Antwort verrät also nicht, ob ein Benutzername existiert. Fehlversuche werden mit Benutzername und Client-Adresse ins Server-Log geschrieben. Ein Neustart von Bootimus setzt die Zähler zurück. OIDC-Anmeldungen laufen über den Identity-Provider und werden nicht gezählt.
+
 ## Rollen
 
 Bootimus kennt zwei Rollen:
@@ -96,7 +124,7 @@ Bootimus kennt zwei Rollen:
 Schreibgeschützte Nutzer:
 
 - können nichts ändern — der Server lehnt jeden Schreibzugriff mit `403 Your account has read-only access` ab, und das Admin-Panel blendet die Buttons aus
-- sehen keine Nutzer, Webhook-Einstellungen, Backups, das Live-Server-Log, Auto-Install-Dateien und -Skripte oder Machine-Configs von Clustern
+- sehen keine Nutzer, Webhook-Einstellungen, Backups, das Audit-Log, das Live-Server-Log, Auto-Install-Dateien und -Skripte oder Machine-Configs von Clustern
 - erhalten nie BMC-Passwörter (IPMI/Redfish) oder Config-Patches von Clients — diese werden aus jeder API-Antwort entfernt, die an sie geht
 
 Ein Nutzer ist Administrator, wenn:
@@ -140,6 +168,35 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/images
 - **Ablauf**: 24 Stunden nach Ausstellung
 - **Secret**: Zufällig bei jedem Server-Start generiert (alle Token werden bei Neustart ungültig)
 - **Claims**: Username, Admin-Status, Ausstellungszeit, Ablauf
+
+### API-Token
+
+Lege für Skripte, CI-Jobs und Integrationen unter **Users** → **API Tokens** einen langlebigen Token an, statt dich mit einem Passwort anzumelden. Token beginnen mit `btk_`, werden beim Anlegen einmalig angezeigt und gehasht gespeichert. Jeder Token hat einen Scope:
+
+| Scope | Was er darf |
+|-------|-------------|
+| `read` | `GET`-Requests an dieselben Endpunkte, die ein schreibgeschützter Nutzer sehen kann |
+| `admin` | Alles, was ein Administrator darf, außer Token anlegen oder widerrufen |
+
+Token können ein Ablaufdatum in Tagen bekommen und jederzeit widerrufen werden. Das Audit-Log verzeichnet Änderungen, die mit einem Token gemacht wurden, als `token:<name>`, und `/api/me` meldet `"principal": "token"`.
+
+```bash
+# Token anlegen (als Admin-Nutzer)
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"ansible","scope":"admin","expires_in_days":365}' \
+  http://localhost:8081/api/tokens
+
+# Genau wie einen JWT verwenden
+curl -H "Authorization: Bearer btk_..." http://localhost:8081/api/clients
+
+# Auflisten und widerrufen
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/tokens
+curl -X DELETE -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/tokens?id=3"
+```
+
+Anders als JWTs überleben API-Token einen Neustart von Bootimus.
+
+Token und die Passwörter, mit denen sie geholt werden, laufen im Klartext über die Leitung, solange die Admin-Oberfläche nicht über HTTPS ausgeliefert wird. Aktiviere das mit `--admin-tls` oder setze einen TLS-terminierenden Reverse-Proxy vor den Admin-Port; siehe [Admin-Oberfläche absichern](deployment.md#admin-oberfläche-absichern).
 
 ### Verfügbare Auth-Backends abfragen
 
