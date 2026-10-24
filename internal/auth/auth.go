@@ -20,6 +20,7 @@ type Manager struct {
 	userStore  database.UserStore
 	jwtSecret  []byte
 	ldapConfig *LDAPConfig
+	oidc       *oidcClient
 }
 
 type Claims struct {
@@ -40,7 +41,7 @@ type LoginResponse struct {
 	IsAdmin  bool   `json:"is_admin"`
 }
 
-func NewManager(userStore database.UserStore, ldapConfig ...*LDAPConfig) (*Manager, error) {
+func NewManager(userStore database.UserStore, ldapConfig *LDAPConfig, oidcConfig *OIDCConfig) (*Manager, error) {
 	if userStore == nil {
 		return nil, fmt.Errorf("userStore is required for authentication")
 	}
@@ -55,9 +56,19 @@ func NewManager(userStore database.UserStore, ldapConfig ...*LDAPConfig) (*Manag
 		jwtSecret: secret,
 	}
 
-	if len(ldapConfig) > 0 && ldapConfig[0] != nil && ldapConfig[0].IsConfigured() {
-		m.ldapConfig = ldapConfig[0]
+	if ldapConfig != nil && ldapConfig.IsConfigured() {
+		m.ldapConfig = ldapConfig
 		log.Printf("LDAP authentication enabled (server: %s)", m.ldapConfig.serverURL())
+	}
+
+	if oidcConfig != nil && oidcConfig.IsConfigured() {
+		m.oidc = newOIDCClient(oidcConfig)
+		log.Printf("OIDC authentication enabled (issuer: %s)", oidcConfig.Issuer)
+		if len(oidcConfig.AdminGroups) == 0 {
+			log.Println("OIDC: No admin groups configured; OIDC users will not be given admin rights")
+		}
+	} else if oidcConfig != nil {
+		log.Println("OIDC: Issuer, client ID and redirect URL are all required; OIDC authentication disabled")
 	}
 
 	username, password, created, err := userStore.EnsureAdminUser()
@@ -151,6 +162,14 @@ func (m *Manager) HandleAuthInfo(w http.ResponseWriter, r *http.Request) {
 			name = "LDAP (" + m.ldapConfig.Host + ")"
 		}
 		backends = append(backends, map[string]string{"id": "ldap", "name": name})
+	}
+	if m.oidc != nil {
+		backends = append(backends, map[string]string{
+			"id":   "oidc",
+			"name": m.oidc.config.displayName(),
+			"type": "redirect",
+			"url":  "/api/oidc/login",
+		})
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": backends})

@@ -3,6 +3,7 @@ module bootimus
 go 1.27.1
 
 require (
+	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/go-git/go-billy/v5 v5.9.0
 	github.com/go-ldap/ldap/v3 v3.4.13
@@ -18,6 +19,7 @@ require (
 	github.com/willscott/go-nfs v0.0.4
 	go.yaml.in/yaml/v3 v3.0.4
 	golang.org/x/crypto v0.50.0
+	golang.org/x/oauth2 v0.37.0
 	golang.org/x/sys v0.46.0
 	golang.org/x/term v0.44.0
 	golang.org/x/text v0.36.0
@@ -34,6 +36,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/glebarez/go-sqlite v1.21.2 // indirect
 	github.com/go-asn1-ber/asn1-ber v1.5.8-0.20250403174932-29230038a667 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect

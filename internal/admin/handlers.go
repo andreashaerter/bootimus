@@ -2690,6 +2690,12 @@ func (h *Handler) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 				}
 				return "Disabled"
 			}(),
+			"oidc_enabled": func() string {
+				if os.Getenv("BOOTIMUS_OIDC_ISSUER") != "" {
+					return os.Getenv("BOOTIMUS_OIDC_ISSUER")
+				}
+				return "Disabled"
+			}(),
 			"proxy_dhcp": func() string {
 				if h.proxyDHCPEnabled {
 					return "Enabled (standalone — no external DHCP PXE config needed)"
@@ -2728,6 +2734,7 @@ func (h *Handler) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 			"BOOTIMUS_SERVER_ADDR":      os.Getenv("BOOTIMUS_SERVER_ADDR"),
 			"BOOTIMUS_LDAP_HOST":        os.Getenv("BOOTIMUS_LDAP_HOST"),
 			"BOOTIMUS_LDAP_BASE_DN":     os.Getenv("BOOTIMUS_LDAP_BASE_DN"),
+			"BOOTIMUS_OIDC_ISSUER":      os.Getenv("BOOTIMUS_OIDC_ISSUER"),
 		},
 		"system_stats": sysStats,
 	}

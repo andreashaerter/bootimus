@@ -1242,6 +1242,22 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 		}
 	})
 
+	mux.HandleFunc("/api/oidc/login", func(w http.ResponseWriter, r *http.Request) {
+		if s.config.Auth != nil {
+			s.config.Auth.HandleOIDCLogin(w, r)
+		} else {
+			http.NotFound(w, r)
+		}
+	})
+
+	mux.HandleFunc("/api/oidc/callback", func(w http.ResponseWriter, r *http.Request) {
+		if s.config.Auth != nil {
+			s.config.Auth.HandleOIDCCallback(w, r)
+		} else {
+			http.NotFound(w, r)
+		}
+	})
+
 	mux.HandleFunc("/api/server-info", adminWrap(adminHandler.GetServerInfo))
 	mux.HandleFunc("/api/stats", adminWrap(adminHandler.GetStats))
 	mux.HandleFunc("/api/logs", adminWrap(adminHandler.GetBootLogs))
