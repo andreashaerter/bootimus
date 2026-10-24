@@ -23,6 +23,8 @@ const (
 	EventInstallCompleted = "node.install_completed"
 	EventAdminAction      = "admin.action"
 	EventDiskImaging      = "disk."
+	EventInstallDone      = "install.completed"
+	EventInstallFailed    = "install.failed"
 )
 
 type Event struct {
@@ -76,6 +78,8 @@ func eventEnabled(cfg *models.WebhookConfig, event string) bool {
 		return cfg.OnEnrollment
 	case EventAdminAction:
 		return cfg.OnAdminAction
+	case EventInstallDone, EventInstallFailed:
+		return cfg.OnInstall
 	}
 	if strings.HasPrefix(event, EventDiskImaging) {
 		return cfg.OnDiskImaging

@@ -270,3 +270,61 @@ func TestBuildImageBootSectionsUKI(t *testing.T) {
 		t.Error("footer must define the uki_needs_uefi label")
 	}
 }
+
+func TestBuildKernelBootSectionBSDChainsTFTPHook(t *testing.T) {
+	mb := testMenuBuilder(nil)
+	for _, distro := range []string{"openbsd", "netbsd"} {
+		img := &models.Image{ID: 31, Name: "BSD", Filename: "lab/install77.iso", Enabled: true, BootMethod: "kernel", Distro: distro, BootParams: "stty com0 115200"}
+		out := mb.buildKernelBootSection(img, "lab/install77.iso", "lab/install77")
+		want := "chain http://10.0.0.1:8080/bsd/lab/install77/boot.ipxe?mac=aa:bb:cc:dd:ee:ff&platform=${platform}&buildarch=${buildarch} || goto failed\n"
+		if !strings.Contains(out, want) {
+			t.Errorf("%s: expected %q in:\n%s", distro, want, out)
+		}
+		if strings.Contains(out, "vmlinuz") || strings.Contains(out, "initrd") || strings.Contains(out, "stty") {
+			t.Errorf("%s: BSD entries must not emit Linux kernel lines or raw boot params:\n%s", distro, out)
+		}
+	}
+}
+
+func TestBuildWinPEBootSectionUsesSelectedWIM(t *testing.T) {
+	mb := testMenuBuilder(nil)
+	img := &models.Image{
+		ID:         12,
+		Filename:   "WinPE_Strelec.iso",
+		Enabled:    true,
+		BootMethod: "kernel",
+		Distro:     "winpe",
+		WIMPath:    "SSTR/strelec10x64 Eng.wim",
+		WIMIndex:   2,
+	}
+
+	out := mb.buildKernelBootSection(img, "WinPE_Strelec.iso", "WinPE_Strelec")
+	if !strings.Contains(out, "kernel http://10.0.0.1:8080/wimboot index=2\n") {
+		t.Errorf("expected the WIM index on the wimboot line, got:\n%s", out)
+	}
+	if !strings.Contains(out, "initrd http://10.0.0.1:8080/boot/WinPE_Strelec/iso/SSTR/strelec10x64%20Eng.wim boot.wim\n") {
+		t.Errorf("expected the selected WIM as the initrd, got:\n%s", out)
+	}
+	if strings.Contains(out, "iso-url=") || strings.Contains(out, "sources/boot.wim") {
+		t.Errorf("WinPE section must not fall back to Linux or installer defaults:\n%s", out)
+	}
+}
+
+func TestBuildWinPEBootSectionKeepsExplicitIndex(t *testing.T) {
+	mb := testMenuBuilder(nil)
+	img := &models.Image{
+		ID:         13,
+		Filename:   "WinPE_Strelec.iso",
+		Enabled:    true,
+		BootMethod: "kernel",
+		Distro:     "winpe",
+		BootParams: "index=3 gui",
+		WIMPath:    "boot/rescue.wim",
+		WIMIndex:   2,
+	}
+
+	out := mb.buildKernelBootSection(img, "WinPE_Strelec.iso", "WinPE_Strelec")
+	if !strings.Contains(out, "kernel http://10.0.0.1:8080/wimboot index=3 gui\n") {
+		t.Errorf("explicit index parameter should win, got:\n%s", out)
+	}
+}

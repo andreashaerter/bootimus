@@ -10,6 +10,7 @@ Complete guide for deploying Bootimus in various environments with networking an
 - [Networking Configuration](#networking-configuration)
 - [Storage Configuration](#storage-configuration)
 - [Backup and Restore](#backup-and-restore)
+- [Securing the Admin Interface](#securing-the-admin-interface)
 - [Database Options](#database-options)
 - [Remote Updates & Privacy](#remote-updates--privacy)
 - [Production Deployment](#production-deployment)
@@ -317,6 +318,58 @@ If any step fails Bootimus logs the error and exits without starting, and the st
 
 The Settings page shows a **Restore staged** notice until the restart happens. `GET /api/backup/import` reports the same, and `DELETE /api/backup/import` discards it.
 
+## Securing the Admin Interface
+
+The admin interface speaks plain HTTP by default, so login tokens, BMC passwords and backups cross the network unencrypted. Turn on TLS for anything beyond a lab on your desk.
+
+### Self-signed certificate
+
+```bash
+./bootimus serve --admin-tls
+```
+
+On first start Bootimus generates an ECDSA P-256 certificate valid for ten years, stores it as `<data_dir>/tls/admin.crt` and `admin.key` (mode 0600) and reuses it on every later start. The subject alternative names cover the server address, the host name, `localhost` and the loopback addresses. The SHA-256 fingerprint is logged at startup and shown under **Server Info** so you can compare it with what your browser reports.
+
+Browsers will warn about the certificate until you trust it:
+
+- **Firefox**: open the admin URL, choose *Advanced* → *Accept the Risk and Continue*.
+- **Chrome / Edge**: open the admin URL, click *Advanced* → *Proceed*, or import `admin.crt` into the system trust store to silence the warning permanently.
+- **curl**: pass `--cacert data/tls/admin.crt`, or `-k` to skip verification.
+
+Delete the two files and restart to generate a fresh certificate, for example after changing the server address.
+
+### Your own certificate
+
+```bash
+./bootimus serve --admin-tls --admin-tls-cert /etc/bootimus/admin.pem --admin-tls-key /etc/bootimus/admin-key.pem
+```
+
+Both files must be PEM. The certificate file may contain the full chain. Bootimus requires TLS 1.2 or newer. After renewing the files, send `SIGHUP` to the process and the new certificate is picked up without a restart:
+
+```bash
+kill -HUP $(pidof bootimus)
+```
+
+If the reload fails the previous certificate stays in use and the error is logged.
+
+Configuration file equivalent:
+
+```yaml
+admin_tls:
+  enabled: true
+  cert_file: /etc/bootimus/admin.pem
+  key_file: /etc/bootimus/admin-key.pem
+  redirect_port: 8082   # optional: plain HTTP here redirects to HTTPS
+```
+
+Environment variables: `BOOTIMUS_ADMIN_TLS_ENABLED`, `BOOTIMUS_ADMIN_TLS_CERT_FILE`, `BOOTIMUS_ADMIN_TLS_KEY_FILE`, `BOOTIMUS_ADMIN_TLS_SELF_SIGNED`, `BOOTIMUS_ADMIN_TLS_REDIRECT_PORT`.
+
+### Notes
+
+- Only the admin port changes. The boot port stays HTTP because iPXE clients fetch kernels and menus from it, and the admin UI keeps building ISO and file links with `http://` for that reason.
+- OIDC sign-in sets its state cookie with the `Secure` flag whenever the request arrived over TLS, so set `oidc.redirect_url` to the `https://` address of the admin interface.
+- A reverse proxy such as Caddy, nginx or Traefik in front of the admin port remains a good alternative when you already run one; leave `admin_tls.enabled` off in that case and terminate TLS at the proxy.
+
 ## Database Options
 
 ### SQLite Mode (Default)
@@ -502,6 +555,7 @@ db:
 export BOOTIMUS_TFTP_PORT=69
 export BOOTIMUS_HTTP_PORT=8080
 export BOOTIMUS_ADMIN_PORT=8081
+export BOOTIMUS_ADMIN_TLS_ENABLED=true          # HTTPS admin interface, self-signed unless cert and key are set
 export BOOTIMUS_DATA_DIR=/var/lib/bootimus/data
 export BOOTIMUS_SERVER_ADDR=192.168.1.100
 

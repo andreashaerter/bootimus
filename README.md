@@ -190,6 +190,7 @@ globally active set.
 
 ### Other
 - FreeBSD
+- **OpenBSD and NetBSD** (new, feedback welcome) — booted through their own PXE loaders served over TFTP, see the [Image Management Guide](docs/en/images.md#openbsd-and-netbsd)
 - **Windows 10/11** (via wimboot) — optional unattended install via SMB (see the [Windows Unattended Install](#windows-unattended-install---windows-smb) section). Needs `samba` on the host if enabled.
 
 For distributions not in this list, the **generic boot scanner** automatically walks the ISO filesystem to find kernel and initrd files and attempts to extract boot parameters from syslinux/grub configuration files.
@@ -279,7 +280,6 @@ services:
 ## Roadmap
 
 - iPXE colour theming (blocked on iPXE firmware compatibility)
-- NetBSD/OpenBSD support
 
 ## Why Bootimus Over iVentoy?
 

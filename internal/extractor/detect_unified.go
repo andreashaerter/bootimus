@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"bootimus/internal/bsdboot"
 )
 
 func detectDistroNameUnified(reader FileSystemReader, isoPath string) string {
@@ -40,6 +42,8 @@ func detectDistroNameUnified(reader FileSystemReader, isoPath string) string {
 		"tails":           "tails",
 		"opensuse":        "opensuse",
 		"freebsd":         "freebsd",
+		"openbsd":         "openbsd",
+		"netbsd":          "netbsd",
 		"nixos":           "nixos",
 		"endeavouros":     "endeavouros",
 		"garuda":          "garuda",
@@ -524,17 +528,33 @@ func (e *Extractor) detectWindowsUnified(reader FileSystemReader) (*BootFiles, e
 		}
 	}
 
-	if bcdPath != "" && bootSdiPath != "" && bootWimPath != "" {
-		return &BootFiles{
-			Kernel:     bcdPath,
-			Initrd:     bootSdiPath,
-			Distro:     "windows",
-			BootWim:    bootWimPath,
-			InstallWim: installWimPath,
-		}, nil
+	if bcdPath == "" || bootSdiPath == "" {
+		return nil, fmt.Errorf("not Windows ISO (found: BCD=%v, boot.sdi=%v)", bcdPath != "", bootSdiPath != "")
 	}
 
-	return nil, fmt.Errorf("not Windows ISO")
+	wimPaths := findWIMFiles(reader)
+	if bootWimPath == "" && len(wimPaths) > 0 {
+		bootWimPath = wimPaths[0]
+	}
+	if bootWimPath == "" {
+		return nil, fmt.Errorf("not Windows ISO (BCD and boot.sdi present but no .wim found)")
+	}
+
+	distro := "windows"
+	if installWimPath == "" {
+		distro = "winpe"
+	}
+	files := &BootFiles{
+		Kernel:     bcdPath,
+		Initrd:     bootSdiPath,
+		Distro:     distro,
+		BootWim:    bootWimPath,
+		InstallWim: installWimPath,
+	}
+	for _, p := range wimPaths {
+		files.WIMFiles = append(files.WIMFiles, WIMFile{Path: strings.TrimPrefix(p, "/")})
+	}
+	return files, nil
 }
 
 func (e *Extractor) cacheBootFilesUnified(files *BootFiles, reader FileSystemReader, isoPath string) error {
@@ -545,35 +565,12 @@ func (e *Extractor) cacheBootFilesUnified(files *BootFiles, reader FileSystemRea
 		return fmt.Errorf("failed to create boot files subdirectory: %w", err)
 	}
 
-	if files.Distro == "windows" {
-		extractedDir := filepath.Join(bootFilesDir, "iso")
-		if err := os.MkdirAll(extractedDir, 0755); err != nil {
-			return fmt.Errorf("failed to create extracted ISO directory: %w", err)
-		}
+	if bsdboot.IsBSD(files.Distro) {
+		return e.cacheBSDFiles(files, reader, bootFilesDir)
+	}
 
-		log.Printf("Extracting full Windows ISO contents to %s", extractedDir)
-		if err := reader.ExtractAll(extractedDir); err != nil {
-			return fmt.Errorf("failed to extract full ISO contents: %w", err)
-		}
-
-		files.ExtractedDir = extractedDir
-
-		bcdDest := filepath.Join(extractedDir, strings.TrimPrefix(files.Kernel, "/"))
-		files.Kernel = bcdDest
-
-		bootSdiDest := filepath.Join(extractedDir, strings.TrimPrefix(files.Initrd, "/"))
-		files.Initrd = bootSdiDest
-
-		bootWimDest := filepath.Join(extractedDir, strings.TrimPrefix(files.BootWim, "/"))
-		files.BootWim = bootWimDest
-
-		if files.InstallWim != "" {
-			installDest := filepath.Join(extractedDir, strings.TrimPrefix(files.InstallWim, "/"))
-			files.InstallWim = installDest
-		}
-
-		log.Printf("Windows ISO extraction complete")
-		return nil
+	if isWindowsDistro(files.Distro) {
+		return e.cacheWindowsFiles(files, reader, bootFilesDir)
 	}
 
 	kernelDest := filepath.Join(bootFilesDir, "vmlinuz")

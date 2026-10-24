@@ -6,6 +6,7 @@
     <title>Bootimus Admin Panel</title>
     <link rel="icon" type="image/png" href="/favicon.png">
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="vendor/xterm.css">
 </head>
 <body>
     <!-- Login Screen -->
@@ -39,6 +40,11 @@
                 <div class="form-group" style="margin-bottom: 20px;">
                     <label data-i18n="login.password" style="display: block; margin-bottom: 6px; font-size: 13px; font-weight: 500; color: var(--text-secondary);">Password</label>
                     <input type="password" name="password" id="login-password" required autocomplete="current-password"
+                        style="width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); font-size: 14px;">
+                </div>
+                <div class="form-group" id="login-totp-group" style="display: none; margin-bottom: 20px;">
+                    <label for="login-totp-code" style="display: block; margin-bottom: 6px; font-size: 13px; font-weight: 500; color: var(--text-secondary);">Two-factor code</label>
+                    <input type="text" name="code" id="login-totp-code" inputmode="numeric" autocomplete="one-time-code" placeholder="Authenticator or recovery code"
                         style="width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); font-size: 14px;">
                 </div>
                 <div id="login-error" style="display: none; color: var(--danger); font-size: 13px; margin-bottom: 12px;"></div>
@@ -155,6 +161,10 @@
                         <div class="stat-value" id="stat-boots">-</div>
                         <div class="stat-label" data-i18n="stats.total_boots">Total Boots</div>
                     </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-updates">-</div>
+                        <div class="stat-label">Updates Available</div>
+                    </div>
                 </div>
 
                 <!-- Active Sessions Panel -->
@@ -193,6 +203,7 @@
                 <div class="subtabs">
                     <button class="subtab active" data-subtab="clients" onclick="switchClientsSubtab('clients')">Clients</button>
                     <button class="subtab" data-subtab="client-groups" onclick="switchClientsSubtab('client-groups')">Client Groups</button>
+                    <button class="subtab" data-subtab="san-targets" onclick="switchClientsSubtab('san-targets')">SAN Targets</button>
                 </div>
 
                 <div id="clients-subtab">
@@ -292,6 +303,24 @@
                     <div id="client-groups-table" class="loading">
                         <div class="spinner"></div>
                         Loading client groups...
+                    </div>
+                </div>
+
+                <div id="san-targets-subtab" style="display: none;">
+                    <h2>SAN Targets</h2>
+                    <p style="color: var(--text-secondary); margin: 0 12px 8px; font-size: 13px;">
+                        iSCSI, AoE or HTTP disks that clients boot from with iPXE <code>sanboot</code>. Assign a target to a client or a client group, and tick "Boot from SAN by default" to make it the entry the menu falls through to.
+                    </p>
+                    <div class="toolbar">
+                        <button class="btn admin-only" type="button" onclick="showSANTargetModal()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            Add SAN Target
+                        </button>
+                        <input type="search" class="toolbar-filter" placeholder="Filter targets…" oninput="applyTableFilter('san-targets', this.value, renderSANTargetsTable)">
+                    </div>
+                    <div id="san-targets-table" class="loading">
+                        <div class="spinner"></div>
+                        Loading SAN targets...
                     </div>
                 </div>
             </div>
@@ -521,6 +550,69 @@
                     <div class="spinner"></div>
                     Loading users...
                 </div>
+            </div>
+
+            <div class="card" style="margin-top: 20px;" id="totp-card">
+                <h2>Two-Factor Authentication</h2>
+                <p style="color: var(--text-secondary); margin: 0 12px 8px; font-size: 13px;">
+                    Protect your own account with a time-based one-time code from an authenticator app such as Aegis, Google Authenticator or 1Password. Applies to local accounts only; LDAP and OIDC users get their second factor from their identity provider.
+                </p>
+                <div id="totp-status" style="padding: 0 12px 12px; font-size: 13px;"></div>
+                <div id="totp-setup" style="display: none; padding: 0 12px 12px;">
+                    <div style="display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start;">
+                        <img id="totp-qr" alt="Scan with an authenticator app" width="220" height="220" style="border-radius: var(--radius-sm); background: #fff;">
+                        <div style="flex: 1; min-width: 240px;">
+                            <p style="margin: 0 0 8px; font-size: 13px;">Scan the code, or enter this secret manually:</p>
+                            <code id="totp-secret" style="word-break: break-all;"></code>
+                            <div class="form-group" style="margin-top: 12px;">
+                                <label for="totp-confirm-code">Code from the app</label>
+                                <input type="text" id="totp-confirm-code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" style="max-width: 200px;">
+                            </div>
+                            <button type="button" class="btn btn-primary" onclick="enableTOTP()">Enable</button>
+                            <button type="button" class="btn" onclick="cancelTOTPSetup()">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+                <div id="totp-recovery" style="display: none; margin: 0 12px 12px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input);">
+                    <div style="font-size: 13px; margin-bottom: 8px;">Recovery codes. Each works once if you lose your authenticator. Save them now; they will not be shown again.</div>
+                    <pre id="totp-recovery-codes" style="margin: 0 0 8px; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;"></pre>
+                    <button type="button" class="btn btn-sm" onclick="copyTOTPRecoveryCodes()">Copy</button>
+                    <button type="button" class="btn btn-sm" onclick="document.getElementById('totp-recovery').style.display = 'none'">Dismiss</button>
+                </div>
+            </div>
+
+            <div class="card" style="margin-top: 20px;">
+                <h2>API Tokens</h2>
+                <p style="color: var(--text-secondary); margin: 0 12px 8px; font-size: 13px;">
+                    Long-lived tokens for scripts and integrations. Send one as <code>Authorization: Bearer btk_…</code>. Read tokens can only call GET endpoints available to read-only users; admin tokens can do everything except manage tokens.
+                </p>
+                <form id="api-token-form" style="padding: 0 12px 12px; display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;" onsubmit="createAPIToken(event)">
+                    <div class="form-group" style="margin: 0; flex: 1; min-width: 180px;">
+                        <label for="api-token-name">Name</label>
+                        <input type="text" id="api-token-name" maxlength="64" placeholder="e.g. ansible" required>
+                    </div>
+                    <div class="form-group" style="margin: 0; min-width: 140px;">
+                        <label for="api-token-scope">Scope</label>
+                        <select id="api-token-scope" class="form-control">
+                            <option value="read">Read-only</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin: 0; min-width: 140px;">
+                        <label for="api-token-expires">Expires after (days)</label>
+                        <input type="number" id="api-token-expires" min="0" step="1" value="0" placeholder="0 = never">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Create Token</button>
+                </form>
+                <div id="api-token-secret" style="display: none; margin: 0 12px 12px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input);">
+                    <div style="font-size: 13px; margin-bottom: 8px;">Copy this token now. It will not be shown again.</div>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <code id="api-token-secret-value" style="flex: 1; word-break: break-all;"></code>
+                        <button type="button" class="btn btn-sm" onclick="copyAPITokenSecret()">Copy</button>
+                        <button type="button" class="btn btn-sm" onclick="document.getElementById('api-token-secret').style.display = 'none'">Dismiss</button>
+                    </div>
+                </div>
+                <div id="api-tokens-table" style="padding: 0 12px 12px;"></div>
             </div>
         </div>
 
@@ -808,6 +900,10 @@
                             <input type="checkbox" id="webhook-on-admin-action">
                             <label for="webhook-on-admin-action"><code>admin.action</code> — a change was made through the admin API (mirrors the audit log)</label>
                         </div>
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="webhook-on-install">
+                            <label for="webhook-on-install"><code>install.completed</code> / <code>install.failed</code> — an unattended install reported its result or timed out</label>
+                        </div>
                     </div>
                     <div style="display: flex; gap: 8px;">
                         <button type="submit" class="btn">
@@ -877,6 +973,12 @@
                             <input type="number" id="housekeeping-audit-days" min="0" step="1" value="365">
                         </div>
                     </div>
+                    <div class="form-group checkbox-group" style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="housekeeping-catalogue-check" checked>
+                        <label for="housekeeping-catalogue-check" style="margin: 0;">Check the catalogue daily for newer releases of installed images and tools</label>
+                        <button type="button" class="btn btn-sm" id="catalogue-check-btn" onclick="checkCatalogueNow()" style="margin-left: auto;">Check now</button>
+                    </div>
+                    <div id="catalogue-check-result" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;"></div>
                     <div style="display: flex; gap: 8px; align-items: center;">
                         <button type="submit" class="btn">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
@@ -1172,6 +1274,17 @@
                     </select>
                     <small style="color: var(--text-secondary);">Override the installation config for this machine specifically. Leave blank to inherit from the client group, or fall back to the image's default.</small>
                 </div>
+                <div class="form-group">
+                    <label>SAN Target</label>
+                    <select name="san_target_id" id="edit-client-san-select">
+                        <option value="">(inherit from group, or none)</option>
+                    </select>
+                    <small style="color: var(--text-secondary);">iSCSI, AoE or HTTP disk offered as "Boot from SAN" in this client's menu.</small>
+                </div>
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" name="boot_from_san" id="edit-client-boot-from-san">
+                    <label for="edit-client-boot-from-san">Boot from SAN by default</label>
+                </div>
 
                 <details style="margin-bottom: 12px;">
                     <summary style="cursor: pointer; font-weight: 500; padding: 6px 0;">BMC (Power Control)</summary>
@@ -1218,8 +1331,16 @@
                         <button type="button" class="btn btn-sm" onclick="powerClient('GracefulShutdown')">Graceful Off</button>
                         <button type="button" class="btn btn-sm" onclick="powerClient('ForceRestart')">Restart</button>
                         <button type="button" class="btn btn-sm read-ok" onclick="powerStatusClient()">Status</button>
+                        <button type="button" class="btn btn-sm btn-primary" id="open-console-btn" onclick="openClientConsole()" style="display: none;">Open Console</button>
                     </div>
                     <div id="power-client-result" style="font-size: 12px; color: var(--text-secondary);"></div>
+                </details>
+                <details style="margin-bottom: 12px;">
+                    <summary style="cursor: pointer; font-weight: 500; padding: 6px 0;">Install History</summary>
+                    <p style="color: var(--text-muted); font-size: 12px; margin: 4px 0 10px 0;">
+                        Unattended installs reported through the <code>{{CALLBACK_URL}}</code> placeholder. Installs that never report are marked failed after the configured timeout.
+                    </p>
+                    <div id="client-install-history" style="font-size: 13px;"></div>
                 </details>
                 <div class="form-group">
                     <label>Assigned Images</label>
@@ -1247,6 +1368,23 @@
                 <div id="client-boot-history-list" style="font-size: 13px;">
                     <p style="color: var(--text-secondary); margin: 0;">Loading…</p>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="console-modal" class="modal">
+        <div class="modal-content" style="max-width: 960px; width: 95%;">
+            <div class="modal-header">
+                <h2>Remote Console <span id="console-title" style="font-weight: normal; font-size: 14px; color: var(--text-secondary);"></span></h2>
+            </div>
+            <p style="color: var(--text-secondary); margin-bottom: 10px; font-size: 13px;">
+                Serial console over the client's BMC. Output appears only while the firmware or operating system writes to the serial port; press Enter if the screen stays blank.
+            </p>
+            <div id="console-terminal" style="height: 440px; background: #000; border-radius: var(--radius-sm); padding: 6px;"></div>
+            <div style="display: flex; gap: 10px; align-items: center; margin-top: 10px;">
+                <button type="button" class="btn btn-danger btn-sm" onclick="disconnectClientConsole()">Disconnect</button>
+                <button type="button" class="btn btn-sm read-ok" onclick="closeModal('console-modal')">Close</button>
+                <span id="console-status" style="font-size: 12px; color: var(--text-secondary);"></span>
             </div>
         </div>
     </div>
@@ -1337,6 +1475,60 @@
                 </div>
                 <button type="submit" class="btn btn-danger">Queue Deploy</button>
                 <button type="button" class="btn" onclick="closeModal('deploy-disk-modal')" style="margin-left: 8px;">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="san-target-modal" class="modal">
+        <div class="modal-content" style="max-width: 560px;">
+            <div class="modal-header">
+                <h2 id="san-target-modal-title">Add SAN Target</h2>
+            </div>
+            <form id="san-target-form">
+                <input type="hidden" name="id">
+                <div class="form-group">
+                    <label>Name *</label>
+                    <input type="text" name="name" required placeholder="lab-disk">
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <input type="text" name="description">
+                </div>
+                <div class="form-group">
+                    <label>SAN URI *</label>
+                    <input type="text" name="uri" required placeholder="iscsi:10.0.0.5::::iqn.2024-01.lan:disk0" style="font-family: ui-monospace, monospace;">
+                    <small style="color: var(--text-secondary);">iPXE SAN URI: <code>iscsi:server:protocol:port:lun:iqn</code>, <code>aoe:e0.0</code> or <code>http://host/disk.img</code>.</small>
+                </div>
+                <div class="form-group">
+                    <label>Initiator IQN</label>
+                    <input type="text" name="initiator_iqn" placeholder="iqn.2024-01.lan:client-{{MAC}}" style="font-family: ui-monospace, monospace;">
+                    <small style="color: var(--text-secondary);">Optional. <code>{{MAC}}</code> is replaced with the client's MAC without colons. Leave blank to use iPXE's default.</small>
+                </div>
+                <details style="margin-bottom: 12px;">
+                    <summary style="cursor: pointer; font-weight: 500; padding: 6px 0;">CHAP Authentication</summary>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div class="form-group">
+                            <label>CHAP Username</label>
+                            <input type="text" name="chap_username" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label>CHAP Password</label>
+                            <input type="password" name="chap_password" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label>Reverse CHAP Username</label>
+                            <input type="text" name="reverse_chap_username" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label>Reverse CHAP Password</label>
+                            <input type="password" name="reverse_chap_password" autocomplete="off">
+                        </div>
+                    </div>
+                </details>
+                <div style="display: flex; gap: 10px;">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <button type="button" class="btn" onclick="closeModal('san-target-modal')">Cancel</button>
+                </div>
             </form>
         </div>
     </div>
@@ -1832,6 +2024,15 @@
             <div id="image-props-warn-wimlib" class="guide-warning" style="display:none;">
                 <span class="gw-text" data-i18n="props.warn.wimlib_missing">wimlib-imagex is not installed on the server. boot.wim cannot be patched without it. Install wimtools (or wimlib-imagex) on the host running bootimus, then restart.</span>
             </div>
+            <div id="image-props-update" class="guide-warning" style="display:none; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <span class="gw-text" id="image-props-update-text"></span>
+                <button type="button" class="btn btn-sm" onclick="downloadNewerImage()">Download newer version</button>
+            </div>
+            <div id="image-props-integrity" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 16px; font-size: 13px; color: var(--text-secondary);">
+                <span id="image-props-checksum-status"></span>
+                <input type="text" id="image-props-checksum-input" placeholder="SHA-256 or URL of a SHA256SUMS file" style="flex: 1; min-width: 240px; font-family: monospace; font-size: 12px; padding: 6px 8px;">
+                <button type="button" class="btn btn-sm" id="image-props-verify-btn" onclick="verifyImageFromProperties()">Verify</button>
+            </div>
 
             <div class="subtabs" style="margin: 0 0 20px;">
                 <button type="button" class="subtab active" data-props-tab="general" onclick="switchPropsTab('general')" data-i18n="props.tab.properties">Properties</button>
@@ -1906,6 +2107,20 @@
                         </div>
                     </div>
                     <small style="color: var(--text-muted);" data-i18n="props.field.bootfile_hint">Serve a specific kernel/initrd from the extracted ISO instead of the auto-detected ones.</small>
+                </div>
+
+                <div id="image-props-wim-row" style="display: none;">
+                    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px;">
+                        <div class="form-group" style="margin-bottom: 4px;">
+                            <label>Boot WIM</label>
+                            <select id="image-props-wim-path" class="form-control"></select>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 4px;">
+                            <label>Image index</label>
+                            <input type="number" id="image-props-wim-index" class="form-control" min="1" step="1" value="1">
+                        </div>
+                    </div>
+                    <small style="color: var(--text-muted);">WinPE and rescue media often carry several WIM files. Pick the one wimboot should load and, for multi-image WIMs, which image inside it.</small>
                 </div>
 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
@@ -2200,6 +2415,17 @@
                     <small style="color: var(--text-secondary);">Default installation config for every machine in this group. Individual clients can still override.</small>
                 </div>
                 <div class="form-group">
+                    <label>SAN Target</label>
+                    <select name="san_target_id" id="cg-san-select">
+                        <option value="">(none)</option>
+                    </select>
+                    <small style="color: var(--text-secondary);">Members without their own SAN target inherit this one.</small>
+                </div>
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" name="boot_from_san" id="cg-boot-from-san">
+                    <label for="cg-boot-from-san">Boot from SAN by default</label>
+                </div>
+                <div class="form-group">
                     <label>Overlay Allowed Images</label>
                     <select name="allowed_images" id="cg-allowed-images" multiple size="8"></select>
                     <small style="color: var(--text-secondary);">Members inherit these on top of their own allowlist.</small>
@@ -2474,6 +2700,8 @@
         </div>
     </div>
 
+    <script src="vendor/xterm.js"></script>
+    <script src="vendor/addon-fit.js"></script>
     <script src="i18n.js"></script>
     <script src="app.js"></script>
 </body>

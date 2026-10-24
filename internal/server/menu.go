@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bootimus/internal/bsdboot"
 	"bootimus/internal/diskimage"
 	"bootimus/internal/imagescan"
 	"bootimus/internal/models"
@@ -29,9 +30,49 @@ type MenuBuilder struct {
 	autoInstallTypes  map[uint]string
 	forceLocalDefault bool
 	diskBoot          *diskimage.Boot
+	sanTarget         *models.SANTarget
+	sanDefault        bool
+	nextBootSAN       bool
 }
 
 func (s *Server) generateIPXEMenuWithGroups(images []models.Image, macAddress string, nextBootImageID ...uint) string {
+	var nbID uint
+	if len(nextBootImageID) > 0 {
+		nbID = nextBootImageID[0]
+	}
+	return s.generateIPXEMenuFor(images, macAddress, nbID, 0)
+}
+
+func (s *Server) resolveSANTarget(client *models.Client) (*models.SANTarget, bool) {
+	if client == nil || s.config.Storage == nil {
+		return nil, false
+	}
+	targetID := client.SANTargetID
+	bootDefault := client.BootFromSAN
+	var group *models.ClientGroup
+	if client.ClientGroupID != nil {
+		if g, err := s.config.Storage.GetClientGroup(*client.ClientGroupID); err == nil {
+			group = g
+		}
+	}
+	if targetID == nil && group != nil {
+		targetID = group.SANTargetID
+	}
+	if group != nil && group.BootFromSAN {
+		bootDefault = true
+	}
+	if targetID == nil {
+		return nil, false
+	}
+	target, err := s.config.Storage.GetSANTarget(*targetID)
+	if err != nil {
+		log.Printf("Warning: SAN target %d for client %s not found: %v", *targetID, client.MACAddress, err)
+		return nil, false
+	}
+	return target, bootDefault
+}
+
+func (s *Server) generateIPXEMenuFor(images []models.Image, macAddress string, nbID uint, nextBootSANID uint) string {
 	var groups []*models.ImageGroup
 	var theme *models.MenuTheme
 	var client *models.Client
@@ -60,9 +101,13 @@ func (s *Server) generateIPXEMenuWithGroups(images []models.Image, macAddress st
 		enabledTools = s.toolsManager.GetEnabledTools(serverURL)
 	}
 
-	var nbID uint
-	if len(nextBootImageID) > 0 {
-		nbID = nextBootImageID[0]
+	sanTarget, sanDefault := s.resolveSANTarget(client)
+	nextBootSAN := false
+	if nextBootSANID != 0 && s.config.Storage != nil {
+		if t, err := s.config.Storage.GetSANTarget(nextBootSANID); err == nil {
+			sanTarget = t
+			nextBootSAN = true
+		}
 	}
 
 	var diskBoot *diskimage.Boot
@@ -101,6 +146,9 @@ func (s *Server) generateIPXEMenuWithGroups(images []models.Image, macAddress st
 		autoInstallTypes:  autoInstallTypes,
 		forceLocalDefault: client != nil && client.EnrollmentState == models.EnrollmentStateInstalled,
 		diskBoot:          diskBoot,
+		sanTarget:         sanTarget,
+		sanDefault:        sanDefault,
+		nextBootSAN:       nextBootSAN,
 	}
 
 	return mb.Build()
@@ -114,6 +162,8 @@ func (mb *MenuBuilder) Build() string {
 		sb.WriteString("goto diskimaging\n\n")
 	} else if mb.hasEnabledImage(mb.nextBootImageID) {
 		sb.WriteString(fmt.Sprintf("goto iso%d\n\n", mb.nextBootImageID))
+	} else if mb.nextBootSAN && mb.sanTarget != nil {
+		sb.WriteString("goto san\n\n")
 	} else {
 		sb.WriteString(mb.buildMainMenu())
 	}
@@ -167,6 +217,9 @@ func (mb *MenuBuilder) menuTimeoutMs() int {
 func (mb *MenuBuilder) resolveDefaultItem(visibleGroups []*models.ImageGroup, ungroupedImages []models.Image) string {
 	if mb.nextBootImageID > 0 {
 		return fmt.Sprintf("iso%d", mb.nextBootImageID)
+	}
+	if mb.sanTarget != nil && (mb.nextBootSAN || mb.sanDefault) {
+		return "san"
 	}
 	if mb.forceLocalDefault {
 		return "local"
@@ -239,6 +292,11 @@ func (mb *MenuBuilder) buildMainMenu() string {
 			}
 			sb.WriteString(fmt.Sprintf("item iso%d %s (%s)%s\n", img.ID, img.Name, sizeStr, extractedTag))
 		}
+	}
+
+	if mb.sanTarget != nil {
+		sb.WriteString("item --gap -- SAN:\n")
+		sb.WriteString(fmt.Sprintf("item san Boot from SAN: %s\n", mb.sanTarget.Name))
 	}
 
 	sb.WriteString("item --gap -- Options:\n")
@@ -406,9 +464,16 @@ func (mb *MenuBuilder) buildKernelBootSection(img *models.Image, encodedFilename
 		bootParams = " " + bootParams
 	}
 
-	switch img.Distro {
-	case "windows", "windows7":
+	switch {
+	case bsdboot.IsBSD(img.Distro):
+		sb.WriteString(fmt.Sprintf("echo %s boots through its own network loader served over TFTP\n", bsdboot.DisplayName(img.Distro)))
+		sb.WriteString(fmt.Sprintf("chain %s/bsd/%s/boot.ipxe?mac=%s&platform=${platform}&buildarch=${buildarch} || goto failed\n", baseURL, cacheDir, mb.macAddress))
+
+	case models.IsWindowsDistro(img.Distro):
 		bootParams = wimbootArgs(bootParams)
+		if img.WIMIndex > 0 && !hasParam(bootParams, "index") {
+			bootParams = strings.TrimSpace(bootParams + fmt.Sprintf(" index=%d", img.WIMIndex))
+		}
 		if bootParams != "" {
 			bootParams = " " + bootParams
 		}
@@ -417,7 +482,11 @@ func (mb *MenuBuilder) buildKernelBootSection(img *models.Image, encodedFilename
 		// Ship only boot.wim and let wimboot synthesize the ramdisk BCD +
 		// boot.sdi (the documented minimal setup). Feeding the ISO's DVD BCD
 		// hangs 24H2/25H2 media on a black screen after the loading bar.
-		sb.WriteString(fmt.Sprintf("initrd %s/boot/%s/iso/sources/boot.wim boot.wim || initrd %s/boot/%s/iso/SOURCES/BOOT.WIM boot.wim\n", baseURL, cacheDir, baseURL, cacheDir))
+		if img.WIMPath != "" {
+			sb.WriteString(fmt.Sprintf("initrd %s/boot/%s/iso/%s boot.wim\n", baseURL, cacheDir, encodePathSegments(img.WIMPath)))
+		} else {
+			sb.WriteString(fmt.Sprintf("initrd %s/boot/%s/iso/sources/boot.wim boot.wim || initrd %s/boot/%s/iso/SOURCES/BOOT.WIM boot.wim\n", baseURL, cacheDir, baseURL, cacheDir))
+		}
 		sb.WriteString("boot || goto failed\n")
 
 	default:
@@ -487,8 +556,12 @@ func wimbootArgs(params string) string {
 }
 
 func hasInitrdParam(params string) bool {
+	return hasParam(params, "initrd")
+}
+
+func hasParam(params, key string) bool {
 	for _, f := range strings.Fields(params) {
-		if strings.HasPrefix(f, "initrd=") {
+		if strings.HasPrefix(f, key+"=") {
 			return true
 		}
 	}
@@ -503,7 +576,7 @@ func (mb *MenuBuilder) resolveBootParams(img *models.Image, baseURL, encodedFile
 		params = mb.profileManager.GetBootParams(img.Distro, hasSquashfs)
 	}
 
-	if params == "" && !strings.HasPrefix(img.Distro, "windows") && img.BootMethod != imagescan.BootMethodUKI {
+	if params == "" && !models.IsWindowsDistro(img.Distro) && img.BootMethod != imagescan.BootMethodUKI {
 		params = fmt.Sprintf("iso-url=%s/isos/%s ip=dhcp", baseURL, encodedFilename)
 	}
 
@@ -564,6 +637,8 @@ func (mb *MenuBuilder) buildFooter() string {
 			sb.WriteString("boot || goto failed\n\n")
 		}
 	}
+
+	sb.WriteString(mb.buildSANBootSection())
 
 	sb.WriteString(`:local
 echo Booting from local disk...
@@ -657,4 +732,27 @@ func formatSize(bytes int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+func (mb *MenuBuilder) buildSANBootSection() string {
+	if mb.sanTarget == nil {
+		return ""
+	}
+	t := mb.sanTarget
+	var sb strings.Builder
+	sb.WriteString(":san\n")
+	sb.WriteString(fmt.Sprintf("echo Booting from SAN target %s...\n", t.Name))
+	if iqn := t.ResolveInitiatorIQN(mb.macAddress); iqn != "" {
+		sb.WriteString(fmt.Sprintf("set initiator-iqn %s\n", iqn))
+	}
+	if t.CHAPUsername != "" {
+		sb.WriteString(fmt.Sprintf("set username %s\n", t.CHAPUsername))
+		sb.WriteString(fmt.Sprintf("set password %s\n", t.CHAPPassword))
+	}
+	if t.ReverseCHAPUsername != "" {
+		sb.WriteString(fmt.Sprintf("set reverse-username %s\n", t.ReverseCHAPUsername))
+		sb.WriteString(fmt.Sprintf("set reverse-password %s\n", t.ReverseCHAPPassword))
+	}
+	sb.WriteString(fmt.Sprintf("sanboot --no-describe --drive 0x80 %s || goto failed\n\n", t.URI))
+	return sb.String()
 }

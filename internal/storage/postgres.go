@@ -101,6 +101,9 @@ func (s *PostgresStore) AutoMigrate() error {
 		&models.AuditLog{},
 		&models.DiskImage{},
 		&models.DiskJob{},
+		&models.APIToken{},
+		&models.InstallRecord{},
+		&models.SANTarget{},
 	); err != nil {
 		return err
 	}
@@ -245,7 +248,7 @@ func (s *PostgresStore) CreateClient(client *models.Client) error {
 func (s *PostgresStore) UpdateClient(mac string, client *models.Client) error {
 	return s.db.Model(&models.Client{}).Where("mac_address = ?", mac).
 		Select("Name", "Description", "Enabled", "ShowPublicImages", "BootloaderSet", "Static", "ClientGroupID",
-			"BMCProtocol", "IPMIHost", "IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "ProxyDHCPNoVendorOption", "UpdatedAt").
+			"BMCProtocol", "IPMIHost", "IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "ProxyDHCPNoVendorOption", "SANTargetID", "BootFromSAN", "UpdatedAt").
 		Updates(client).Error
 }
 
@@ -917,7 +920,7 @@ func (s *PostgresStore) RecordScheduledTaskRun(id uint, status, errorMsg string)
 func (s *PostgresStore) GetWebhookConfig() (*models.WebhookConfig, error) {
 	var cfg models.WebhookConfig
 	if err := s.db.First(&cfg, 1).Error; err != nil {
-		return &models.WebhookConfig{ID: 1, OnBootStarted: true, OnClientDiscovered: true}, nil
+		return &models.WebhookConfig{ID: 1, OnBootStarted: true, OnClientDiscovered: true, OnEnrollment: true, OnInstall: true}, nil
 	}
 	return &cfg, nil
 }
@@ -973,7 +976,7 @@ func (s *PostgresStore) CreateClientGroup(group *models.ClientGroup) error {
 func (s *PostgresStore) UpdateClientGroup(id uint, group *models.ClientGroup) error {
 	return s.db.Model(&models.ClientGroup{}).Where("id = ?", id).
 		Select("Name", "Description", "Enabled", "AllowedImages", "BootloaderSet", "WOLBroadcastAddr", "StaggerDelayMillis",
-			"BMCProtocol", "IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "UpdatedAt").
+			"BMCProtocol", "IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "SANTargetID", "BootFromSAN", "UpdatedAt").
 		Updates(group).Error
 }
 

@@ -6,8 +6,10 @@ Bootimus uses JWT (JSON Web Token) authentication for the admin panel. Optionall
 
 - [Local Authentication](#local-authentication)
 - [Login Flow](#login-flow)
+  - [Two-Factor Authentication](#two-factor-authentication)
 - [Roles](#roles)
 - [API Authentication](#api-authentication)
+  - [API Tokens](#api-tokens)
 - [LDAP / Active Directory](#ldap--active-directory)
 - [OIDC / Single Sign-On](#oidc--single-sign-on)
 - [Users from LDAP and OIDC](#users-from-ldap-and-oidc)
@@ -84,6 +86,22 @@ recovery). These commands operate directly on the configured database
 6. The token is stored in the browser and sent with all API requests
 7. On logout or token expiry, the login page is shown again
 
+### Two-Factor Authentication
+
+Local accounts can add a time-based one-time password (TOTP) as a second factor. LDAP and OIDC users are not offered it here; their identity provider owns the second factor.
+
+**Enabling it.** Open **Users** → **Two-Factor Authentication**, press **Set up**, scan the QR code with an authenticator app (or type the secret in), then confirm with a code from the app. Bootimus then shows ten single-use recovery codes. Save them; they are not shown again.
+
+**Signing in.** After a correct password the login page asks for the six-digit code. A recovery code works in its place, once. Wrong codes count towards the [brute-force lockout](#brute-force-protection) like wrong passwords.
+
+**Losing the device.** An administrator can press **Reset 2FA** next to the user, or call `POST /api/users/totp/reset?id=<id>`. If the only administrator is locked out, run this on the server:
+
+```bash
+bootimus user reset-totp admin
+```
+
+**Via API.** Scripts should use [API tokens](#api-tokens) rather than a password and TOTP. If you do log in with a TOTP-protected account, `POST /api/login` first answers `401` with `{"error":"totp_required","totp_required":true}`; repeat the request with the same credentials plus `"code":"123456"`.
+
 ### Brute-Force Protection
 
 Password logins (local and LDAP) are rate limited in memory:
@@ -150,6 +168,35 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/images
 - **Expiry**: 24 hours from issue
 - **Secret**: Randomly generated on each server startup (all tokens are invalidated on restart)
 - **Claims**: Username, admin status, issue time, expiry
+
+### API Tokens
+
+For scripts, CI jobs and integrations, create a long-lived token under **Users** → **API Tokens** instead of logging in with a password. Tokens start with `btk_`, are shown once at creation, and are stored hashed. Each token has a scope:
+
+| Scope | What it can do |
+|-------|----------------|
+| `read` | `GET` requests to the same endpoints a read-only user can see |
+| `admin` | Everything an administrator can do, except create or revoke tokens |
+
+Tokens can be given an expiry in days and revoked at any time. The audit log records changes made with a token as `token:<name>`, and `/api/me` reports `"principal": "token"`.
+
+```bash
+# Create a token (as an admin user)
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"ansible","scope":"admin","expires_in_days":365}' \
+  http://localhost:8081/api/tokens
+
+# Use it exactly like a JWT
+curl -H "Authorization: Bearer btk_..." http://localhost:8081/api/clients
+
+# List and revoke
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/tokens
+curl -X DELETE -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/tokens?id=3"
+```
+
+Unlike JWTs, API tokens survive a restart of Bootimus.
+
+Tokens and the passwords used to obtain them travel in clear text unless the admin interface is served over HTTPS. Enable it with `--admin-tls` or put a TLS-terminating reverse proxy in front of the admin port; see [Securing the Admin Interface](deployment.md#securing-the-admin-interface).
 
 ### Check Available Auth Backends
 

@@ -46,6 +46,9 @@ var viewerReadRoutes = map[string]bool{
 	"/api/clients/menu-preview":      true,
 	"/api/disk-images":               true,
 	"/api/disk-images/jobs":          true,
+	"/api/clients/installs":          true,
+	"/api/installs":                  true,
+	"/api/san-targets":               true,
 	"/api/theme":                     true,
 	"/api/usb":                       true,
 	"/api/usb/download":              true,
@@ -53,6 +56,12 @@ var viewerReadRoutes = map[string]bool{
 	"/api/housekeeping":              true,
 	"/api/proxydhcp/events":          true,
 	"/api/proxydhcp/stream":          true,
+}
+
+var selfServiceRoutes = map[string]bool{
+	"/api/me/totp/setup":   true,
+	"/api/me/totp/enable":  true,
+	"/api/me/totp/disable": true,
 }
 
 var publicRoutes = map[string]bool{
@@ -146,6 +155,9 @@ func TestViewerAccessToEveryAPIRoute(t *testing.T) {
 		}
 		if code, _ := env.do(http.MethodGet, route, ""); code != http.StatusUnauthorized {
 			t.Errorf("GET %s without a token: want 401, got %d", route, code)
+		}
+		if selfServiceRoutes[route] {
+			continue
 		}
 		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
 			if code, _ := env.do(method, route, env.viewer); code != http.StatusForbidden {
