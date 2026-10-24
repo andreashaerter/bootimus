@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -321,35 +322,35 @@ func (m *Manager) authenticate(w http.ResponseWriter, r *http.Request) (*Claims,
 		return nil, false
 	}
 
-	if IsAPISecret(tokenString) {
-		claims, err := m.authenticateAPIToken(tokenString)
-		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
-			return nil, false
-		}
-		return claims, true
-	}
-
-	claims, err := m.ValidateToken(tokenString)
+	claims, err := m.AuthenticateToken(tokenString)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid or expired token"})
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
 		return nil, false
 	}
+	return claims, true
+}
 
+var (
+	ErrInvalidToken = errors.New("Invalid or expired token")
+	ErrUserDisabled = errors.New("User account disabled")
+)
+
+func (m *Manager) AuthenticateToken(tokenString string) (*Claims, error) {
+	if IsAPISecret(tokenString) {
+		return m.authenticateAPIToken(tokenString)
+	}
+	claims, err := m.ValidateToken(tokenString)
+	if err != nil {
+		return nil, ErrInvalidToken
+	}
 	user, err := m.userStore.GetUser(claims.Username)
 	if err != nil || !user.Enabled {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "User account disabled"})
-		return nil, false
+		return nil, ErrUserDisabled
 	}
-
 	claims.IsAdmin = user.IsAdmin
-	return claims, true
+	return claims, nil
 }
 
 type contextKey string

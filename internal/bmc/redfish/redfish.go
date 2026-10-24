@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"bootimus/internal/bmc"
+	"bootimus/internal/bmc/ipmi"
 )
 
 const Name = "redfish"
@@ -54,6 +55,10 @@ func New(host string, port int, username, password string, insecure bool) *Clien
 		Insecure: insecure,
 		http:     &http.Client{Timeout: 15 * time.Second, Transport: transport},
 	}
+}
+
+func (c *Client) OpenConsole(ctx context.Context) (bmc.Console, error) {
+	return ipmi.Open(ctx, c.Host, ipmi.DefaultPort, c.Username, c.Password)
 }
 
 func (c *Client) PowerState(ctx context.Context) (string, error) {

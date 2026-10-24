@@ -2,7 +2,9 @@ package bmc
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"sort"
 
 	"bootimus/internal/models"
@@ -34,6 +36,16 @@ type Controller interface {
 	SetPower(ctx context.Context, action Action) error
 }
 
+type Console interface {
+	io.ReadWriteCloser
+}
+
+type ConsoleOpener interface {
+	OpenConsole(ctx context.Context) (Console, error)
+}
+
+var ErrConsoleUnsupported = errors.New("this BMC protocol has no serial console support")
+
 type Protocol interface {
 	Name() string
 	New(t Target) (Controller, error)
@@ -60,6 +72,18 @@ func New(t Target) (Controller, error) {
 		return nil, fmt.Errorf("unknown BMC protocol %q", t.Protocol)
 	}
 	return p.New(t)
+}
+
+func OpenConsole(ctx context.Context, t Target) (Console, error) {
+	ctrl, err := New(t)
+	if err != nil {
+		return nil, err
+	}
+	opener, ok := ctrl.(ConsoleOpener)
+	if !ok {
+		return nil, ErrConsoleUnsupported
+	}
+	return opener.OpenConsole(ctx)
 }
 
 func Resolve(c *models.Client, g *models.ClientGroup) (Target, bool) {
