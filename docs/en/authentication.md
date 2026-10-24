@@ -179,6 +179,8 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/toke
 
 Unlike JWTs, API tokens survive a restart of Bootimus.
 
+Tokens and the passwords used to obtain them travel in clear text unless the admin interface is served over HTTPS. Enable it with `--admin-tls` or put a TLS-terminating reverse proxy in front of the admin port; see [Securing the Admin Interface](deployment.md#securing-the-admin-interface).
+
 ### Check Available Auth Backends
 
 ```bash

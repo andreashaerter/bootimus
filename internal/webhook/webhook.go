@@ -21,6 +21,8 @@ const (
 	EventInstallStarted   = "node.install_started"
 	EventInstallCompleted = "node.install_completed"
 	EventAdminAction      = "admin.action"
+	EventInstallDone      = "install.completed"
+	EventInstallFailed    = "install.failed"
 )
 
 type Event struct {
@@ -74,6 +76,8 @@ func eventEnabled(cfg *models.WebhookConfig, event string) bool {
 		return cfg.OnEnrollment
 	case EventAdminAction:
 		return cfg.OnAdminAction
+	case EventInstallDone, EventInstallFailed:
+		return cfg.OnInstall
 	}
 	return false
 }

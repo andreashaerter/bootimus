@@ -9,8 +9,10 @@ import (
 )
 
 var viewerRedactedFields = map[string]bool{
-	"ipmi_password": true,
-	"config_patch":  true,
+	"ipmi_password":         true,
+	"config_patch":          true,
+	"chap_password":         true,
+	"reverse_chap_password": true,
 }
 
 func (m *Manager) ReadMiddleware(next http.HandlerFunc) http.HandlerFunc {
