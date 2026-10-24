@@ -194,6 +194,31 @@ type WebhookConfig struct {
 	OnClientDiscovered bool      `gorm:"default:true" json:"on_client_discovered"`
 	OnInventoryUpdated bool      `gorm:"default:false" json:"on_inventory_updated"`
 	OnEnrollment       bool      `gorm:"default:true" json:"on_enrollment"`
+	OnAdminAction      bool      `gorm:"default:false" json:"on_admin_action"`
+}
+
+type AuditLog struct {
+	ID        uint      `gorm:"primarykey" json:"id"`
+	CreatedAt time.Time `gorm:"index" json:"created_at"`
+	Username  string    `gorm:"index" json:"username"`
+	Method    string    `json:"method"`
+	Path      string    `gorm:"index" json:"path"`
+	Query     string    `json:"query,omitempty"`
+	Status    int       `json:"status"`
+	RemoteIP  string    `json:"remote_ip,omitempty"`
+	Summary   string    `json:"summary"`
+}
+
+type HousekeepingSettings struct {
+	ID                   uint       `gorm:"primarykey" json:"id"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+	BootLogDays          int        `json:"boot_log_days"`
+	InventoryHistoryDays int        `json:"inventory_history_days"`
+	DiscoveredClientDays int        `json:"discovered_client_days"`
+	AuditLogDays         int        `json:"audit_log_days"`
+	LastRun              *time.Time `json:"last_run,omitempty"`
+	LastStatus           string     `json:"last_status,omitempty"`
+	LastReport           string     `gorm:"type:text" json:"last_report,omitempty"`
 }
 
 type ClientGroup struct {

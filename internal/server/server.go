@@ -29,6 +29,7 @@ import (
 	"bootimus/internal/bmc"
 	_ "bootimus/internal/bmc/amt"
 	_ "bootimus/internal/bmc/redfish"
+	"bootimus/internal/housekeeping"
 	"bootimus/internal/imagescan"
 	"bootimus/internal/metrics"
 	"bootimus/internal/models"
@@ -113,13 +114,16 @@ type Server struct {
 	adminServer           *http.Server
 	tftpServer            *tftp.Server
 	proxyDHCPServer       *proxydhcp.Server
+	proxyDHCPRecorder     *proxydhcp.Recorder
 	webhookNotifier       *webhook.Notifier
 	scheduler             *scheduler.Scheduler
+	housekeeping          *housekeeping.Runner
 	bootLogDedup          map[string]time.Time
 	bootLogDedupMu        sync.Mutex
 	wg                    sync.WaitGroup
 	activeSessions        *ActiveSessions
 	logBroadcaster        *LogBroadcaster
+	audit                 *auditRecorder
 	activeBootloaderSet   string // name of active set folder, empty = built-in
 	activeBootloaderSetMu sync.RWMutex
 	toolsManager          *tools.Manager
@@ -315,12 +319,16 @@ func New(cfg *Config) *Server {
 		activeSessions: &ActiveSessions{
 			sessions: make(map[string]*ActiveSession),
 		},
-		logBroadcaster:  lb,
-		toolsManager:    tm,
-		bootLogDedup:    make(map[string]time.Time),
-		webhookNotifier: webhook.New(cfg.Storage),
+		logBroadcaster:    lb,
+		toolsManager:      tm,
+		bootLogDedup:      make(map[string]time.Time),
+		webhookNotifier:   webhook.New(cfg.Storage),
+		proxyDHCPRecorder: proxydhcp.NewRecorder(proxydhcp.DefaultRecorderSize),
 	}
 	s.scheduler = scheduler.New(cfg.Storage, s.executeScheduledTask)
+	if cfg.Storage != nil {
+		s.housekeeping = housekeeping.New(cfg.Storage)
+	}
 	s.loadBootloaderConfig()
 	return s
 }
@@ -720,6 +728,10 @@ func (s *Server) Start() error {
 		s.scheduler.Start()
 	}
 
+	if s.housekeeping != nil {
+		s.housekeeping.Start()
+	}
+
 	if s.config.ProxyDHCPEnabled {
 		pd, err := proxydhcp.NewServer(proxydhcp.Config{
 			ServerIP:         net.ParseIP(s.config.ServerAddr),
@@ -732,6 +744,7 @@ func (s *Server) Start() error {
 			NoVendorOption:   s.config.ProxyDHCPNoVendorOption,
 			OmitVendorOption: s.proxyDHCPOmitVendorOption,
 			Bootfiles:        s.proxyDHCPBootfilesForClient,
+			Observer:         s.proxyDHCPRecorder.Record,
 		})
 		if err != nil {
 			log.Printf("proxyDHCP: failed to construct server: %v", err)
@@ -815,6 +828,11 @@ func (s *Server) Shutdown() error {
 	if s.scheduler != nil {
 		s.scheduler.Stop()
 		log.Println("Scheduler stopped")
+	}
+
+	if s.housekeeping != nil {
+		s.housekeeping.Stop()
+		log.Println("Housekeeping stopped")
 	}
 
 	if s.smbManager != nil {
@@ -1326,6 +1344,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 		adminHandler.SchedulerRunNow = s.scheduler.RunNow
 	}
 	adminHandler.WebhookNotifier = s.webhookNotifier
+	adminHandler.Housekeeping = s.housekeeping
 
 	staticFS, err := fs.Sub(web.Static, "static")
 	if err != nil {
@@ -1334,8 +1353,12 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	}
 
 	useAuth := s.config.Auth != nil
+	if s.audit == nil {
+		s.audit = &auditRecorder{store: s.config.Storage, notifier: s.webhookNotifier}
+	}
 
 	adminWrap := func(handler http.HandlerFunc) http.HandlerFunc {
+		handler = s.audit.wrap(handler)
 		if useAuth {
 			return s.config.Auth.AdminMiddleware(handler)
 		}
@@ -1343,6 +1366,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	}
 
 	readWrap := func(handler http.HandlerFunc) http.HandlerFunc {
+		handler = s.audit.wrap(handler)
 		if useAuth {
 			return s.config.Auth.ReadMiddleware(handler)
 		}
@@ -1507,6 +1531,9 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 
 	mux.HandleFunc("/api/logs/stream", adminWrap(s.handleLogsStream))
 	mux.HandleFunc("/api/logs/buffer", adminWrap(s.handleLogsBuffer))
+	mux.HandleFunc("/api/proxydhcp/events", readWrap(s.handleProxyDHCPEvents))
+	mux.HandleFunc("/api/proxydhcp/stream", readWrap(s.handleProxyDHCPStream))
+	mux.HandleFunc("/api/proxydhcp/events/clear", adminWrap(s.handleProxyDHCPEventsClear))
 
 	mux.HandleFunc("/api/users", adminWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -1584,6 +1611,8 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 
 	mux.HandleFunc("/api/clients/import", adminWrap(adminHandler.ImportClientsCSV))
 	mux.HandleFunc("/api/backup/export", adminWrap(adminHandler.ExportBackup))
+	mux.HandleFunc("/api/audit", adminWrap(s.handleAuditList))
+	mux.HandleFunc("/api/backup/import", adminWrap(adminHandler.ImportBackup))
 
 	mux.HandleFunc("/api/webhook", adminWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -1596,6 +1625,18 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 		}
 	}))
 	mux.HandleFunc("/api/webhook/test", adminWrap(adminHandler.TestWebhook))
+
+	mux.HandleFunc("/api/housekeeping", readWrap(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			adminHandler.GetHousekeeping(w, r)
+		case http.MethodPut, http.MethodPost:
+			adminHandler.UpdateHousekeeping(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	mux.HandleFunc("/api/housekeeping/run", adminWrap(adminHandler.RunHousekeeping))
 
 	mux.HandleFunc("/api/client-groups", readWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -1631,6 +1672,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 
 	mux.HandleFunc("/api/clients/power", adminWrap(adminHandler.PowerClient))
 	mux.HandleFunc("/api/clients/power/status", readWrap(adminHandler.PowerStatusClient))
+	mux.HandleFunc("/api/clients/menu-preview", readWrap(s.handleMenuPreview))
 
 	mux.HandleFunc("/api/theme", readWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -1986,36 +2028,52 @@ func (s *Server) handleInventoryReport(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(script))
 }
 
-func (s *Server) handleIPXEMenu(w http.ResponseWriter, r *http.Request) {
-	macAddress := r.URL.Query().Get("mac")
+type bootMenuRender struct {
+	MAC           string `json:"mac"`
+	KnownClient   bool   `json:"known_client"`
+	ClientName    string `json:"client_name,omitempty"`
+	NextBootImage string `json:"next_boot_image,omitempty"`
+	Kind          string `json:"kind"`
+	Script        string `json:"script"`
+}
+
+func normaliseMenuMAC(macAddress string) string {
 	if macAddress == "" {
 		macAddress = "unknown"
 	}
+	return strings.ToLower(strings.ReplaceAll(macAddress, "-", ":"))
+}
 
-	macAddress = strings.ToLower(strings.ReplaceAll(macAddress, "-", ":"))
-
-	s.logAndBroadcast("Client Connected: MAC %s (IP: %s) requesting boot menu", macAddress, r.RemoteAddr)
+func (s *Server) renderBootMenu(macAddress, remoteAddr string, commit bool) bootMenuRender {
+	result := bootMenuRender{MAC: macAddress, Kind: "menu"}
 
 	var nextBootImageID uint
 	if s.config.Storage != nil {
 		client, err := s.config.Storage.GetClient(macAddress)
 		if err == nil {
+			result.KnownClient = true
+			result.ClientName = client.Name
 			switch client.EnrollmentState {
 			case models.EnrollmentStateApproved:
 				if script, ok := s.provisionInstallScriptFor(client); ok {
-					s.logAndBroadcast("Client %s: approved cluster node - serving install boot", macAddress)
-					w.Header().Set("Content-Type", "text/plain")
-					w.Write([]byte(script))
-					return
+					if commit {
+						s.logAndBroadcast("Client %s: approved cluster node - serving install boot", macAddress)
+					}
+					result.Kind = "install"
+					result.Script = script
+					return result
 				}
 			case models.EnrollmentStateInstalling:
+				if !commit {
+					break
+				}
 				if stateErr := s.config.Storage.SetClientEnrollmentState(macAddress, models.EnrollmentStateInstalled); stateErr == nil {
 					s.logAndBroadcast("Client %s: install complete - node will default to local boot", macAddress)
 					s.webhookNotifier.Fire(webhook.Event{
 						Event:      webhook.EventInstallCompleted,
 						MAC:        macAddress,
 						ClientName: client.Name,
-						IP:         r.RemoteAddr,
+						IP:         remoteAddr,
 					})
 				}
 			}
@@ -2023,10 +2081,13 @@ func (s *Server) handleIPXEMenu(w http.ResponseWriter, r *http.Request) {
 		if err == nil && client.NextBootImage != "" {
 			img, imgErr := s.config.Storage.GetImage(client.NextBootImage)
 			if imgErr == nil && img.Enabled {
-				s.logAndBroadcast("Client %s: next boot action set - pre-selecting %s", macAddress, img.Name)
+				if commit {
+					s.logAndBroadcast("Client %s: next boot action set - pre-selecting %s", macAddress, img.Name)
+				}
 				nextBootImageID = img.ID
-				s.config.Storage.ClearNextBootImage(macAddress)
-			} else {
+				result.NextBootImage = img.Name
+			}
+			if commit {
 				s.config.Storage.ClearNextBootImage(macAddress)
 			}
 		}
@@ -2047,9 +2108,29 @@ func (s *Server) handleIPXEMenu(w http.ResponseWriter, r *http.Request) {
 		images = convertISOsToImages(isos)
 	}
 
-	menu := s.generateIPXEMenuWithGroups(images, macAddress, nextBootImageID)
+	result.Script = s.generateIPXEMenuWithGroups(images, macAddress, nextBootImageID)
+	return result
+}
+
+func (s *Server) handleIPXEMenu(w http.ResponseWriter, r *http.Request) {
+	macAddress := normaliseMenuMAC(r.URL.Query().Get("mac"))
+
+	s.logAndBroadcast("Client Connected: MAC %s (IP: %s) requesting boot menu", macAddress, r.RemoteAddr)
+
+	rendered := s.renderBootMenu(macAddress, r.RemoteAddr, true)
 	w.Header().Set("Content-Type", "text/plain")
-	w.Write([]byte(menu))
+	w.Write([]byte(rendered.Script))
+}
+
+func (s *Server) handleMenuPreview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	macAddress := normaliseMenuMAC(r.URL.Query().Get("mac"))
+	rendered := s.renderBootMenu(macAddress, r.RemoteAddr, false)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": rendered})
 }
 
 func (s *Server) handleListISOs(w http.ResponseWriter, r *http.Request) {

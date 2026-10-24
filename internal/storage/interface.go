@@ -85,6 +85,16 @@ type Storage interface {
 	GetWebhookConfig() (*models.WebhookConfig, error)
 	UpdateWebhookConfig(cfg *models.WebhookConfig) error
 
+	GetHousekeepingSettings() (*models.HousekeepingSettings, error)
+	UpdateHousekeepingSettings(settings *models.HousekeepingSettings) error
+	RecordHousekeepingRun(status, report string) error
+	DeleteBootLogsBefore(cutoff time.Time) (int64, error)
+	DeleteInventoryHistoryBefore(cutoff time.Time) (int64, error)
+	DeleteDiscoveredClientsNotSeenSince(cutoff time.Time) (int64, error)
+	CreateAuditLog(entry *models.AuditLog) error
+	ListAuditLogs(filter AuditLogFilter) ([]models.AuditLog, int64, error)
+	DeleteAuditLogsBefore(cutoff time.Time) (int64, error)
+
 	ListScheduledTasks() ([]*models.ScheduledTask, error)
 	ListScheduledTasksByGroup(groupID uint) ([]*models.ScheduledTask, error)
 	GetScheduledTask(id uint) (*models.ScheduledTask, error)

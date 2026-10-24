@@ -468,9 +468,11 @@ function setupTabs() {
             if (item.dataset.tab === 'profiles') loadProfiles();
             if (item.dataset.tab === 'autoinstall') loadAutoInstallFiles();
             if (item.dataset.tab === 'clusters') loadClustersTab();
-            if (item.dataset.tab === 'boot-menu') loadTheme();
-            if (item.dataset.tab === 'settings') { loadUSBImages(); loadWebhookConfig(); }
+            if (item.dataset.tab === 'boot-menu') { loadTheme(); populateMenuPreviewMACs(); }
+            if (item.dataset.tab === 'settings') { loadUSBImages(); loadWebhookConfig(); loadRestoreStatus(); loadHousekeeping(); }
             if (item.dataset.tab === 'api-reference') showAPIReference();
+            if (item.dataset.tab === 'audit') loadAuditLog();
+            if (item.dataset.tab === 'pxe-debug') loadPXEDebug();
         });
     });
 
@@ -795,6 +797,7 @@ async function loadWebhookConfig() {
         document.getElementById('webhook-on-boot-started').checked = !!c.on_boot_started;
         document.getElementById('webhook-on-client-discovered').checked = !!c.on_client_discovered;
         document.getElementById('webhook-on-inventory-updated').checked = !!c.on_inventory_updated;
+        document.getElementById('webhook-on-admin-action').checked = !!c.on_admin_action;
     } catch (err) {
         console.error('Failed to load webhook config:', err);
     }
@@ -808,6 +811,7 @@ async function saveWebhookConfig(e) {
         on_boot_started: document.getElementById('webhook-on-boot-started').checked,
         on_client_discovered: document.getElementById('webhook-on-client-discovered').checked,
         on_inventory_updated: document.getElementById('webhook-on-inventory-updated').checked,
+        on_admin_action: document.getElementById('webhook-on-admin-action').checked,
     };
     try {
         const res = await authFetch(`${API_BASE}/webhook`, {
@@ -838,6 +842,114 @@ async function testWebhook() {
     }
 }
 
+const HOUSEKEEPING_TASK_LABELS = {
+    boot_logs: 'Boot logs',
+    inventory_history: 'Inventory history',
+    discovered_clients: 'Discovered clients',
+    audit_logs: 'Audit log',
+};
+
+function renderHousekeeping(view) {
+    const settings = view.settings || {};
+    document.getElementById('housekeeping-boot-log-days').value = settings.boot_log_days ?? 0;
+    document.getElementById('housekeeping-inventory-days').value = settings.inventory_history_days ?? 0;
+    document.getElementById('housekeeping-discovered-days').value = settings.discovered_client_days ?? 0;
+    document.getElementById('housekeeping-audit-days').value = settings.audit_log_days ?? 0;
+
+    const lastRun = document.getElementById('housekeeping-last-run');
+    if (settings.last_run) {
+        const status = settings.last_status || 'ok';
+        const badge = status === 'ok' ? 'badge-success' : (status === 'partial' ? 'badge-warning' : 'badge-danger');
+        lastRun.innerHTML = `Last run ${new Date(settings.last_run).toLocaleString()} <span class="badge ${badge}">${escapeHtml(status)}</span>`;
+    } else {
+        lastRun.textContent = 'Not run yet';
+    }
+
+    const reportEl = document.getElementById('housekeeping-report');
+    const report = view.last_report;
+    if (report && Array.isArray(report.tasks) && report.tasks.length) {
+        let html = '<div class="table-scroll"><table><thead><tr><th>Task</th><th>Result</th></tr></thead><tbody>';
+        for (const t of report.tasks) {
+            const label = HOUSEKEEPING_TASK_LABELS[t.name] || t.name;
+            let result;
+            if (t.error) result = `<span style="color: var(--danger);">${escapeHtml(t.error)}</span>`;
+            else if (t.skipped) result = '<span style="color: var(--text-muted);">Disabled</span>';
+            else result = `${t.affected} removed`;
+            html += `<tr><td>${escapeHtml(label)}</td><td>${result}</td></tr>`;
+        }
+        html += '</tbody></table></div>';
+        reportEl.innerHTML = html;
+    } else {
+        reportEl.innerHTML = '';
+    }
+
+    const usageEl = document.getElementById('housekeeping-usage');
+    if (view.usage && Array.isArray(view.usage.entries)) {
+        let html = `<div class="table-scroll"><table><thead><tr><th>Entry</th><th>Files</th><th>Size</th></tr></thead><tbody>`;
+        for (const e of view.usage.entries) {
+            html += `<tr><td><code>${escapeHtml(e.name)}${e.dir ? '/' : ''}</code></td><td>${e.files}</td><td>${formatBytes(e.bytes)}</td></tr>`;
+        }
+        html += `<tr><td><strong>Total</strong></td><td></td><td><strong>${formatBytes(view.usage.total_bytes)}</strong></td></tr>`;
+        html += '</tbody></table></div>';
+        html += `<div style="font-size: 12px; color: var(--text-muted); margin-top: 6px;">${escapeHtml(view.usage.data_dir)} · measured ${new Date(view.usage.measured_at).toLocaleTimeString()}</div>`;
+        usageEl.innerHTML = html;
+    } else {
+        usageEl.textContent = view.usage_error ? 'Could not measure data directory: ' + view.usage_error : 'No usage information available.';
+    }
+}
+
+async function loadHousekeeping() {
+    if (!document.getElementById('housekeeping-form')) return;
+    try {
+        const res = await authFetch(`${API_BASE}/housekeeping`);
+        const data = await res.json();
+        if (data.success && data.data) renderHousekeeping(data.data);
+    } catch (err) {
+        console.error('Failed to load housekeeping settings:', err);
+    }
+}
+
+async function saveHousekeeping(e) {
+    if (e) e.preventDefault();
+    const body = {
+        boot_log_days: parseInt(document.getElementById('housekeeping-boot-log-days').value, 10) || 0,
+        inventory_history_days: parseInt(document.getElementById('housekeeping-inventory-days').value, 10) || 0,
+        discovered_client_days: parseInt(document.getElementById('housekeeping-discovered-days').value, 10) || 0,
+        audit_log_days: parseInt(document.getElementById('housekeeping-audit-days').value, 10) || 0,
+    };
+    try {
+        const res = await authFetch(`${API_BASE}/housekeeping`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (data.success) {
+            showAlert('Housekeeping settings saved', 'success');
+            loadHousekeeping();
+        } else {
+            showAlert(data.error || 'Save failed', 'error');
+        }
+    } catch (err) {
+        showAlert('Save failed: ' + err.message, 'error');
+    }
+}
+
+async function runHousekeeping() {
+    const btn = document.getElementById('housekeeping-run-btn');
+    btn.disabled = true;
+    try {
+        const res = await authFetch(`${API_BASE}/housekeeping/run`, { method: 'POST' });
+        const data = await res.json();
+        if (data.data) renderHousekeeping(data.data);
+        showAlert(data.message || data.error || 'Housekeeping finished', data.success ? 'success' : 'error');
+    } catch (err) {
+        showAlert('Housekeeping failed: ' + err.message, 'error');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
 async function downloadBackup() {
     try {
         const res = await authFetch(`${API_BASE}/backup/export`);
@@ -859,6 +971,71 @@ async function downloadBackup() {
         URL.revokeObjectURL(a.href);
     } catch (err) {
         showAlert('Backup download failed: ' + err.message, 'error');
+    }
+}
+
+function setRestorePendingNotice(pending) {
+    const notice = document.getElementById('restore-pending-notice');
+    if (notice) notice.style.display = pending ? 'flex' : 'none';
+}
+
+async function loadRestoreStatus() {
+    try {
+        const res = await authFetch(`${API_BASE}/backup/import`);
+        const data = await res.json();
+        setRestorePendingNotice(!!(data.success && data.data && data.data.pending));
+    } catch (err) {
+        console.error('Failed to load restore status:', err);
+    }
+}
+
+async function uploadRestore() {
+    const input = document.getElementById('restore-file');
+    const status = document.getElementById('restore-status');
+    const btn = document.getElementById('restore-upload-btn');
+    const file = input && input.files && input.files[0];
+    if (!file) {
+        showAlert('Choose a backup file first', 'error');
+        return;
+    }
+    if (!confirm(`Restore "${file.name}"?\n\nThe current database, bootloader configuration and settings will be replaced the next time Bootimus restarts. ISOs are not affected.`)) return;
+    const form = new FormData();
+    form.append('backup', file);
+    btn.disabled = true;
+    status.textContent = 'Uploading…';
+    try {
+        const res = await authFetch(`${API_BASE}/backup/import`, { method: 'POST', body: form });
+        const data = await res.json();
+        if (data.success) {
+            status.textContent = '';
+            input.value = '';
+            setRestorePendingNotice(true);
+            showAlert(data.message || 'Restore staged. Restart Bootimus to apply it.', 'success');
+        } else {
+            status.textContent = '';
+            showAlert(data.error || 'Restore upload failed', 'error');
+        }
+    } catch (err) {
+        status.textContent = '';
+        showAlert('Restore upload failed: ' + err.message, 'error');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function cancelRestore() {
+    if (!confirm('Discard the staged restore?')) return;
+    try {
+        const res = await authFetch(`${API_BASE}/backup/import`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+            setRestorePendingNotice(false);
+            showAlert('Staged restore cancelled', 'success');
+        } else {
+            showAlert(data.error || 'Failed to cancel restore', 'error');
+        }
+    } catch (err) {
+        showAlert('Failed to cancel restore: ' + err.message, 'error');
     }
 }
 
@@ -1269,6 +1446,7 @@ function clientRowHTML(client, includeGroupCell) {
                             ${!client.static ? '<button class="btn btn-success btn-sm" onclick="promoteClient(\'' + client.mac_address + '\')">Make Static</button>' : ''}
                             <button class="btn btn-success btn-sm" onclick="wakeClient('${client.mac_address}')">Wake</button>
                             <button class="btn btn-primary btn-sm" onclick="showNextBoot('${client.mac_address}')">Next Boot</button>
+                            <button class="btn btn-sm" onclick="previewBootMenu('${client.mac_address}')">Preview Menu</button>
                         </td>
                     </tr>`;
 }
@@ -2832,6 +3010,8 @@ function setupForms() {
     document.getElementById('add-profile-form').addEventListener('submit', createProfile);
     const wf = document.getElementById('webhook-form');
     if (wf) wf.addEventListener('submit', saveWebhookConfig);
+    const hf = document.getElementById('housekeeping-form');
+    if (hf) hf.addEventListener('submit', saveHousekeeping);
 }
 
 let apiReferenceSpec = null;
@@ -3981,6 +4161,118 @@ function disconnectLiveLogs() {
 
 function clearLiveLogs() {
     document.getElementById('live-logs').innerHTML = '<div style="color: var(--text-secondary);">Click "Refresh" to load logs...</div>';
+}
+
+// ==================== PXE Debug ====================
+
+let pxeDebugEvents = [];
+let pxeDebugEnabled = false;
+let pxeDebugInterval = null;
+
+async function loadPXEDebug() {
+    try {
+        const res = await authFetch(`${API_BASE}/proxydhcp/events`);
+        const data = await res.json();
+        if (!data.success) return;
+        pxeDebugEvents = data.events || [];
+        pxeDebugEnabled = !!data.enabled;
+        const banner = document.getElementById('pxe-debug-disabled');
+        if (banner) banner.style.display = pxeDebugEnabled ? 'none' : 'block';
+        const summary = document.getElementById('pxe-debug-summary');
+        if (summary) {
+            const bf = data.bootfiles || {};
+            summary.innerHTML = pxeDebugEnabled
+                ? `Advertising next-server <code>${escapeHtml(data.server_ip || '')}</code> with bootfiles BIOS <code>${escapeHtml(bf.bios || '')}</code>, UEFI <code>${escapeHtml(bf.uefi || '')}</code>, ARM64 <code>${escapeHtml(bf.arm64 || '')}</code>. Showing the last ${pxeDebugEvents.length} requests.`
+                : '';
+        }
+        if (!clients || clients.length === 0) {
+            try { await loadClients(); } catch (_) {}
+        }
+        renderPXEDebug();
+    } catch (err) {
+        console.error('Failed to load PXE debug events:', err);
+    }
+}
+
+function pxeDebugClientName(mac) {
+    const match = (clients || []).find(c => c.mac_address && c.mac_address.toLowerCase() === (mac || '').toLowerCase());
+    return match && match.name ? match.name : '';
+}
+
+function renderPXEDebug() {
+    const container = document.getElementById('pxe-debug-table');
+    if (!container) return;
+    const filterInput = document.getElementById('pxe-debug-filter');
+    const q = filterInput ? filterInput.value.trim().toLowerCase() : '';
+    const rows = pxeDebugEvents
+        .map(ev => ({ ev, name: pxeDebugClientName(ev.mac) }))
+        .filter(({ ev, name }) => !q || [ev.mac, name, ev.decision, ev.vendor_class, ev.source, ev.relay, ev.bootfile].some(v => (v || '').toLowerCase().includes(q)))
+        .reverse();
+    if (rows.length === 0) {
+        container.innerHTML = `<p style="color: var(--text-secondary); padding: 20px;">${pxeDebugEvents.length === 0 ? 'No PXE requests recorded yet.' : 'No requests match the filter.'}</p>`;
+        return;
+    }
+    const colours = { replied: 'var(--success)', ignored: 'var(--text-secondary)', failed: 'var(--danger)' };
+    let html = '<div class="table-scroll"><table><thead><tr><th>Time</th><th>MAC</th><th>Client</th><th>Source</th><th>Relay</th><th>Type</th><th>Arch</th><th>Vendor class</th><th>Decision</th><th>Bootfile</th></tr></thead><tbody>';
+    for (const { ev, name } of rows) {
+        const flags = [];
+        if (ev.raspberry_pi) flags.push('<span class="badge badge-info" title="Raspberry Pi firmware stage">Pi</span>');
+        if (ev.vendor_option_omitted) flags.push('<span class="badge badge-warning" title="PXE vendor option 43 omitted">no opt 43</span>');
+        if (ev.client_guid) flags.push(`<span style="color: var(--text-muted); font-size: 11px;" title="Client machine identifier">${escapeHtml(ev.client_guid)}</span>`);
+        html += `<tr>
+            <td style="white-space: nowrap;">${new Date(ev.time).toLocaleTimeString()}</td>
+            <td><code>${escapeHtml(ev.mac || '')}</code></td>
+            <td>${name ? escapeHtml(name) : '<span style="color: var(--text-secondary);">unknown</span>'}</td>
+            <td><code>${escapeHtml(ev.source || '')}</code><br><span style="color: var(--text-muted); font-size: 11px;">port ${ev.port}</span></td>
+            <td>${ev.relay ? '<code>' + escapeHtml(ev.relay) + '</code>' : '<span style="color: var(--text-secondary);">—</span>'}</td>
+            <td>${escapeHtml(ev.message_type || '')}</td>
+            <td title="${escapeHtml(ev.arch_name || '')}">${ev.arch}<br><span style="color: var(--text-muted); font-size: 11px;">${escapeHtml(ev.arch_name || '')}</span></td>
+            <td><code style="font-size: 11px;">${escapeHtml(ev.vendor_class || '')}</code></td>
+            <td style="color: ${colours[ev.outcome] || 'inherit'}; max-width: 420px;">${escapeHtml(ev.decision || '')}${flags.length ? '<br>' + flags.join(' ') : ''}</td>
+            <td>${ev.bootfile ? '<code>' + escapeHtml(ev.bootfile) + '</code>' : ''}</td>
+        </tr>`;
+    }
+    html += '</tbody></table></div>';
+    container.innerHTML = html;
+}
+
+function startPXEDebugLive() {
+    loadPXEDebug();
+    if (!pxeDebugInterval) {
+        pxeDebugInterval = setInterval(loadPXEDebug, 2000);
+    }
+    const status = document.getElementById('pxe-debug-status');
+    status.textContent = 'Live (refreshing every 2s)';
+    status.style.color = 'var(--success)';
+    document.getElementById('pxe-debug-live-btn').style.display = 'none';
+    document.getElementById('pxe-debug-stop-btn').style.display = 'inline-block';
+}
+
+function stopPXEDebugLive() {
+    if (pxeDebugInterval) {
+        clearInterval(pxeDebugInterval);
+        pxeDebugInterval = null;
+    }
+    const status = document.getElementById('pxe-debug-status');
+    status.textContent = 'Stopped';
+    status.style.color = 'var(--text-secondary)';
+    document.getElementById('pxe-debug-live-btn').style.display = 'inline-block';
+    document.getElementById('pxe-debug-stop-btn').style.display = 'none';
+}
+
+async function clearPXEDebug() {
+    try {
+        const res = await authFetch(`${API_BASE}/proxydhcp/events/clear`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            pxeDebugEvents = [];
+            renderPXEDebug();
+        } else {
+            showAlert(data.error || 'Failed to clear PXE request history', 'error');
+        }
+    } catch (err) {
+        showAlert('Failed to clear PXE request history: ' + err.message, 'error');
+    }
 }
 
 // ==================== User Management ====================
@@ -7291,4 +7583,159 @@ function unassignNode(mac) {
 
 function markNodeInstalled(mac) {
     clusterNodeAction('mark-installed', mac, 'Node marked installed');
+}
+
+const AUDIT_PAGE_SIZE = 100;
+let auditOffset = 0;
+let auditEntries = [];
+
+function auditFilterQuery() {
+    const params = new URLSearchParams();
+    const user = document.getElementById('audit-filter-user').value.trim();
+    const path = document.getElementById('audit-filter-path').value.trim();
+    const since = document.getElementById('audit-filter-since').value;
+    if (user) params.set('username', user);
+    if (path) params.set('path', path);
+    if (since) params.set('since', new Date(since).toISOString());
+    params.set('limit', AUDIT_PAGE_SIZE);
+    params.set('offset', auditOffset);
+    return params.toString();
+}
+
+async function loadAuditLog() {
+    auditOffset = 0;
+    auditEntries = [];
+    await fetchAuditPage();
+}
+
+async function loadMoreAuditLog() {
+    auditOffset = auditEntries.length;
+    await fetchAuditPage();
+}
+
+async function fetchAuditPage() {
+    const status = document.getElementById('audit-status');
+    const more = document.getElementById('audit-load-more');
+    try {
+        const res = await authFetch(`${API_BASE}/audit?${auditFilterQuery()}`);
+        const data = await res.json();
+        if (!data.success) {
+            document.getElementById('audit-table').innerHTML = `<p class="alert alert-error">${escapeHtml(data.error || 'Failed to load audit log')}</p>`;
+            return;
+        }
+        auditEntries = auditEntries.concat(data.data.entries || []);
+        renderAuditTable();
+        status.textContent = `Showing ${auditEntries.length} of ${data.data.total}`;
+        more.style.display = auditEntries.length < data.data.total ? '' : 'none';
+    } catch (err) {
+        document.getElementById('audit-table').innerHTML = '<p class="alert alert-error">Failed to load audit log</p>';
+    }
+}
+
+function clearAuditFilters() {
+    document.getElementById('audit-filter-user').value = '';
+    document.getElementById('audit-filter-path').value = '';
+    document.getElementById('audit-filter-since').value = '';
+    loadAuditLog();
+}
+
+function auditStatusBadge(status) {
+    const cls = status >= 500 ? 'badge-danger' : status >= 400 ? 'badge-warning' : 'badge-success';
+    return `<span class="badge ${cls}">${status}</span>`;
+}
+
+function renderAuditTable() {
+    const container = document.getElementById('audit-table');
+    container.classList.remove('loading');
+    if (auditEntries.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-secondary); padding: 20px;">No audit entries match.</p>';
+        return;
+    }
+    container.innerHTML = `
+        <div class="table-scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>User</th>
+                    <th>Action</th>
+                    <th>Method</th>
+                    <th>Path</th>
+                    <th>Status</th>
+                    <th>IP</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${auditEntries.map(e => `
+                    <tr>
+                        <td style="white-space: nowrap;">${new Date(e.created_at).toLocaleString()}</td>
+                        <td>${escapeHtml(e.username)}</td>
+                        <td>${escapeHtml(e.summary || '')}</td>
+                        <td><span class="api-method ${e.method.toLowerCase()}">${e.method}</span></td>
+                        <td><code>${escapeHtml(e.path)}${e.query ? '?' + escapeHtml(e.query) : ''}</code></td>
+                        <td>${auditStatusBadge(e.status)}</td>
+                        <td>${escapeHtml(e.remote_ip || '-')}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+        </div>`;
+}
+
+let menuPreviewData = null;
+
+function populateMenuPreviewMACs() {
+    const list = document.getElementById('menu-preview-mac-list');
+    if (!list) return;
+    list.innerHTML = (clients || []).map(c =>
+        `<option value="${escapeHtml(c.mac_address)}">${escapeHtml(c.name || '')}</option>`
+    ).join('');
+}
+
+async function previewBootMenu(mac) {
+    const query = mac && mac.trim() ? `?mac=${encodeURIComponent(mac.trim())}` : '';
+    try {
+        const res = await authFetch(`${API_BASE}/clients/menu-preview${query}`);
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Failed to render boot menu preview', 'error');
+            return;
+        }
+        menuPreviewData = data.data;
+        const parts = [`MAC: ${escapeHtml(menuPreviewData.mac)}`];
+        parts.push(menuPreviewData.known_client
+            ? `Client: ${escapeHtml(menuPreviewData.client_name || '(unnamed)')}`
+            : 'Client: not registered (anonymous menu)');
+        parts.push(menuPreviewData.kind === 'install' ? 'Kind: cluster install boot' : 'Kind: boot menu');
+        if (menuPreviewData.next_boot_image) {
+            parts.push(`Next boot: ${escapeHtml(menuPreviewData.next_boot_image)}`);
+        }
+        document.getElementById('menu-preview-summary').innerHTML = parts.join(' &nbsp;·&nbsp; ');
+        document.getElementById('menu-preview-script').textContent = menuPreviewData.script || '';
+        showModal('menu-preview-modal');
+    } catch (err) {
+        showAlert('Failed to render boot menu preview: ' + err.message, 'error');
+    }
+}
+
+async function copyMenuPreview() {
+    if (!menuPreviewData) return;
+    try {
+        await navigator.clipboard.writeText(menuPreviewData.script || '');
+        showAlert('Boot menu script copied', 'success');
+    } catch (err) {
+        showAlert('Copy failed: ' + err.message, 'error');
+    }
+}
+
+function downloadMenuPreview() {
+    if (!menuPreviewData) return;
+    const blob = new Blob([menuPreviewData.script || ''], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `menu-${(menuPreviewData.mac || 'unknown').replace(/:/g, '')}.ipxe`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
 }

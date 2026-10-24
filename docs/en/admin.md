@@ -9,6 +9,8 @@ Complete guide for using the Bootimus admin interface and REST API.
 - [Client Management](#client-management)
 - [Image Management](#image-management)
 - [Boot Logs](#boot-logs)
+- [Housekeeping and Retention](#housekeeping-and-retention)
+- [Audit Log](#audit-log)
 - [REST API](#rest-api)
 - [Automation Examples](#automation-examples)
 - [Security Best Practises](#security-best-practises)
@@ -318,6 +320,53 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/logs?limit=10
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/logs?limit=500
 ```
 
+## Housekeeping and Retention
+
+Boot logs and hardware inventory submissions accumulate on every PXE boot, and the audit log grows with every admin change. Housekeeping runs once a day (and a few minutes after start-up) and prunes records older than the retention periods set under **Settings** → **Housekeeping**. A period of `0` keeps those records forever.
+
+| Setting | Default | What it removes |
+|---------|---------|-----------------|
+| Boot log retention | 90 days | Boot attempt entries older than the period |
+| Inventory history retention | 90 days | Older inventory submissions; the most recent inventory for every client is always kept |
+| Remove discovered clients not seen for | 0 (off) | Auto-discovered clients whose last boot is older than the period. Static clients and cluster nodes are never touched |
+| Audit log retention | 365 days | Admin action audit entries older than the period |
+
+The card also shows the result of the last run per task and how much space each top-level entry of the data directory uses, so it is easy to spot which ISO group or cache is taking the room.
+
+**Via API**:
+```bash
+# Current settings, last report and data directory usage
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/housekeeping
+
+# Keep boot logs for 30 days, inventory history for a year, never prune clients
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"boot_log_days":30,"inventory_history_days":365,"discovered_client_days":0,"audit_log_days":365}' \
+  http://localhost:8081/api/housekeeping
+
+# Run housekeeping now
+curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/housekeeping/run
+```
+
+## Audit Log
+
+Every change made through the admin API is recorded: the user, the HTTP method and path, the query string, the status the server answered with, and the caller's IP address. Reads (`GET` requests) and the login endpoint itself are not recorded. Query values that look like passwords or tokens are stored as `[redacted]`.
+
+The **Audit Log** tab is visible to administrators only. It can be filtered by user, by path and by a start time, and pages through older entries with **Load more**.
+
+The same entries can be forwarded as `admin.action` webhook events by ticking that event under **Settings → Webhook**. The payload carries the user, method, path, query, status and a short summary in its `metadata` map.
+
+**Via API**:
+```bash
+# Latest 100 entries
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/audit
+
+# Everything alice did to clients since a point in time
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8081/api/audit?username=alice&path=/api/clients&since=2026-10-01T00:00:00Z&limit=500"
+```
+
+The response contains `entries` (newest first) and `total`, so `offset` can be used to page.
+
 ## REST API
 
 All admin functions available via REST API for automation.
@@ -382,6 +431,7 @@ GET /api/stats
 | `PUT` | `/api/clients?mac=<MAC>` | Update client |
 | `DELETE` | `/api/clients?mac=<MAC>` | Delete client |
 | `POST` | `/api/assign-images` | Assign images to client |
+| `GET` | `/api/clients/menu-preview?mac=<MAC>` | Render the iPXE script a client would receive (no side effects; omit `mac` for the anonymous menu) |
 
 #### Images
 
