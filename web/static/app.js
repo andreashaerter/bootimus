@@ -121,13 +121,16 @@ async function handleLogin(e) {
     const username = document.getElementById('login-username').value;
     const password = document.getElementById('login-password').value;
     const authMethod = document.getElementById('login-auth-method').value || 'local';
+    const totpGroup = document.getElementById('login-totp-group');
+    const codeInput = document.getElementById('login-totp-code');
+    const code = totpGroup.style.display !== 'none' ? codeInput.value.trim() : '';
     const errorDiv = document.getElementById('login-error');
 
     try {
         const res = await fetch(`${API_BASE}/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password, auth_method: authMethod })
+            body: JSON.stringify({ username, password, auth_method: authMethod, code })
         });
         const data = await res.json();
 
@@ -135,11 +138,19 @@ async function handleLogin(e) {
             setToken(data.data.token);
             localStorage.setItem('bootimus_username', data.data.username);
             localStorage.setItem('bootimus_is_admin', data.data.is_admin);
+            totpGroup.style.display = 'none';
+            codeInput.value = '';
             showApp();
             initApp();
+        } else if (data.totp_required) {
+            totpGroup.style.display = 'block';
+            errorDiv.textContent = data.message || 'Enter your two-factor code';
+            errorDiv.style.display = 'block';
+            codeInput.focus();
         } else {
             errorDiv.textContent = data.error || 'Login failed';
             errorDiv.style.display = 'block';
+            if (totpGroup.style.display !== 'none') codeInput.select();
         }
     } catch (err) {
         errorDiv.textContent = 'Connection error';
@@ -151,6 +162,7 @@ function logout() {
     clearToken();
     showLoginScreen();
     document.getElementById('login-form').reset();
+    document.getElementById('login-totp-group').style.display = 'none';
 }
 
 async function checkAuth() {
@@ -408,6 +420,7 @@ function initApp() {
     loadPublicFiles();
     loadLogs();
     if (!isReadOnly()) { loadUsers(); loadAPITokens(); }
+    loadTOTPStatus();
     loadActiveSessions();
 
     // Refresh every 30 seconds
@@ -4314,6 +4327,7 @@ function renderUsersTable(users) {
                     <th>Role</th>
                     <th>Source</th>
                     <th>Status</th>
+                    <th>2FA</th>
                     <th>Last Login</th>
                     <th>Created</th>
                     <th>Actions</th>
@@ -4323,6 +4337,7 @@ function renderUsersTable(users) {
     `;
 
     users.forEach(user => {
+        const twoFactor = user.totp_enabled ? '<span class="badge badge-success">On</span>' : '<span style="color: var(--text-secondary);">Off</span>';
         const role = user.is_admin ? '<span class="badge badge-info">Admin</span>' : '<span class="badge badge-success">Read-only</span>';
         const source = { local: 'Local', ldap: 'LDAP', oidc: 'OIDC' }[user.source || 'local'] || user.source;
         const isLocal = !user.source || user.source === 'local';
@@ -4336,11 +4351,13 @@ function renderUsersTable(users) {
                 <td>${role}</td>
                 <td>${escapeHtml(source)}</td>
                 <td>${status}</td>
+                <td>${twoFactor}</td>
                 <td>${lastLogin}</td>
                 <td>${created}</td>
                 <td>
                     <button class="btn btn-info btn-sm" onclick='editUser(${JSON.stringify(user)})'>Edit</button>
                     ${isLocal ? `<button class="btn btn-sm" onclick='showResetPasswordModal(${JSON.stringify(user)})'>Reset Password</button>` : ''}
+                    ${isLocal && user.totp_enabled ? `<button class="btn btn-sm" onclick="resetUserTOTP(${user.id}, '${escapeHtml(user.username).replace(/'/g, "\\'")}')">Reset 2FA</button>` : ''}
                     ${user.username !== 'admin' ? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${user.username}')">Delete</button>` : ''}
                 </td>
             </tr>
@@ -7841,5 +7858,130 @@ async function revokeAPIToken(id, name) {
         loadAPITokens();
     } catch (err) {
         showAlert('Failed to revoke token: ' + err.message, 'error');
+    }
+}
+
+async function loadTOTPStatus() {
+    const card = document.getElementById('totp-card');
+    const status = document.getElementById('totp-status');
+    if (!card || !status) return;
+    try {
+        const res = await authFetch(`${API_BASE}/me`);
+        const data = await res.json();
+        if (!data.success) return;
+        const me = data.data;
+        if (me.principal === 'token' || (me.source && me.source !== 'local')) {
+            card.style.display = 'none';
+            return;
+        }
+        card.style.display = '';
+        if (me.totp_enabled) {
+            status.innerHTML = `<span class="badge badge-success">Enabled</span> Two-factor authentication is on for <strong>${escapeHtml(me.username)}</strong>.
+                <button type="button" class="btn btn-sm" style="margin-left: 10px;" onclick="disableTOTP()">Disable</button>`;
+        } else {
+            status.innerHTML = `<span class="badge badge-warning">Off</span> Two-factor authentication is not enabled for <strong>${escapeHtml(me.username)}</strong>.
+                <button type="button" class="btn btn-sm btn-primary" style="margin-left: 10px;" onclick="startTOTPSetup()">Set up</button>`;
+        }
+    } catch (err) {
+        status.textContent = 'Could not load two-factor status';
+    }
+}
+
+async function startTOTPSetup() {
+    try {
+        const res = await authFetch(`${API_BASE}/me/totp/setup`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Could not start two-factor setup', 'error');
+            return;
+        }
+        document.getElementById('totp-qr').src = data.data.qr_code;
+        document.getElementById('totp-secret').textContent = data.data.secret;
+        document.getElementById('totp-confirm-code').value = '';
+        document.getElementById('totp-setup').style.display = '';
+        document.getElementById('totp-recovery').style.display = 'none';
+        document.getElementById('totp-confirm-code').focus();
+    } catch (err) {
+        showAlert('Could not start two-factor setup: ' + err.message, 'error');
+    }
+}
+
+function cancelTOTPSetup() {
+    document.getElementById('totp-setup').style.display = 'none';
+}
+
+async function enableTOTP() {
+    const code = document.getElementById('totp-confirm-code').value.trim();
+    if (!code) {
+        showAlert('Enter the code shown in your authenticator app', 'error');
+        return;
+    }
+    try {
+        const res = await authFetch(`${API_BASE}/me/totp/enable`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Could not enable two-factor authentication', 'error');
+            return;
+        }
+        document.getElementById('totp-setup').style.display = 'none';
+        document.getElementById('totp-recovery-codes').textContent = (data.data.recovery_codes || []).join('\n');
+        document.getElementById('totp-recovery').style.display = '';
+        showAlert('Two-factor authentication enabled', 'success');
+        loadTOTPStatus();
+        if (!isReadOnly()) loadUsers();
+    } catch (err) {
+        showAlert('Could not enable two-factor authentication: ' + err.message, 'error');
+    }
+}
+
+async function copyTOTPRecoveryCodes() {
+    try {
+        await navigator.clipboard.writeText(document.getElementById('totp-recovery-codes').textContent);
+        showAlert('Recovery codes copied', 'success');
+    } catch (err) {
+        showAlert('Copy failed: ' + err.message, 'error');
+    }
+}
+
+async function disableTOTP() {
+    const password = prompt('Enter your password to turn off two-factor authentication:');
+    if (password === null) return;
+    try {
+        const res = await authFetch(`${API_BASE}/me/totp/disable`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Could not disable two-factor authentication', 'error');
+            return;
+        }
+        showAlert('Two-factor authentication disabled', 'success');
+        loadTOTPStatus();
+        if (!isReadOnly()) loadUsers();
+    } catch (err) {
+        showAlert('Could not disable two-factor authentication: ' + err.message, 'error');
+    }
+}
+
+async function resetUserTOTP(id, username) {
+    if (!confirm(`Remove two-factor authentication from "${username}"? They will be able to sign in with just their password until they set it up again.`)) return;
+    try {
+        const res = await authFetch(`${API_BASE}/users/totp/reset?id=${id}`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Could not reset two-factor authentication', 'error');
+            return;
+        }
+        showAlert(data.message || 'Two-factor authentication removed', 'success');
+        loadUsers();
+        loadTOTPStatus();
+    } catch (err) {
+        showAlert('Could not reset two-factor authentication: ' + err.message, 'error');
     }
 }

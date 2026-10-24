@@ -6,6 +6,7 @@ Bootimus uses JWT (JSON Web Token) authentication for the admin panel. Optionall
 
 - [Local Authentication](#local-authentication)
 - [Login Flow](#login-flow)
+  - [Two-Factor Authentication](#two-factor-authentication)
 - [Roles](#roles)
 - [API Authentication](#api-authentication)
   - [API Tokens](#api-tokens)
@@ -84,6 +85,22 @@ recovery). These commands operate directly on the configured database
 5. On successful login, a JWT token is issued (valid for 24 hours)
 6. The token is stored in the browser and sent with all API requests
 7. On logout or token expiry, the login page is shown again
+
+### Two-Factor Authentication
+
+Local accounts can add a time-based one-time password (TOTP) as a second factor. LDAP and OIDC users are not offered it here; their identity provider owns the second factor.
+
+**Enabling it.** Open **Users** → **Two-Factor Authentication**, press **Set up**, scan the QR code with an authenticator app (or type the secret in), then confirm with a code from the app. Bootimus then shows ten single-use recovery codes. Save them; they are not shown again.
+
+**Signing in.** After a correct password the login page asks for the six-digit code. A recovery code works in its place, once. Wrong codes count towards the [brute-force lockout](#brute-force-protection) like wrong passwords.
+
+**Losing the device.** An administrator can press **Reset 2FA** next to the user, or call `POST /api/users/totp/reset?id=<id>`. If the only administrator is locked out, run this on the server:
+
+```bash
+bootimus user reset-totp admin
+```
+
+**Via API.** Scripts should use [API tokens](#api-tokens) rather than a password and TOTP. If you do log in with a TOTP-protected account, `POST /api/login` first answers `401` with `{"error":"totp_required","totp_required":true}`; repeat the request with the same credentials plus `"code":"123456"`.
 
 ### Brute-Force Protection
 

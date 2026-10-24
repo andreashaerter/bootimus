@@ -1535,6 +1535,21 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/proxydhcp/stream", readWrap(s.handleProxyDHCPStream))
 	mux.HandleFunc("/api/proxydhcp/events/clear", adminWrap(s.handleProxyDHCPEventsClear))
 
+	selfService := func(handler func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if s.config.Auth == nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte(`{"success":false,"error":"Authentication is disabled on this server"}`))
+				return
+			}
+			handler(w, r)
+		}
+	}
+	mux.HandleFunc("/api/me/totp/setup", selfService(func(w http.ResponseWriter, r *http.Request) { s.config.Auth.HandleTOTPSetup(w, r) }))
+	mux.HandleFunc("/api/me/totp/enable", selfService(func(w http.ResponseWriter, r *http.Request) { s.config.Auth.HandleTOTPEnable(w, r) }))
+	mux.HandleFunc("/api/me/totp/disable", selfService(func(w http.ResponseWriter, r *http.Request) { s.config.Auth.HandleTOTPDisable(w, r) }))
+
 	mux.HandleFunc("/api/users", adminWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -1551,6 +1566,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	}))
 	mux.HandleFunc("/api/users/reset-password", adminWrap(adminHandler.ResetUserPassword))
 	mux.HandleFunc("/api/tokens", adminWrap(adminHandler.APITokens))
+	mux.HandleFunc("/api/users/totp/reset", adminWrap(adminHandler.ResetUserTOTP))
 
 	mux.HandleFunc("/api/images/download", adminWrap(adminHandler.DownloadISO))
 	mux.HandleFunc("/api/downloads", readWrap(adminHandler.ListDownloads))

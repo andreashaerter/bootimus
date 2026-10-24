@@ -52,7 +52,7 @@ func pathParam(n, desc string) APIParam {
 
 var APISections = []APISection{
 	{Tag: "Authentication", Endpoints: []APIEndpoint{
-		{Method: "POST", Path: "/api/login", Summary: "Obtain a JWT token.", Body: "{username, password, auth_method}", Public: true},
+		{Method: "POST", Path: "/api/login", Summary: "Obtain a JWT token. Answers 401 with totp_required when the account needs a second factor; resend with code.", Body: "{username, password, auth_method, code}", Public: true},
 		{Method: "GET", Path: "/api/auth-info", Summary: "Available authentication backends.", Public: true},
 		{Method: "GET", Path: "/api/me", Summary: "The current user's name, admin flag and role.", Public: true},
 		{Method: "GET", Path: "/api/oidc/login", Summary: "Start the OpenID Connect sign-in redirect.", Public: true},
@@ -60,6 +60,9 @@ var APISections = []APISection{
 		{Method: "GET", Path: "/logout", Summary: "Redirect to the login page.", Public: true},
 		{Method: "GET", Path: "/health", Summary: "Liveness probe.", Public: true},
 		{Method: "GET", Path: "/api/openapi.json", Summary: "This OpenAPI document.", Public: true},
+		{Method: "POST", Path: "/api/me/totp/setup", Summary: "Start two-factor enrolment for the signed-in local user; returns the otpauth URL, secret and a QR code.", ReadOnly: true},
+		{Method: "POST", Path: "/api/me/totp/enable", Summary: "Confirm enrolment with a code from the authenticator app; returns recovery codes once.", Body: "{code}", ReadOnly: true},
+		{Method: "POST", Path: "/api/me/totp/disable", Summary: "Turn off two-factor authentication for the signed-in user.", Body: "{password}", ReadOnly: true},
 	}},
 	{Tag: "Server", Description: "Server information and statistics.", Endpoints: []APIEndpoint{
 		{Method: "GET", Path: "/api/server-info", Summary: "Version, uptime, paths and network information.", ReadOnly: true},
@@ -207,6 +210,7 @@ var APISections = []APISection{
 		{Method: "PUT", Path: "/api/users", Summary: "Update a user.", Params: []APIParam{qID("User ID")}, Body: "{enabled, is_admin}"},
 		{Method: "DELETE", Path: "/api/users", Summary: "Delete a user.", Params: []APIParam{qID("User ID")}},
 		{Method: "POST", Path: "/api/users/reset-password", Summary: "Reset a local user's password.", Params: []APIParam{qID("User ID")}, Body: "{new_password}"},
+		{Method: "POST", Path: "/api/users/totp/reset", Summary: "Remove two-factor authentication from a user who has lost their device.", Params: []APIParam{qID("User ID (or username=)")}},
 		{Method: "GET", Path: "/api/tokens", Summary: "List API tokens."},
 		{Method: "POST", Path: "/api/tokens", Summary: "Create a scoped API token; the secret is returned once.", Body: "{name, scope (read|admin), expires_in_days}"},
 		{Method: "DELETE", Path: "/api/tokens", Summary: "Revoke an API token.", Params: []APIParam{qID("Token ID")}},

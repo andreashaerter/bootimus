@@ -41,6 +41,11 @@
                     <input type="password" name="password" id="login-password" required autocomplete="current-password"
                         style="width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); font-size: 14px;">
                 </div>
+                <div class="form-group" id="login-totp-group" style="display: none; margin-bottom: 20px;">
+                    <label for="login-totp-code" style="display: block; margin-bottom: 6px; font-size: 13px; font-weight: 500; color: var(--text-secondary);">Two-factor code</label>
+                    <input type="text" name="code" id="login-totp-code" inputmode="numeric" autocomplete="one-time-code" placeholder="Authenticator or recovery code"
+                        style="width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); font-size: 14px;">
+                </div>
                 <div id="login-error" style="display: none; color: var(--danger); font-size: 13px; margin-bottom: 12px;"></div>
                 <button type="submit" data-i18n="login.signin" id="login-submit">Sign In</button>
                 <div id="login-sso" style="display: none;">
@@ -519,6 +524,35 @@
                 <div id="users-table" class="loading">
                     <div class="spinner"></div>
                     Loading users...
+                </div>
+            </div>
+
+            <div class="card" style="margin-top: 20px;" id="totp-card">
+                <h2>Two-Factor Authentication</h2>
+                <p style="color: var(--text-secondary); margin: 0 12px 8px; font-size: 13px;">
+                    Protect your own account with a time-based one-time code from an authenticator app such as Aegis, Google Authenticator or 1Password. Applies to local accounts only; LDAP and OIDC users get their second factor from their identity provider.
+                </p>
+                <div id="totp-status" style="padding: 0 12px 12px; font-size: 13px;"></div>
+                <div id="totp-setup" style="display: none; padding: 0 12px 12px;">
+                    <div style="display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start;">
+                        <img id="totp-qr" alt="Scan with an authenticator app" width="220" height="220" style="border-radius: var(--radius-sm); background: #fff;">
+                        <div style="flex: 1; min-width: 240px;">
+                            <p style="margin: 0 0 8px; font-size: 13px;">Scan the code, or enter this secret manually:</p>
+                            <code id="totp-secret" style="word-break: break-all;"></code>
+                            <div class="form-group" style="margin-top: 12px;">
+                                <label for="totp-confirm-code">Code from the app</label>
+                                <input type="text" id="totp-confirm-code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" style="max-width: 200px;">
+                            </div>
+                            <button type="button" class="btn btn-primary" onclick="enableTOTP()">Enable</button>
+                            <button type="button" class="btn" onclick="cancelTOTPSetup()">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+                <div id="totp-recovery" style="display: none; margin: 0 12px 12px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input);">
+                    <div style="font-size: 13px; margin-bottom: 8px;">Recovery codes. Each works once if you lose your authenticator. Save them now; they will not be shown again.</div>
+                    <pre id="totp-recovery-codes" style="margin: 0 0 8px; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;"></pre>
+                    <button type="button" class="btn btn-sm" onclick="copyTOTPRecoveryCodes()">Copy</button>
+                    <button type="button" class="btn btn-sm" onclick="document.getElementById('totp-recovery').style.display = 'none'">Dismiss</button>
                 </div>
             </div>
 

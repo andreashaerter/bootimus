@@ -127,3 +127,46 @@ func (h *Handler) revokeAPIToken(w http.ResponseWriter, r *http.Request) {
 	log.Printf("API token revoked: %s (by=%s)", token.Name, actor)
 	h.sendJSON(w, http.StatusOK, Response{Success: true, Message: "Token revoked"})
 }
+
+func (h *Handler) ResetUserTOTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		h.sendJSON(w, http.StatusMethodNotAllowed, Response{Success: false, Error: "Method not allowed"})
+		return
+	}
+	user, err := h.lookupUser(r.URL.Query().Get("id"), r.URL.Query().Get("username"))
+	if err != nil {
+		h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "User not found"})
+		return
+	}
+	if !user.TOTPEnabled && user.TOTPSecret == "" {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Two-factor authentication is not enabled for " + user.Username})
+		return
+	}
+	auth.ClearTOTP(user)
+	if err := h.storage.UpdateUser(user.Username, user); err != nil {
+		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
+		return
+	}
+	log.Printf("Two-factor authentication reset for user %s by %s", user.Username, auth.UsernameFromContext(r.Context()))
+	h.sendJSON(w, http.StatusOK, Response{Success: true, Message: "Two-factor authentication removed for " + user.Username})
+}
+
+func (h *Handler) lookupUser(idParam, username string) (*models.User, error) {
+	if username != "" {
+		return h.storage.GetUser(username)
+	}
+	id, err := strconv.ParseUint(idParam, 10, 64)
+	if err != nil || id == 0 {
+		return nil, errors.New("user id or username is required")
+	}
+	users, err := h.storage.ListUsers()
+	if err != nil {
+		return nil, err
+	}
+	for _, u := range users {
+		if uint64(u.ID) == id {
+			return u, nil
+		}
+	}
+	return nil, gorm.ErrRecordNotFound
+}
