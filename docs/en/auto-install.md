@@ -25,7 +25,7 @@ Auto-install configs are stored in a per-distro library under `data/autoinstall/
 - **Override per client** or **per client group** when one machine needs a different config (different hostname, disk layout, role, etc.).
 - **Templatise** with placeholders like `{{HOSTNAME}}` and `{{IP}}` resolved at serve time using the booting client's identity.
 
-Bootimus serves the script over HTTP on the auto-install endpoint, and — for Windows — stages `AutoUnattend.xml` on the SMB install share so `setup.exe /unattend:` picks it up automatically.
+Bootimus serves the rendered file over HTTP on the auto-install endpoint. Linux installers fetch it through a kernel parameter; for Windows, wimboot fetches the same URL as an extra `initrd` and injects it into the WinPE RAM disk as `AutoUnattend.xml`, so `setup.exe /unattend:` picks it up automatically (see [Windows Notes](#windows-notes)).
 
 ## Supported Formats
 
@@ -127,6 +127,8 @@ These tokens are substituted per-client at serve time:
 
 Placeholders are plain string substitution — no escaping. Quote them appropriately for the target format (XML, YAML, etc.).
 
+Substitution happens on the auto-install endpoint, so it applies to every format. Windows `autounattend.xml` is rendered for the booting client too, because wimboot fetches it from that endpoint at boot (see [Windows Notes](#windows-notes)); only the unrendered SMB fallback copy described there bypasses it.
+
 ## Examples
 
 ### Ubuntu Server (cloud-init)
@@ -203,7 +205,7 @@ openssh-server
 
 ### Windows 11 / Server (autounattend)
 
-`data/autoinstall/windows/kiosk.xml`: standard `<unattend>` document — see [Microsoft's autounattend reference](https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/). Placeholders work inside any text node:
+`data/autoinstall/windows/kiosk.xml`: standard `<unattend>` document — see [Microsoft's autounattend reference](https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/). Placeholders work inside any text node when the client boots through wimboot, which is how Bootimus boots Windows images:
 
 ```xml
 <ComputerName>{{HOSTNAME}}</ComputerName>
@@ -298,13 +300,18 @@ curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/installs?limit
 
 ## Windows Notes
 
-Windows installs are SMB-driven. When an image has an autounattend file attached, Bootimus:
+Windows images boot through [wimboot](https://ipxe.org/wimboot), which injects every extra `initrd` file in the iPXE script into the WinPE RAM disk. Bootimus uses that to deliver the auto-install file per client:
 
-1. Stages `AutoUnattend.xml` on the SMB install share when patching `boot.wim`.
-2. Patches `startnet.cmd` so WinPE copies it to `X:\AutoUnattend.xml` (the local RAM disk) at boot.
-3. Launches Setup as `setup.exe /unattend:X:\AutoUnattend.xml`.
+1. When the booting client resolves to an autounattend file (through the usual [resolution order](#resolution-order): client, then group, then image), the generated iPXE boot section adds `initrd http://<server>:<port>/autoinstall/<iso>?mac=<mac> AutoUnattend.xml` before `boot.wim`.
+2. The auto-install endpoint renders the file with the client's placeholders, exactly as it does for Linux installers.
+3. wimboot places the file at `X:\Windows\System32\AutoUnattend.xml` inside WinPE.
+4. The patched `startnet.cmd` finds it there and launches `setup.exe /unattend:X:\Windows\System32\AutoUnattend.xml`.
 
-Without the per-image autounattend file, Setup runs interactively as before.
+Because the file is resolved and rendered per client, per-client and per-group overrides and placeholders such as `{{HOSTNAME}}` work for Windows just as they do elsewhere. Boot parameters are still passed to wimboot; avoid `rawwim`, which turns file injection off.
+
+**SMB fallback.** When `boot.wim` is patched for an image that has an autounattend file attached at image level, Bootimus also stages that file, unrendered, as `AutoUnattend.xml` on the image's SMB share. `startnet.cmd` only copies it to `X:\AutoUnattend.xml` when wimboot injected nothing, for example when the client booted the patched `boot.wim` by some route other than the Bootimus iPXE menu. The fallback carries no placeholder substitution and no per-client or per-group overrides: placeholders in it reach Setup literally.
+
+Without an autounattend file at any level, Setup runs interactively as before.
 
 **Data directory requirements.** Bootimus runs its own `smbd` with its state under `data/smb`. Samba refuses to start if that directory sits on a filesystem that cannot store Unix permissions (exFAT, NTFS, or a CIFS mount), because its lock directory then reads back as `0777` instead of `0755`. Keep the data directory on a native Linux filesystem such as ext4 or XFS, and make sure no other SMB server on the host is listening on port 445. Bootimus checks for both conditions at startup and reports them under **Server Info** → **Windows SMB**.
 
@@ -377,6 +384,8 @@ The boot menu builds these URLs with the client's MAC address so per-client over
 
 `{{HOSTNAME}}` showing up as the literal string in the installed system means the file was served before the substitution ran — usually because the client booted by IP only and the request didn't include a `mac` query param. Confirm the boot menu is generating URLs of the form `/autoinstall/<iso>?mac=<mac>` or `/autoinstall/<iso>/mac/<mac>/`.
 
+On Windows, literal placeholders mean Setup used the unrendered copy staged on the SMB share rather than the file wimboot injects. Preview the client's boot menu (see [Previewing a Client's Boot Menu](clients.md#previewing-a-clients-boot-menu)) and check the Windows section contains an `initrd .../autoinstall/<iso>?mac=<mac> AutoUnattend.xml` line, and that the image's boot parameters don't include `rawwim`.
+
 ### Wrong file served
 
 Resolution is most-specific-first. If a client has its own override and you don't expect it, that's why the image-level default isn't being used. Check the server log line:
@@ -389,13 +398,15 @@ The `source:` field tells you exactly which slot won.
 
 ### Windows Setup runs interactively
 
-- The image must have an autounattend file attached (image properties → Auto-Install).
-- Re-patch `boot.wim` after attaching: **Images** → **Patch SMB** (or it re-patches automatically on next boot).
-- Confirm the SMB share is reachable from the client (`net view \\<server>` from WinPE).
+- An autounattend file must resolve for the booting client: attach one to the image (image properties → Auto-Install), to the client, or to its group.
+- Preview the client's boot menu and confirm the Windows section contains the `initrd .../autoinstall/<iso>?mac=<mac> AutoUnattend.xml` line. If it doesn't, no autounattend file resolved for that MAC.
+- Make sure the image's boot parameters don't include `rawwim`; it stops wimboot injecting files into WinPE.
+- Re-patch `boot.wim` after upgrading Bootimus so `startnet.cmd` knows to look for the injected file: **Images** → **Patch SMB** (or it re-patches automatically on next boot).
+- Confirm the SMB share is reachable from the client (`net view \\<server>` from WinPE); the installer itself still comes from the share.
 
-### "AutoUnattend.xml not on share, running interactive setup"
+### "AutoUnattend.xml neither injected by wimboot nor staged on the share, running interactive setup"
 
-Logged by `startnet.cmd` when the file isn't where it expects. Either the staging step failed (check the Bootimus server log around the time of the patch) or the SMB share lost the file. Re-run the SMB patch from the image properties.
+Logged by `startnet.cmd` when the image has an autounattend file attached but neither delivery path produced one. Check the Bootimus log for the client's `/autoinstall/<iso>?mac=...` request at boot time (a 404 means no file resolved for that client) and for the staging step around the time of the patch. Re-run the SMB patch from the image properties.
 
 ### `Z:\setup.exe not found on the share`
 

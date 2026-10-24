@@ -25,7 +25,7 @@
 - **按客户端覆盖** 或 **按客户端组覆盖** — 当某台机器需要不同的配置时(不同的 hostname、磁盘布局、角色等)。
 - **模板化** — 使用类似 `{{HOSTNAME}}` 和 `{{IP}}` 的占位符,在分发时根据正在引导的客户端身份解析。
 
-Bootimus 通过 HTTP 在无人值守安装端点上提供脚本;对 Windows 而言,还会把 `AutoUnattend.xml` 暂存到 SMB 安装共享上,这样 `setup.exe /unattend:` 就能自动取用。
+Bootimus 通过 HTTP 在无人值守安装端点上提供渲染后的文件。Linux 安装程序通过内核参数获取它;对 Windows 而言,wimboot 会把同一个 URL 作为额外的 `initrd` 下载并以 `AutoUnattend.xml` 的名字注入 WinPE 的 RAM 盘,这样 `setup.exe /unattend:` 就能自动取用(见 [Windows 注意事项](#windows-注意事项))。
 
 ## 支持的格式
 
@@ -127,6 +127,8 @@ Served auto-install script for ubuntu-24.04-live-server-amd64.iso \
 
 占位符是纯字符串替换 — 不做转义。请按目标格式(XML、YAML 等)适当地引用它们。
 
+替换发生在无人值守安装端点上,因此对所有格式都生效。Windows 的 `autounattend.xml` 同样会按正在引导的客户端渲染,因为 wimboot 在引导时正是从该端点获取它(见 [Windows 注意事项](#windows-注意事项));只有那里描述的未渲染 SMB 回退副本会绕过替换。
+
 ## 示例
 
 ### Ubuntu Server (cloud-init)
@@ -203,7 +205,7 @@ openssh-server
 
 ### Windows 11 / Server (autounattend)
 
-`data/autoinstall/windows/kiosk.xml`:标准 `<unattend>` 文档 — 参见 [微软的 autounattend 参考](https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/)。占位符在任何文本节点内都生效:
+`data/autoinstall/windows/kiosk.xml`:标准 `<unattend>` 文档 — 参见 [微软的 autounattend 参考](https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/)。当客户端通过 wimboot 引导时(Bootimus 正是这样引导 Windows 镜像的),占位符在任何文本节点内都生效:
 
 ```xml
 <ComputerName>{{HOSTNAME}}</ComputerName>
@@ -298,13 +300,18 @@ curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/installs?limit
 
 ## Windows 注意事项
 
-Windows 安装由 SMB 驱动。当某个镜像挂载了 autounattend 文件时,Bootimus 会:
+Windows 镜像通过 [wimboot](https://ipxe.org/wimboot) 引导,它会把 iPXE 脚本中每个额外的 `initrd` 文件注入 WinPE 的 RAM 盘。Bootimus 借此按客户端分发无人值守安装文件:
 
-1. 在打补丁 `boot.wim` 时把 `AutoUnattend.xml` 暂存到 SMB 安装共享。
-2. 打补丁 `startnet.cmd`,让 WinPE 在引导时把它复制到 `X:\AutoUnattend.xml`(本地 RAM 盘)。
-3. 以 `setup.exe /unattend:X:\AutoUnattend.xml` 启动 Setup。
+1. 当正在引导的客户端解析到某个 autounattend 文件时(按常规的[解析顺序](#解析顺序):客户端、然后客户端组、然后镜像),生成的 iPXE 引导段会在 `boot.wim` 之前加入 `initrd http://<server>:<port>/autoinstall/<iso>?mac=<mac> AutoUnattend.xml`。
+2. 无人值守安装端点用该客户端的占位符渲染文件,与 Linux 安装程序完全一致。
+3. wimboot 把文件放在 WinPE 内的 `X:\Windows\System32\AutoUnattend.xml`。
+4. 打过补丁的 `startnet.cmd` 在那里找到它,并以 `setup.exe /unattend:X:\Windows\System32\AutoUnattend.xml` 启动 Setup。
 
-如果镜像没有挂载 autounattend 文件,Setup 会和以前一样以交互模式运行。
+由于文件是按客户端解析和渲染的,按客户端和按客户端组的覆盖以及 `{{HOSTNAME}}` 之类的占位符在 Windows 上和其他地方一样有效。引导参数仍会传给 wimboot;请避免 `rawwim`,它会关闭文件注入。
+
+**SMB 回退。** 当为一个在镜像级别挂载了 autounattend 文件的镜像打补丁 `boot.wim` 时,Bootimus 还会把该文件以未渲染的形式作为 `AutoUnattend.xml` 暂存到该镜像的 SMB 共享上。只有当 wimboot 没有注入任何文件时,例如客户端通过 Bootimus iPXE 菜单之外的其他途径引导了打过补丁的 `boot.wim`,`startnet.cmd` 才会把它复制到 `X:\AutoUnattend.xml`。该回退没有占位符替换,也没有按客户端或按客户端组的覆盖:其中的占位符会原样传给 Setup。
+
+如果任何级别都没有挂载 autounattend 文件,Setup 会和以前一样以交互模式运行。
 
 **数据目录要求。** Bootimus 运行自己的 `smbd`,其状态保存在 `data/smb` 下。如果该目录位于无法保存 Unix 权限的文件系统上(exFAT、NTFS 或 CIFS 挂载),Samba 会拒绝启动,因为其锁目录会被读成 `0777` 而不是 `0755`。请把数据目录放在 ext4 或 XFS 等原生 Linux 文件系统上,并确保主机上没有其他 SMB 服务监听 445 端口。Bootimus 会在启动时检查这两个条件,并在 **Server Info** → **Windows SMB** 中报告。
 
@@ -377,6 +384,8 @@ GET /autoinstall/<image-filename>/mac/<mac>/meta-data   # Ubuntu autoinstall
 
 `{{HOSTNAME}}` 在已安装系统中显示为字面字符串,意味着文件在替换运行之前就被分发了 — 通常是因为客户端仅通过 IP 启动而请求未携带 `mac` 查询参数。确认引导菜单生成的 URL 形如 `/autoinstall/<iso>?mac=<mac>` 或 `/autoinstall/<iso>/mac/<mac>/`。
 
+在 Windows 上,占位符按字面输出意味着 Setup 使用了 SMB 共享上暂存的未渲染副本,而不是 wimboot 注入的文件。预览该客户端的引导菜单(见[预览客户端的引导菜单](clients.md#previewing-a-clients-boot-menu)),检查 Windows 段中是否包含 `initrd .../autoinstall/<iso>?mac=<mac> AutoUnattend.xml` 这一行,并确认镜像的引导参数中没有 `rawwim`。
+
 ### 分发了错误的文件
 
 解析是"最具体优先"。如果一个客户端有自己的覆盖而你并没意识到,这就是为什么镜像级默认没有被使用。检查服务器日志这一行:
@@ -389,13 +398,15 @@ Served auto-install script for ... (source: client:..., type: ..., size: ...)
 
 ### Windows Setup 交互式运行
 
-- 镜像必须挂载有 autounattend 文件(镜像属性 → Auto-Install)。
-- 挂载后需要重新打补丁 `boot.wim`:**Images** → **Patch SMB**(或下次启动时会自动重新打补丁)。
-- 确认 SMB 共享在客户端可达(在 WinPE 中执行 `net view \\<server>`)。
+- 正在引导的客户端必须能解析到一个 autounattend 文件:把它挂载到镜像(镜像属性 → Auto-Install)、客户端或其所属客户端组。
+- 预览该客户端的引导菜单,确认 Windows 段包含 `initrd .../autoinstall/<iso>?mac=<mac> AutoUnattend.xml` 这一行。若没有,说明该 MAC 没有解析到任何 autounattend 文件。
+- 确保镜像的引导参数中没有 `rawwim`;它会阻止 wimboot 向 WinPE 注入文件。
+- 升级 Bootimus 后重新打补丁 `boot.wim`,让 `startnet.cmd` 知道去查找注入的文件:**Images** → **Patch SMB**(或下次启动时会自动重新打补丁)。
+- 确认 SMB 共享在客户端可达(在 WinPE 中执行 `net view \\<server>`);安装程序本身仍来自共享。
 
-### "AutoUnattend.xml not on share, running interactive setup"
+### "AutoUnattend.xml neither injected by wimboot nor staged on the share, running interactive setup"
 
-由 `startnet.cmd` 在文件不在它预期位置时记录。要么暂存步骤失败了(检查打补丁时段附近的 Bootimus 服务器日志),要么 SMB 共享丢了该文件。从镜像属性重新执行 SMB 补丁。
+由 `startnet.cmd` 在镜像挂载了 autounattend 文件但两条分发路径都没有产生文件时记录。检查 Bootimus 日志中客户端引导时的 `/autoinstall/<iso>?mac=...` 请求(404 表示该客户端没有解析到文件),以及打补丁时段附近的暂存步骤。从镜像属性重新执行 SMB 补丁。
 
 ### `Z:\setup.exe not found on the share`
 

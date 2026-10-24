@@ -328,3 +328,44 @@ func TestBuildWinPEBootSectionKeepsExplicitIndex(t *testing.T) {
 		t.Errorf("explicit index parameter should win, got:\n%s", out)
 	}
 }
+
+func TestBuildWindowsBootSectionAutoUnattendInitrd(t *testing.T) {
+	img := &models.Image{
+		ID:         9,
+		Filename:   "Win11_25H2.iso",
+		Enabled:    true,
+		BootMethod: "kernel",
+		Distro:     "windows",
+	}
+	unattendLine := "initrd http://10.0.0.1:8080/autoinstall/Win11_25H2.iso?mac=aa:bb:cc:dd:ee:ff AutoUnattend.xml\n"
+
+	cases := []struct {
+		name  string
+		types map[uint]string
+		want  bool
+	}{
+		{"no auto-install", nil, false},
+		{"autounattend", map[uint]string{9: "autounattend"}, true},
+		{"other image autounattend", map[uint]string{3: "autounattend"}, false},
+		{"non-windows type", map[uint]string{9: "kickstart"}, false},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mb := testMenuBuilder(c.types)
+			out := mb.buildKernelBootSection(img, "Win11_25H2.iso", "Win11_25H2")
+			if got := strings.Contains(out, unattendLine); got != c.want {
+				t.Errorf("AutoUnattend initrd present=%v, want %v:\n%s", got, c.want, out)
+			}
+			if !c.want {
+				return
+			}
+			kernelAt := strings.Index(out, "kernel http://10.0.0.1:8080/wimboot\n")
+			unattendAt := strings.Index(out, unattendLine)
+			wimAt := strings.Index(out, "initrd http://10.0.0.1:8080/boot/Win11_25H2/iso/sources/boot.wim boot.wim")
+			if !(kernelAt >= 0 && kernelAt < unattendAt && unattendAt < wimAt) {
+				t.Errorf("expected wimboot, then AutoUnattend.xml, then boot.wim:\n%s", out)
+			}
+		})
+	}
+}
