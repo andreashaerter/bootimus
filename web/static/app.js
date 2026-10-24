@@ -1042,7 +1042,7 @@ async function cancelRestore() {
 function downloadISOFromProperties() {
     const filename = document.getElementById('image-props-filename').value;
     if (!filename) return;
-    const url = `${window.location.protocol}//${window.location.hostname}:${cachedHTTPPort}/isos/${encodeURIComponent(filename)}`;
+    const url = `http://${window.location.hostname}:${cachedHTTPPort}/isos/${encodeURIComponent(filename)}`;
     const a = document.createElement('a');
     a.href = url;
     a.download = filename;

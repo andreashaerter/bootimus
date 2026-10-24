@@ -89,6 +89,12 @@ func init() {
 	rootCmd.PersistentFlags().Bool("proxy-dhcp-no-bootfile-option", false, "Disable advertising the bootfile name using a DHCP option (for buggy/old clients)")
 	rootCmd.PersistentFlags().Bool("proxy-dhcp-no-vendor-option", false, "Omit the PXE vendor option (43) from proxyDHCP offers (for firmware that ignores offers carrying it)")
 
+	rootCmd.PersistentFlags().Bool("admin-tls", false, "Serve the admin interface over HTTPS")
+	rootCmd.PersistentFlags().String("admin-tls-cert", "", "PEM certificate file for the admin interface (with --admin-tls-key); omit for a self-signed certificate")
+	rootCmd.PersistentFlags().String("admin-tls-key", "", "PEM private key file for the admin interface")
+	rootCmd.PersistentFlags().Bool("admin-tls-self-signed", false, "Generate and reuse a self-signed certificate under <data-dir>/tls even when cert and key files are set")
+	rootCmd.PersistentFlags().Int("admin-tls-redirect-port", 0, "Also listen on this plain HTTP port and redirect to the HTTPS admin interface (0 disables)")
+
 	rootCmd.PersistentFlags().Bool("windows-smb", false, "Enable Samba share for unattended Windows PXE installs (requires smbd in PATH)")
 	rootCmd.PersistentFlags().Int("windows-smb-port", 445, "SMB port (Windows 'net use' always uses 445; override only for testing)")
 
@@ -144,6 +150,12 @@ func init() {
 	viper.BindPFlag("proxy_dhcp.bootfile_arm64", rootCmd.PersistentFlags().Lookup("proxy-dhcp-bootfile-arm64"))
 	viper.BindPFlag("proxy_dhcp.no_bootfile_option", rootCmd.PersistentFlags().Lookup("proxy-dhcp-no-bootfile-option"))
 	viper.BindPFlag("proxy_dhcp.no_vendor_option", rootCmd.PersistentFlags().Lookup("proxy-dhcp-no-vendor-option"))
+
+	viper.BindPFlag("admin_tls.enabled", rootCmd.PersistentFlags().Lookup("admin-tls"))
+	viper.BindPFlag("admin_tls.cert_file", rootCmd.PersistentFlags().Lookup("admin-tls-cert"))
+	viper.BindPFlag("admin_tls.key_file", rootCmd.PersistentFlags().Lookup("admin-tls-key"))
+	viper.BindPFlag("admin_tls.self_signed", rootCmd.PersistentFlags().Lookup("admin-tls-self-signed"))
+	viper.BindPFlag("admin_tls.redirect_port", rootCmd.PersistentFlags().Lookup("admin-tls-redirect-port"))
 
 	viper.BindPFlag("windows_smb.enabled", rootCmd.PersistentFlags().Lookup("windows-smb"))
 	viper.BindPFlag("windows_smb.port", rootCmd.PersistentFlags().Lookup("windows-smb-port"))

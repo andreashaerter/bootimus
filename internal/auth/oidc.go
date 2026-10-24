@@ -134,7 +134,10 @@ func (c *oidcClient) oauth2Config(provider *oidc.Provider) *oauth2.Config {
 	}
 }
 
-func (c *oidcClient) secureCookie() bool {
+func (c *oidcClient) secureCookie(r *http.Request) bool {
+	if r != nil && r.TLS != nil {
+		return true
+	}
 	return strings.HasPrefix(strings.ToLower(c.config.RedirectURL), "https://")
 }
 
@@ -307,7 +310,7 @@ func (m *Manager) HandleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	m.setOIDCCookie(w, signed, int(oidcStateLifetime.Seconds()))
+	m.setOIDCCookie(w, r, signed, int(oidcStateLifetime.Seconds()))
 	authURL := m.oidc.oauth2Config(provider).AuthCodeURL(state.State, oidc.Nonce(state.Nonce), oauth2.S256ChallengeOption(state.Verifier))
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
@@ -318,7 +321,7 @@ func (m *Manager) HandleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	m.setOIDCCookie(w, "", -1)
+	m.setOIDCCookie(w, r, "", -1)
 	query := r.URL.Query()
 
 	if providerErr := query.Get("error"); providerErr != "" {
@@ -367,14 +370,14 @@ func (m *Manager) HandleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/#oidc_token="+url.QueryEscape(token), http.StatusFound)
 }
 
-func (m *Manager) setOIDCCookie(w http.ResponseWriter, value string, maxAge int) {
+func (m *Manager) setOIDCCookie(w http.ResponseWriter, r *http.Request, value string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     oidcStateCookie,
 		Value:    value,
 		Path:     oidcCookiePath,
 		MaxAge:   maxAge,
 		HttpOnly: true,
-		Secure:   m.oidc.secureCookie(),
+		Secure:   m.oidc.secureCookie(r),
 		SameSite: http.SameSiteLaxMode,
 	})
 }
