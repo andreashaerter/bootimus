@@ -91,6 +91,14 @@ type Storage interface {
 	DeleteBootLogsBefore(cutoff time.Time) (int64, error)
 	DeleteInventoryHistoryBefore(cutoff time.Time) (int64, error)
 	DeleteDiscoveredClientsNotSeenSince(cutoff time.Time) (int64, error)
+	CreateInstallRecord(rec *models.InstallRecord) error
+	UpdateInstallRecord(rec *models.InstallRecord) error
+	GetInstallRecordByToken(token string) (*models.InstallRecord, error)
+	LatestOpenInstallRecord(mac, imageFilename string) (*models.InstallRecord, error)
+	ListInstallRecords(mac string, limit int) ([]models.InstallRecord, error)
+	ListOpenInstallRecordsBefore(cutoff time.Time) ([]models.InstallRecord, error)
+	SetClientInstallStatus(mac, state, image string, at time.Time) error
+
 	CreateAuditLog(entry *models.AuditLog) error
 	ListAuditLogs(filter AuditLogFilter) ([]models.AuditLog, int64, error)
 	DeleteAuditLogsBefore(cutoff time.Time) (int64, error)

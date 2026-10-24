@@ -7,6 +7,7 @@ http_port: 8080
 admin_port: 8081  # Admin interface port
 nbd_enabled: true  # Enable NBD server for network block device ISO mounting
 nbd_port: 10809  # NBD server port
+install_timeout_hours: 6  # Mark unattended installs that never report completion as failed after this long
 
 # Windows unattended install via SMB (off by default).
 # When enabled, bootimus starts an isolated smbd that exposes each extracted

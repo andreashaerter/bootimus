@@ -11,6 +11,7 @@ Run unattended installs across Windows, Ubuntu, Debian, and Red Hat-family distr
 - [Resolution Order](#resolution-order)
 - [Placeholders](#placeholders)
 - [Examples](#examples)
+- [Reporting Install Completion](#reporting-install-completion)
 - [Windows Notes](#windows-notes)
 - [REST API](#rest-api)
 - [Troubleshooting](#troubleshooting)
@@ -121,6 +122,8 @@ These tokens are substituted per-client at serve time:
 | `{{SERVER_ADDR}}` | Bootimus server address |
 | `{{IMAGE_NAME}}` | Display name of the booting image |
 | `{{IMAGE_FILENAME}}` | ISO filename of the booting image |
+| `{{CALLBACK_URL}}` | Full URL the installer calls to report completion, including a one-time token (see [Reporting Install Completion](#reporting-install-completion)) |
+| `{{INSTALL_TOKEN}}` | The bare token behind `{{CALLBACK_URL}}`, for building your own request |
 
 Placeholders are plain string substitution — no escaping. Quote them appropriately for the target format (XML, YAML, etc.).
 
@@ -204,6 +207,93 @@ openssh-server
 
 ```xml
 <ComputerName>{{HOSTNAME}}</ComputerName>
+```
+
+## Reporting Install Completion
+
+Bootimus tracks every unattended install from the moment the client loads the image's kernel. The record moves through four states:
+
+| State | Set when |
+|-------|----------|
+| `booted` | The client fetched the image's boot files and the image has an auto-install file or inline script |
+| `installing` | The installer fetched the auto-install file |
+| `completed` | The installed system called `{{CALLBACK_URL}}` |
+| `failed` | The callback reported `status=failed`, or nothing reported back within the timeout |
+
+The current state shows in the **Install** column of the Clients table and the full history sits under **Install History** in the client editor. Installs that never report are marked failed after six hours; change that with `--install-timeout-hours` or `install_timeout_hours` in `bootimus.yaml`. Each transition to `completed` or `failed` fires an `install.completed` or `install.failed` webhook event when that event is enabled under **Settings → Webhook**.
+
+The callback is a plain HTTP request, `GET` or `POST`, to the boot port:
+
+```
+http://<server>:8080/install/callback?token=<token>&status=completed|failed&message=<optional text>
+```
+
+`{{CALLBACK_URL}}` already contains the token, so appending `&status=failed&message=...` is all a script needs. Only the first report for a token counts; later calls answer `already recorded`.
+
+### Kickstart (`%post`)
+
+```
+%post --log=/root/ks-post.log
+curl -fsS "{{CALLBACK_URL}}" || curl -fsS "{{CALLBACK_URL}}&status=failed&message=post-script"
+%end
+```
+
+### Preseed (`late_command`)
+
+```
+d-i preseed/late_command string in-target sh -c 'wget -qO- "{{CALLBACK_URL}}" || curl -fsS "{{CALLBACK_URL}}"'
+```
+
+### Ubuntu autoinstall / cloud-init
+
+The `phone_home` module posts after first boot, which is the most reliable signal:
+
+```yaml
+#cloud-config
+autoinstall:
+  version: 1
+  user-data:
+    phone_home:
+      url: "{{CALLBACK_URL}}"
+      post: [instance_id, hostname]
+      tries: 10
+```
+
+Or report from the installer environment with `late-commands`:
+
+```yaml
+  late-commands:
+    - curtin in-target --target=/target -- curl -fsS "{{CALLBACK_URL}}"
+```
+
+### Windows (`autounattend.xml`)
+
+Add a first-logon command under `Microsoft-Windows-Shell-Setup`:
+
+```xml
+<FirstLogonCommands>
+  <SynchronousCommand wcm:action="add">
+    <Order>1</Order>
+    <CommandLine>powershell -NoProfile -Command "Invoke-WebRequest -UseBasicParsing '{{CALLBACK_URL}}'"</CommandLine>
+    <Description>Report install to Bootimus</Description>
+  </SynchronousCommand>
+</FirstLogonCommands>
+```
+
+Remember that `&` inside XML attributes or text must be written as `&amp;` if you append `status` or `message` parameters.
+
+### Talos and Flatcar nodes
+
+Kubernetes nodes enrolled through the **Kubernetes** tab already report through the machine config flow and the `node.install_started` / `node.install_completed` events. They do not need a callback.
+
+### Querying the history
+
+```bash
+# History for one client
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/clients/installs?mac=b4:2e:99:01:5f:a3"
+
+# Recent installs across the fleet
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/installs?limit=50"
 ```
 
 ## Windows Notes

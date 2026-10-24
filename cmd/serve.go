@@ -246,6 +246,7 @@ func runServe(cmd *cobra.Command, args []string) {
 		WindowsSMBEnabled: viper.GetBool("windows_smb.enabled"),
 		WindowsSMBPort:    viper.GetInt("windows_smb.port"),
 	}
+	cfg.InstallTimeoutHours = viper.GetInt("install_timeout_hours")
 
 	srv := server.New(cfg)
 	if err := srv.Start(); err != nil {

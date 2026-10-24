@@ -803,6 +803,10 @@
                             <input type="checkbox" id="webhook-on-admin-action">
                             <label for="webhook-on-admin-action"><code>admin.action</code> — a change was made through the admin API (mirrors the audit log)</label>
                         </div>
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="webhook-on-install">
+                            <label for="webhook-on-install"><code>install.completed</code> / <code>install.failed</code> — an unattended install reported its result or timed out</label>
+                        </div>
                     </div>
                     <div style="display: flex; gap: 8px;">
                         <button type="submit" class="btn">
@@ -1186,6 +1190,13 @@
                         <button type="button" class="btn btn-sm read-ok" onclick="powerStatusClient()">Status</button>
                     </div>
                     <div id="power-client-result" style="font-size: 12px; color: var(--text-secondary);"></div>
+                </details>
+                <details style="margin-bottom: 12px;">
+                    <summary style="cursor: pointer; font-weight: 500; padding: 6px 0;">Install History</summary>
+                    <p style="color: var(--text-muted); font-size: 12px; margin: 4px 0 10px 0;">
+                        Unattended installs reported through the <code>{{CALLBACK_URL}}</code> placeholder. Installs that never report are marked failed after the configured timeout.
+                    </p>
+                    <div id="client-install-history" style="font-size: 13px;"></div>
                 </details>
                 <div class="form-group">
                     <label>Assigned Images</label>

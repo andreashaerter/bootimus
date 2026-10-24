@@ -78,24 +78,25 @@ func panicRecoveryMiddleware(next http.Handler) http.Handler {
 }
 
 type Config struct {
-	TFTPPort         int
-	TFTPSinglePort   bool
-	TFTPBlockSize    int
-	HTTPPort         int
-	AdminPort        int
-	BootDir          string
-	DataDir          string
-	ISODir           string
-	ServerAddr       string
-	BindInterface    string
-	Storage          storage.Storage
-	Auth             *auth.Manager
-	NBDEnabled       bool
-	NBDPort          int
-	NFSEnabled       bool
-	NFSPort          int
-	WOLBroadcastAddr string
-	ProfileManager   *profiles.Manager
+	TFTPPort            int
+	TFTPSinglePort      bool
+	TFTPBlockSize       int
+	HTTPPort            int
+	AdminPort           int
+	BootDir             string
+	DataDir             string
+	ISODir              string
+	ServerAddr          string
+	BindInterface       string
+	Storage             storage.Storage
+	Auth                *auth.Manager
+	NBDEnabled          bool
+	NBDPort             int
+	NFSEnabled          bool
+	InstallTimeoutHours int
+	NFSPort             int
+	WOLBroadcastAddr    string
+	ProfileManager      *profiles.Manager
 
 	ProxyDHCPEnabled          bool
 	ProxyDHCPBootfileBIOS     string
@@ -120,6 +121,9 @@ type Server struct {
 	housekeeping          *housekeeping.Runner
 	bootLogDedup          map[string]time.Time
 	bootLogDedupMu        sync.Mutex
+	installSweepStop      chan struct{}
+	installSweepOnce      sync.Once
+	installSweepWG        sync.WaitGroup
 	wg                    sync.WaitGroup
 	activeSessions        *ActiveSessions
 	logBroadcaster        *LogBroadcaster
@@ -732,6 +736,8 @@ func (s *Server) Start() error {
 		s.housekeeping.Start()
 	}
 
+	s.startInstallSweeper()
+
 	if s.config.ProxyDHCPEnabled {
 		pd, err := proxydhcp.NewServer(proxydhcp.Config{
 			ServerIP:         net.ParseIP(s.config.ServerAddr),
@@ -834,6 +840,8 @@ func (s *Server) Shutdown() error {
 		s.housekeeping.Stop()
 		log.Println("Housekeeping stopped")
 	}
+
+	s.stopInstallSweeper()
 
 	if s.smbManager != nil {
 		s.smbManager.Stop()
@@ -1263,6 +1271,7 @@ func (s *Server) startHTTPServer() error {
 	mux.HandleFunc("/api/isos", s.handleListISOs)
 
 	mux.HandleFunc("/autoinstall/", s.handleAutoInstallScript)
+	mux.HandleFunc("/install/callback", s.handleInstallCallback)
 
 	mux.HandleFunc("/machineconfig", s.handleMachineConfig)
 
@@ -1490,6 +1499,8 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/clients/promote", adminWrap(adminHandler.PromoteClient))
 	mux.HandleFunc("/api/clients/inventory", readWrap(adminHandler.GetClientInventory))
 	mux.HandleFunc("/api/clients/inventory/history", readWrap(adminHandler.GetClientInventoryHistory))
+	mux.HandleFunc("/api/clients/installs", readWrap(s.handleClientInstalls))
+	mux.HandleFunc("/api/installs", readWrap(s.handleRecentInstalls))
 
 	mux.HandleFunc("/api/bootloaders", readWrap(adminHandler.ListBootloaders))
 	mux.HandleFunc("/api/bootloaders/create", adminWrap(adminHandler.CreateBootloaderSet))
@@ -1914,10 +1925,12 @@ func (s *Server) recordBootIfNew(mac, path, remoteAddr string) {
 	s.bootLogDedupMu.Unlock()
 
 	imageName := imageDir
+	var bootImage *models.Image
 	if images, err := s.config.Storage.ListImages(); err == nil {
 		for _, img := range images {
 			if strings.TrimSuffix(img.Filename, filepath.Ext(img.Filename)) == imageDir {
 				imageName = img.Name
+				bootImage = img
 				break
 			}
 		}
@@ -1931,8 +1944,13 @@ func (s *Server) recordBootIfNew(mac, path, remoteAddr string) {
 		s.config.Storage.UpdateImageBootStats(imageName)
 	}()
 	clientName := ""
+	var bootClient *models.Client
 	if c, err := s.config.Storage.GetClient(mac); err == nil {
 		clientName = c.Name
+		bootClient = c
+	}
+	if bootImage != nil {
+		s.noteImageBoot(mac, bootImage, bootClient)
 	}
 	ip := remoteAddr
 	if i := strings.LastIndex(ip, ":"); i > 0 {
@@ -2328,7 +2346,10 @@ func (s *Server) handleAutoInstallScript(w http.ResponseWriter, r *http.Request)
 	if i := strings.LastIndex(clientIP, ":"); i > 0 {
 		clientIP = clientIP[:i]
 	}
+	installToken := s.noteAutoInstallFetch(mac, image)
 	substitutions := map[string]string{
+		"{{CALLBACK_URL}}":   s.installCallbackURL(installToken),
+		"{{INSTALL_TOKEN}}":  installToken,
 		"{{MAC}}":            mac,
 		"{{CLIENT_NAME}}":    clientName,
 		"{{HOSTNAME}}":       clientName,

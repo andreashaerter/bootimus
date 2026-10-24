@@ -99,6 +99,7 @@ func (s *PostgresStore) AutoMigrate() error {
 		&models.HousekeepingSettings{},
 		&models.ScheduledTask{},
 		&models.AuditLog{},
+		&models.InstallRecord{},
 	); err != nil {
 		return err
 	}
@@ -915,7 +916,7 @@ func (s *PostgresStore) RecordScheduledTaskRun(id uint, status, errorMsg string)
 func (s *PostgresStore) GetWebhookConfig() (*models.WebhookConfig, error) {
 	var cfg models.WebhookConfig
 	if err := s.db.First(&cfg, 1).Error; err != nil {
-		return &models.WebhookConfig{ID: 1, OnBootStarted: true, OnClientDiscovered: true}, nil
+		return &models.WebhookConfig{ID: 1, OnBootStarted: true, OnClientDiscovered: true, OnEnrollment: true, OnInstall: true}, nil
 	}
 	return &cfg, nil
 }
