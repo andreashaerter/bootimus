@@ -12,8 +12,10 @@ Complete guide for managing network boot clients with MAC-based access control.
 - [Bulk Operations](#bulk-operations)
 - [Next Boot Action](#next-boot-action)
 - [Previewing a Client's Boot Menu](#previewing-a-clients-boot-menu)
+- [Booting from iSCSI or AoE](#booting-from-iscsi-or-aoe)
 - [Wake-on-LAN](#wake-on-lan)
 - [BMC Power Control](#bmc-power-control)
+- [Remote Console](#remote-console)
 - [Hardware Inventory](#hardware-inventory)
 - [Troubleshooting](#troubleshooting)
 
@@ -419,6 +421,51 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/clients/menu-pr
 
 The response data contains `mac`, `known_client`, `client_name`, `next_boot_image`, `kind` (`menu` or `install`) and `script`. Read-only users can call this endpoint.
 
+## Booting from iSCSI or AoE
+
+Clients can boot an operating system that lives on a SAN disk rather than a local one. Bootimus hands the disk to the firmware with iPXE's `sanboot` command, so anything that can boot from a SAN with iPXE works here: iSCSI and ATA-over-Ethernet targets, and raw disk images served over HTTP. Bootimus does not host the disks; point a target at a storage server you already run.
+
+### Defining a target
+
+**Clients** → **SAN Targets** → **Add SAN Target**:
+
+| Field | Meaning |
+|-------|---------|
+| Name | Shown in the boot menu as "Boot from SAN: *name*" |
+| SAN URI | The iPXE SAN URI, for example `iscsi:10.0.0.5::::iqn.2024-01.lan:disk0`, `aoe:e0.0` or `http://10.0.0.5/disk.img` |
+| Initiator IQN | Optional. `{{MAC}}` is replaced with the client's MAC address without colons, so one target can serve many clients with distinct initiator names |
+| CHAP | Optional username and password, plus reverse (mutual) CHAP credentials if the target demands them |
+
+The iSCSI URI format is `iscsi:<server>:<protocol>:<port>:<lun>:<iqn>`. Leave the protocol, port and LUN empty for the defaults, as in the example above.
+
+### Assigning a target
+
+Open a client (or a client group) and pick the target under **SAN Target**. A client without its own target inherits the group's. The client's menu gains a "Boot from SAN" entry; tick **Boot from SAN by default** to make it the entry the menu falls through to when the timeout fires, so a rebooted machine comes straight back up from the SAN. A pending next-boot image still takes priority, and the usual images remain selectable.
+
+For a one-off SAN boot choose the target in **Next Boot**; it is listed after the images and clears after one boot like any other next-boot action.
+
+### Example targets
+
+A Linux target with `tgt`:
+
+```bash
+sudo tgtadm --lld iscsi --op new --mode target --tid 1 -T iqn.2024-01.lan:disk0
+sudo tgtadm --lld iscsi --op new --mode logicalunit --tid 1 --lun 1 -b /srv/iscsi/disk0.img
+sudo tgtadm --lld iscsi --op bind --mode target --tid 1 -I ALL
+```
+
+Target URI: `iscsi:10.0.0.5::::iqn.2024-01.lan:disk0`
+
+With LIO (`targetcli`) create a fileio or block backstore, an iqn, a LUN and a portal, and either disable authentication for the TPG or set `userid`/`password` (and `mutual_userid`/`mutual_password`) to match the CHAP fields here.
+
+**Windows** installs and boots from iSCSI through iPXE's SAN hook: boot the Windows installer from the menu while the client has a target assigned, and the installer sees the iSCSI disk as a local drive. After installation set **Boot from SAN by default** so the machine returns to it on every boot. Windows needs the network driver for the NIC it booted from; most modern Intel and Realtek NICs are covered by the installer.
+
+### Caveats
+
+- CHAP credentials are placed in the iPXE script, which is fetched over plain HTTP by the booting client. Treat the boot network as trusted, as you already do for auto-install answer files.
+- iPXE's `sanboot` requires a bootloader on the SAN disk; it does not install anything.
+- Read-only users see the targets but not the CHAP passwords.
+
 ## Wake-on-LAN
 
 Send a WOL magic packet to wake a client remotely. Combine with **Next Boot** to wake a machine and have it boot into a specific image.
@@ -478,6 +525,28 @@ curl -H "Authorization: Bearer $TOKEN" -X POST "http://localhost:8081/api/client
 ```
 
 `bmc_protocol` accepts `redfish` or `amt`. Leave it empty on a client to inherit the group's protocol; an empty protocol everywhere means Redfish.
+
+## Remote Console
+
+Clients with a BMC host configured get an **Open Console** button in the client edit dialog and a **Console** button in the client list. It opens an interactive serial console in the browser, streamed through Bootimus over a WebSocket, so a machine can be watched through POST, firmware setup and the installer without a monitor attached. The console is for administrators only, one session per client at a time, and closes after 30 minutes without activity.
+
+| Protocol | Transport | Requirements |
+|---|---|---|
+| **Intel AMT** | Serial-over-LAN through the AMT redirection service, implemented natively by Bootimus on port 16994 (16995 when the client uses the TLS management port 16993) | SOL and the redirection listener enabled in MEBx under *Remote Control*, or in the AMT web UI under *Remote Control* → *Redirection*; the same user and password as power control |
+| **Redfish** | IPMI Serial-over-LAN by running `ipmitool sol activate` on the Bootimus host | `ipmitool` on `PATH` (the Docker image includes it), UDP port 623 reachable on the BMC, and SOL enabled for the BMC user. The Redfish port is not used for the console |
+
+The serial console only shows what the firmware or operating system writes to the serial port. On most servers that means enabling *Console Redirection* in the BIOS or UEFI setup, and on Linux adding `console=ttyS0,115200` (or `ttyS1`, depending on the board) to the kernel command line. Intel AMT machines redirect COM1 at 115200 baud once SOL is enabled. If the screen stays blank, press Enter; if nothing appears during boot, console redirection is not switched on in the firmware.
+
+Keystrokes are sent as typed, so the usual terminal shortcuts work. Closing the dialog or clicking **Disconnect** ends the session and, for IPMI, deactivates the SOL payload on the BMC so the next connection starts cleanly.
+
+### Via API
+
+The endpoint is a WebSocket at `/api/clients/console?mac=...` on the admin port. Browsers cannot send an `Authorization` header on a WebSocket, so the JWT is passed either as the second `Sec-WebSocket-Protocol` entry after `bearer`, or as a `token` query parameter. Binary frames carry console output and keystrokes; text frames from Bootimus are JSON status messages such as `{"type":"connected","message":"..."}`.
+
+```bash
+# websocat example: interactive console for a client
+websocat --binary "ws://localhost:8081/api/clients/console?mac=00:11:22:33:44:55&token=$TOKEN"
+```
 
 ## Hardware Inventory
 

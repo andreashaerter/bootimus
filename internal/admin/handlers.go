@@ -61,6 +61,7 @@ type Handler struct {
 	wolBroadcastAddr   string
 	profileManager     *profiles.Manager
 	proxyDHCPEnabled   bool
+	AdminTLSStatus     func() string
 	httpPort           int
 	serverAddr         string
 	smbPort            int
@@ -575,6 +576,23 @@ func (h *Handler) UpdateClient(w http.ResponseWriter, r *http.Request) {
 	if noVendor, ok := updates["proxy_dhcp_no_vendor_option"].(bool); ok {
 		client.ProxyDHCPNoVendorOption = noVendor
 	}
+	if sanID, ok := updates["san_target_id"]; ok {
+		if sanID == nil {
+			client.SANTargetID = nil
+		} else if id, ok := sanID.(float64); ok && id > 0 {
+			if _, err := h.storage.GetSANTarget(uint(id)); err != nil {
+				h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "SAN target not found"})
+				return
+			}
+			targetID := uint(id)
+			client.SANTargetID = &targetID
+		} else {
+			client.SANTargetID = nil
+		}
+	}
+	if bootSAN, ok := updates["boot_from_san"].(bool); ok {
+		client.BootFromSAN = bootSAN
+	}
 	if groupID, ok := updates["client_group_id"]; ok {
 		if groupID == nil {
 			client.ClientGroupID = nil
@@ -681,13 +699,23 @@ func (h *Handler) SetNextBootImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	label := req.ImageFilename
+	if sanID, ok := models.ParseNextBootSAN(req.ImageFilename); ok {
+		target, err := h.storage.GetSANTarget(sanID)
+		if err != nil {
+			h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "SAN target not found"})
+			return
+		}
+		label = "SAN target " + target.Name
+	}
+
 	if err := h.storage.SetNextBootImage(req.MACAddress, req.ImageFilename); err != nil {
 		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
 		return
 	}
 
 	log.Printf("Admin: Set next boot image for %s to %s", req.MACAddress, req.ImageFilename)
-	h.sendJSON(w, http.StatusOK, Response{Success: true, Message: fmt.Sprintf("Next boot set to %s", req.ImageFilename)})
+	h.sendJSON(w, http.StatusOK, Response{Success: true, Message: fmt.Sprintf("Next boot set to %s", label)})
 }
 
 func (h *Handler) PromoteClient(w http.ResponseWriter, r *http.Request) {
@@ -1471,6 +1499,17 @@ func (h *Handler) ExtractImage(w http.ResponseWriter, r *http.Request) {
 	image.NetbootURL = bootFiles.NetbootURL
 	image.NetbootAvailable = false
 	image.InstallWimPath = bootFiles.InstallWim
+	image.WIMFiles = nil
+	image.WIMPath = ""
+	image.WIMIndex = 0
+	if models.IsWindowsDistro(bootFiles.Distro) {
+		for _, w := range bootFiles.WIMFiles {
+			image.WIMFiles = append(image.WIMFiles, models.WIMFile{Path: w.Path, Size: w.Size})
+		}
+		if rel, err := filepath.Rel(bootFiles.ExtractedDir, bootFiles.BootWim); err == nil {
+			image.WIMPath = filepath.ToSlash(rel)
+		}
+	}
 
 	if bootFiles.Distro == "windows" {
 		mu := h.bootWimLock(filename)
@@ -1921,6 +1960,66 @@ func checkSanbootCompatibility(distro, filename string) (bool, string) {
 	}
 
 	return true, ""
+}
+
+func (h *Handler) SetWinPEWIM(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut && r.Method != http.MethodPost {
+		h.sendJSON(w, http.StatusMethodNotAllowed, Response{Success: false, Error: "Method not allowed"})
+		return
+	}
+	filename := r.URL.Query().Get("filename")
+	if filename == "" {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Missing filename"})
+		return
+	}
+	var req struct {
+		WIMPath  string `json:"wim_path"`
+		WIMIndex int    `json:"wim_index"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Invalid request body"})
+		return
+	}
+	image, err := h.storage.GetImage(filename)
+	if err != nil {
+		h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "Image not found"})
+		return
+	}
+	if !image.Extracted || !models.IsWindowsDistro(image.Distro) {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Only extracted Windows or WinPE images boot from a WIM"})
+		return
+	}
+	if req.WIMIndex < 0 {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "WIM index cannot be negative"})
+		return
+	}
+	wimPath := strings.TrimPrefix(filepath.ToSlash(filepath.Clean("/"+req.WIMPath)), "/")
+	if wimPath == "" || wimPath == "." || !strings.EqualFold(filepath.Ext(wimPath), ".wim") {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "wim_path must name a .wim file inside the extracted image"})
+		return
+	}
+	known := false
+	for _, w := range image.WIMFiles {
+		if w.Path == wimPath {
+			known = true
+			break
+		}
+	}
+	if !known {
+		isoBase := strings.TrimSuffix(filename, filepath.Ext(filename))
+		if _, err := os.Stat(filepath.Join(h.isoDir, isoBase, "iso", filepath.FromSlash(wimPath))); err != nil {
+			h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: fmt.Sprintf("%s was not found in the extracted image", wimPath)})
+			return
+		}
+	}
+	image.WIMPath = wimPath
+	image.WIMIndex = req.WIMIndex
+	if err := h.storage.UpdateImage(filename, image); err != nil {
+		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: "Failed to update image"})
+		return
+	}
+	log.Printf("Image %s now boots %s (index %d)", filename, wimPath, req.WIMIndex)
+	h.sendJSON(w, http.StatusOK, Response{Success: true, Message: "Boot WIM updated", Data: image})
 }
 
 func (h *Handler) SetBootMethod(w http.ResponseWriter, r *http.Request) {
@@ -2767,6 +2866,12 @@ func (h *Handler) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 				return "Unavailable (install wimtools / wimlib-imagex to enable boot.wim patching)"
 			}(),
 			"http_port": fmt.Sprintf("%d", h.httpPort),
+			"admin_tls": func() string {
+				if h.AdminTLSStatus == nil {
+					return "Disabled (plain HTTP)"
+				}
+				return h.AdminTLSStatus()
+			}(),
 		},
 		"environment": map[string]string{
 			"BOOTIMUS_TFTP_PORT":        os.Getenv("BOOTIMUS_TFTP_PORT"),
