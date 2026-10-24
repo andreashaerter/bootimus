@@ -795,8 +795,20 @@
                         Download Backup
                     </button>
                 </div>
+                <div id="restore-pending-notice" class="alert" style="display: none; margin: 0 12px 12px; align-items: center; justify-content: space-between; gap: 12px;">
+                    <span>Restore staged: restart Bootimus to apply it. The current database and settings are replaced on the next start.</span>
+                    <button class="btn btn-sm" type="button" onclick="cancelRestore()">Cancel</button>
+                </div>
+                <div style="display: flex; gap: 10px; align-items: center; padding: 0 12px 12px; flex-wrap: wrap;">
+                    <input type="file" id="restore-file" accept=".tar.gz,.tgz,application/gzip">
+                    <button class="btn" type="button" id="restore-upload-btn" onclick="uploadRestore()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        Upload and Restore
+                    </button>
+                    <span id="restore-status" style="color: var(--text-secondary); font-size: 13px;"></span>
+                </div>
                 <p style="color: var(--text-muted); font-size: 12px; padding: 0 12px 12px; margin: 0;">
-                    Restore is manual: stop bootimus, extract the tarball over the data directory, start bootimus.
+                    Upload a backup produced by <strong>Download Backup</strong>. It is staged in the data directory and applied the next time Bootimus starts; the previous SQLite database is kept as <code>bootimus.db.pre-restore</code>. PostgreSQL restores need <code>psql</code> on the server.
                 </p>
             </div>
 
