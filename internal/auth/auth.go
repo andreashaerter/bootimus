@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"bootimus/internal/database"
@@ -17,10 +19,21 @@ import (
 )
 
 type Manager struct {
-	userStore  database.UserStore
-	jwtSecret  []byte
-	ldapConfig *LDAPConfig
-	oidc       *oidcClient
+	userStore   database.UserStore
+	jwtSecret   []byte
+	ldapConfig  *LDAPConfig
+	oidc        *oidcClient
+	loginLimit  *loginLimiter
+	limiterOnce sync.Once
+}
+
+func (m *Manager) limiter() *loginLimiter {
+	m.limiterOnce.Do(func() {
+		if m.loginLimit == nil {
+			m.loginLimit = newLoginLimiter()
+		}
+	})
+	return m.loginLimit
 }
 
 type Claims struct {
@@ -200,6 +213,18 @@ func (m *Manager) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		method = "local"
 	}
 	username := req.Username
+	limiterKey := strings.ToLower(strings.TrimSpace(req.Username))
+	addr := clientAddr(r)
+
+	if wait, locked := m.limiter().check(limiterKey, addr); locked {
+		seconds := retrySeconds(wait)
+		log.Printf("Auth: Login for '%s' from %s refused, locked out for %ds", req.Username, addr, seconds)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", strconv.Itoa(seconds))
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": fmt.Sprintf("Too many failed login attempts. Try again in %d seconds.", seconds)})
+		return
+	}
 
 	switch method {
 	case "ldap":
@@ -234,11 +259,15 @@ func (m *Manager) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !authenticated {
+		m.limiter().fail(limiterKey, addr)
+		log.Printf("Auth: Failed login for '%s' from %s", req.Username, addr)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid username or password"})
 		return
 	}
+
+	m.limiter().succeed(limiterKey)
 
 	token, err := m.GenerateToken(username, isAdmin)
 	if err != nil {
