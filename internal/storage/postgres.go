@@ -231,7 +231,7 @@ func (s *PostgresStore) GetClient(mac string) (*models.Client, error) {
 }
 
 func (s *PostgresStore) CreateClient(client *models.Client) error {
-	return s.db.Create(client).Error
+	return createClient(s.db, client)
 }
 
 func (s *PostgresStore) UpdateClient(mac string, client *models.Client) error {
