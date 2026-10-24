@@ -509,6 +509,18 @@ Set-DhcpServerv4OptionValue -PolicyName "BIOS" -OptionId 67 -Value "undionly.kpx
 
 ## Solución de problemas
 
+### Página PXE Debug
+
+Antes de capturar paquetes, abre **PXE Debug** en la barra lateral del panel admin. Cuando el proxyDHCP integrado está habilitado, Bootimus registra cada paquete DHCP que recibe en UDP/67 y UDP/4011 y muestra qué hizo con cada uno:
+
+- **Replied**: el bootfile que ofreció (BIOS, UEFI o ARM64, elegido a partir de la opción 93 o de la vendor class), si envió un OFFER o un ACK, y adónde fue la respuesta (broadcast, la dirección del relay o directamente al cliente).
+- **Ignored**: la vendor class no era `PXEClient` ni `HTTPClient`, así que el paquete era una petición DHCP normal de una máquina ya arrancada, o el tipo de mensaje es uno que proxyDHCP nunca responde.
+- **Failed**: la respuesta no se pudo construir o enviar, con el error.
+
+Cada fila muestra además la dirección de origen, el relay (`giaddr`) cuando un relay DHCP reenvió la petición, la arquitectura del cliente, la vendor class en bruto, si se omitió la opción 43 para ese cliente y si se detectó la fase de firmware de Raspberry Pi. Los clientes descubiertos se emparejan con sus nombres. **Start Live** refresca la tabla cada dos segundos; **Clear** vacía el historial. Los mismos datos están disponibles en `GET /api/proxydhcp/events`.
+
+Si un cliente nunca aparece en esta página, sus broadcasts no están llegando a Bootimus: revisa la interfaz a la que está vinculado (`--bind-interface`), las VLAN y la configuración del relay DHCP. Si aparece con una respuesta pero sigue sin arrancar, el firmware no está aceptando la oferta; mira la sección siguiente.
+
 ### El cliente no recibe DHCP Offer
 
 ```bash
