@@ -14,6 +14,7 @@ Kompletter Leitfaden zum Ausrollen von Bootimus in verschiedenen Umgebungen mit 
 - [Datenbank-Optionen](#datenbank-optionen)
 - [Remote-Updates & Datenschutz](#remote-updates--datenschutz)
 - [Produktiv-Deployment](#produktiv-deployment)
+- [Multi-Site](#multi-site)
 
 ## Schnellstart
 
@@ -619,6 +620,10 @@ rm /opt/bootimus/data/isos/old-image.iso
 # Nach neuen ISOs scannen, um die Datenbank zu aktualisieren
 curl -u admin:password -X POST http://localhost:8081/api/scan
 ```
+
+## Multi-Site
+
+Zweigstellen können eine schreibgeschützte Replik betreiben, die diese Instanz spiegelt und lokale Clients aus lokalen Kopien bootet. Siehe den [Multi-Site-Leitfaden](multi-site.md).
 
 ## Nächste Schritte
 

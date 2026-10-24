@@ -14,6 +14,7 @@ Guide complet pour déployer Bootimus dans différents environnements avec confi
 - [Options de base de données](#options-de-base-de-données)
 - [Mises à jour distantes et confidentialité](#mises-à-jour-distantes-et-confidentialité)
 - [Déploiement en production](#déploiement-en-production)
+- [Multi-site](#multi-site)
 
 ## Démarrage rapide
 
@@ -619,6 +620,10 @@ rm /opt/bootimus/data/isos/old-image.iso
 # Scan for new ISOs to update database
 curl -u admin:password -X POST http://localhost:8081/api/scan
 ```
+
+## Multi-site
+
+Les agences peuvent faire tourner une réplique en lecture seule qui reflète cette instance et boote les clients locaux depuis des copies locales. Voir le [guide multi-site](multi-site.md).
 
 ## Étapes suivantes
 
