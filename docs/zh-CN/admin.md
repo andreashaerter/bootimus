@@ -24,7 +24,7 @@ http://your-server:8081/
 **要求**:
 - 管理界面运行在独立端口(默认 8081)
 - 兼容 SQLite 或 PostgreSQL
-- 基于 JWT token 的身份认证(可选 LDAP/AD 后端)
+- 基于 JWT token 的身份认证(可选 LDAP/AD 后端和 OIDC 单点登录)
 
 ### 首次登录
 
@@ -48,7 +48,7 @@ http://your-server:8081/
 - **用户名**:`admin`
 - **密码**:查看服务器启动日志
 
-如果配置了 LDAP,登录页面会出现下拉菜单,可在本地认证和 LDAP 认证之间选择。详见 [身份认证指南](authentication.md)。
+如果配置了 LDAP,登录页面会出现下拉菜单,可在本地认证和 LDAP 认证之间选择。如果配置了 OIDC,会出现 **Sign in with …** 按钮用于单点登录。详见 [身份认证指南](authentication.md)。
 
 ### 快速开始
 

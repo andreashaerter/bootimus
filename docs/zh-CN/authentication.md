@@ -1,6 +1,6 @@
 # 身份认证指南
 
-Bootimus 使用 JWT (JSON Web Token) 对管理面板进行身份认证。你也可以选择连接 LDAP 或 Active Directory 服务器作为认证后端。
+Bootimus 使用 JWT (JSON Web Token) 对管理面板进行身份认证。你也可以选择连接 LDAP 或 Active Directory 服务器,或者连接 Authentik、Keycloak 等 OpenID Connect (OIDC) 身份提供商来实现单点登录。
 
 ## 目录
 
@@ -8,6 +8,8 @@ Bootimus 使用 JWT (JSON Web Token) 对管理面板进行身份认证。你也�
 - [登录流程](#登录流程)
 - [API 认证](#api-认证)
 - [LDAP / Active Directory](#ldap--active-directory)
+- [OIDC / 单点登录](#oidc--单点登录)
+- [来自 LDAP 和 OIDC 的用户](#来自-ldap-和-oidc-的用户)
 - [配置参考](#配置参考)
 - [故障排查](#故障排查)
 
@@ -56,11 +58,12 @@ docker exec bootimus /bootimus serve --reset-admin-password
 - **Password**:以 bcrypt 哈希存储
 - **Admin**:用户是否拥有管理员权限
 - **Enabled**:可禁用而无需删除
+- **Source**:`Local`、`LDAP` 或 `OIDC` — 账号的来源(参见 [来自 LDAP 和 OIDC 的用户](#来自-ldap-和-oidc-的用户))
 
 也可以在不启动服务器的情况下通过 CLI 管理用户(便于恢复)。这些命令直接作用于
 所配置的数据库(SQLite 或 PostgreSQL):
 ```bash
-./bootimus user list                       # 列出所有本地用户
+./bootimus user list                       # 列出所有用户及其来源
 ./bootimus user enable <username>          # 启用账号
 ./bootimus user disable <username>         # 禁用账号
 ./bootimus user set-admin <username>       # 授予管理员权限
@@ -73,13 +76,14 @@ docker exec bootimus /bootimus serve --reset-admin-password
 1. 访问 `http://your-server:8081`
 2. 显示登录页面,带用户名和密码字段
 3. 如果配置了 LDAP,会出现一个认证下拉框用于选择后端
-4. 登录成功后,签发一个 JWT token(有效期 24 小时)
-5. token 存储在浏览器,并随所有 API 请求一起发送
-6. 退出登录或 token 过期后,再次显示登录页
+4. 如果配置了 OIDC,表单下方会出现 **Sign in with …** 按钮
+5. 登录成功后,签发一个 JWT token(有效期 24 小时)
+6. token 存储在浏览器,并随所有 API 请求一起发送
+7. 退出登录或 token 过期后,再次显示登录页
 
 ## API 认证
 
-所有 API 端点(`/api/login` 和 `/api/auth-info` 除外)都需要有效的 JWT token。
+所有 API 端点(`/api/login`、`/api/auth-info` 和 `/api/oidc/` 登录端点除外)都需要有效的 JWT token。
 
 ### 获取 token
 
@@ -122,7 +126,8 @@ curl http://localhost:8081/api/auth-info
   "success": true,
   "data": [
     {"id": "local", "name": "Local"},
-    {"id": "ldap", "name": "LDAP (dc.example.com)"}
+    {"id": "ldap", "name": "LDAP (dc.example.com)"},
+    {"id": "oidc", "name": "Authentik", "type": "redirect", "url": "/api/oidc/login"}
   ]
 }
 ```
@@ -138,7 +143,8 @@ Bootimus 支持把 LDAP 作为额外的认证后端。配置后,用户可以在�
 3. 根据配置的过滤器搜索该用户
 4. 尝试用提供的密码以找到的用户身份 bind
 5. 若成功,检查组成员关系以确定管理员权限
-6. 签发 JWT token(与本地认证相同)
+6. 为其创建或更新本地用户记录(参见 [来自 LDAP 和 OIDC 的用户](#来自-ldap-和-oidc-的用户))
+7. 签发 JWT token(与本地认证相同)
 
 ### Active Directory 示例
 
@@ -201,6 +207,8 @@ services:
 
 如果**未设置** `BOOTIMUS_LDAP_GROUP_FILTER`,所有 LDAP 用户都获得管理员权限。
 
+管理员权限会在每次登录时重新评估,因此把某人移出该组后,其下次登录时就会被降级。
+
 ### 通过 API 用 LDAP 登录
 
 ```bash
@@ -209,6 +217,119 @@ TOKEN=$(curl -s -X POST http://localhost:8081/api/login \
   -H "Content-Type: application/json" \
   -d '{"username":"jdoe","password":"ldap-password","auth_method":"ldap"}' | jq -r '.data.token')
 ```
+
+## OIDC / 单点登录
+
+Bootimus 可以通过任何 OpenID Connect 提供商登录用户 — Authentik、Keycloak、Zitadel、Authelia、Entra ID、Google Workspace 等。用户在登录页点击 **Sign in with …**,在提供商处完成认证,然后被送回 Bootimus 并已处于登录状态。账号会在首次登录时自动创建,管理员权限则取决于用户在提供商处所属的组。
+
+### 工作原理
+
+1. 用户在登录页点击 **Sign in with …**
+2. Bootimus 将其重定向到提供商(带 PKCE 的授权码流程)
+3. 用户在提供商处登录,提供商随后重定向回 `/api/oidc/callback`
+4. Bootimus 用授权码换取 ID token,校验其签名、audience、过期时间和 nonce,并读取用户名和组声明
+5. 如果配置了允许的组,用户必须属于其中之一(或属于管理员组)
+6. 创建或更新本地用户记录(参见 [来自 LDAP 和 OIDC 的用户](#来自-ldap-和-oidc-的用户)),若用户属于管理员组则授予管理员权限
+7. 浏览器带着 JWT token 返回管理面板(与本地认证相同)
+
+如果 ID token 中不包含用户名或组声明,Bootimus 还会向提供商的 userinfo 端点查询。
+
+### 提供商设置
+
+在你的提供商处创建一个 OIDC 客户端(有时称为应用或依赖方),配置如下:
+
+| 设置 | 值 |
+|---------|-------|
+| 客户端类型 | Confidential(带客户端密钥) |
+| 授权类型 | 授权码 |
+| 重定向 URI | `https://bootimus.example.com/api/oidc/callback` — 用户访问管理面板所用的 URL,加上 `/api/oidc/callback` |
+| Scopes | `openid`, `profile`, `email` |
+
+请确保提供商在 `groups` 声明中包含用户所属的组。Bootimus 不会猜测自己的公开 URL,因此 `BOOTIMUS_OIDC_REDIRECT_URL` 必须与提供商处注册的重定向 URI 完全一致。
+
+### Authentik 示例
+
+1. 在 Authentik 中进入 **Applications → Providers**,创建一个 **OAuth2/OpenID Provider**:
+   - **Name**:`bootimus`
+   - **Authorisation flow**:你常用的显式或隐式同意流程
+   - **Client type**:Confidential
+   - **Redirect URIs/Origins**:`https://bootimus.example.com/api/oidc/callback`(strict)
+   - **Scopes**:保留默认的 `openid`、`email` 和 `profile` 映射 — Authentik 的 `profile` 映射包含 `groups` 声明
+   - **Subject mode**:任意;Bootimus 默认使用 `preferred_username` 作为用户名
+2. 记下 **Client ID** 和 **Client Secret**
+3. 进入 **Applications → Applications**,使用该提供商创建一个 slug 为 `bootimus` 的应用。可选地为其绑定策略或组,以控制谁能启动它。
+4. 为 Bootimus 管理员创建组(例如 `bootimus-admins`),并可选地为其他被允许的用户创建组(例如 `bootimus-operators`)
+5. 配置 Bootimus:
+
+```bash
+export BOOTIMUS_OIDC_ISSUER=https://authentik.example.com/application/o/bootimus/
+export BOOTIMUS_OIDC_CLIENT_ID=<client id>
+export BOOTIMUS_OIDC_CLIENT_SECRET=<client secret>
+export BOOTIMUS_OIDC_REDIRECT_URL=https://bootimus.example.com/api/oidc/callback
+export BOOTIMUS_OIDC_ADMIN_GROUPS=bootimus-admins
+export BOOTIMUS_OIDC_ALLOWED_GROUPS=bootimus-operators
+export BOOTIMUS_OIDC_DISPLAY_NAME=Authentik
+```
+
+issuer URL 显示在 Authentik 提供商概览页面的 **OpenID Configuration Issuer** 中,并且总是以 `/application/o/<application slug>/` 结尾。
+
+### Keycloak 示例
+
+创建一个 confidential 的 OpenID Connect 客户端,启用 **Standard flow** 并设置上述重定向 URI。Keycloak 默认不发送组:请在客户端的专用 scope 中添加一个 **Group Membership** mapper,token 声明名称设为 `groups`,并关闭 **Full group path**。
+
+```bash
+export BOOTIMUS_OIDC_ISSUER=https://keycloak.example.com/realms/example
+export BOOTIMUS_OIDC_CLIENT_ID=bootimus
+export BOOTIMUS_OIDC_CLIENT_SECRET=<client secret>
+export BOOTIMUS_OIDC_REDIRECT_URL=https://bootimus.example.com/api/oidc/callback
+export BOOTIMUS_OIDC_ADMIN_GROUPS=bootimus-admins
+export BOOTIMUS_OIDC_DISPLAY_NAME=Keycloak
+```
+
+### 组映射
+
+| 设置 | 作用 |
+|---------|--------|
+| `BOOTIMUS_OIDC_ADMIN_GROUPS` | 这些组中任一组的成员为管理员。如果为空,则没有任何 OIDC 用户是管理员。 |
+| `BOOTIMUS_OIDC_ALLOWED_GROUPS` | 如果设置,只有这些组(或管理员组)的成员可以登录。如果为空,提供商认证通过的任何人都可以登录。 |
+
+两者都接受以逗号分隔的列表,因此组名可以包含空格(`Bootimus Admins,Infrastructure`)。匹配时忽略大小写。组成员关系在每次登录时重新读取,因此提供商处的变更会在用户下次登录时生效。
+
+> **注意:** 目前管理面板的每个页面都需要管理员权限。不在管理员组中的用户可以登录并出现在 **Users** 列表中,但在添加只读角色之前,他们无法查看或更改任何内容。目前,如果你想阻止创建此类账号,请把 `BOOTIMUS_OIDC_ALLOWED_GROUPS` 设置为与 `BOOTIMUS_OIDC_ADMIN_GROUPS` 相同的组。
+
+### Docker Compose 示例
+
+```yaml
+services:
+  bootimus:
+    image: garybowers/bootimus:latest
+    environment:
+      BOOTIMUS_OIDC_ISSUER: https://authentik.example.com/application/o/bootimus/
+      BOOTIMUS_OIDC_CLIENT_ID: bootimus
+      BOOTIMUS_OIDC_CLIENT_SECRET: client-secret
+      BOOTIMUS_OIDC_REDIRECT_URL: https://bootimus.example.com/api/oidc/callback
+      BOOTIMUS_OIDC_ADMIN_GROUPS: bootimus-admins
+      BOOTIMUS_OIDC_DISPLAY_NAME: Authentik
+```
+
+### 安全说明
+
+- 登录的 state、nonce 和 PKCE verifier 保存在一个已签名、短期(10 分钟)的 `HttpOnly` cookie 中,作用范围限定为 `/api/oidc/`。当重定向 URL 使用 HTTPS 时,它会被标记为 `Secure` — 生产环境请通过 HTTPS 提供管理面板。
+- 仅使用授权码流程;提供商的 token 不会到达浏览器。浏览器收到的是常规的 Bootimus JWT。
+- 本地密码登录仍可与 OIDC 并存,因此本地 `admin` 账号始终可用于恢复。
+
+## 来自 LDAP 和 OIDC 的用户
+
+通过 LDAP 或 OIDC 登录的用户会在首次登录时获得一条本地用户记录。这样你就可以在 **Users** 下看到他们、禁用他们,并像本地用户一样在每次请求时检查其访问权限。
+
+- **Source**:每个用户都被标记为 `Local`、`LDAP` 或 `OIDC`。用户只能通过自己的来源登录:OIDC 或 LDAP 登录绝不会接管同名的本地账号(例如 `admin`),并且 LDAP 和 OIDC 用户不能使用本地密码登录。
+- **用户名**会被转为小写,可包含字母、数字和 `. _ @ + -`。包含其他字符的登录会被拒绝。
+- **管理员权限**取决于用户所属的组,并在每次登录时刷新,因此对 LDAP 或 OIDC 用户更改 **Administrator** 复选框,只会持续到他们下次登录。
+- 在 Bootimus 中**禁用**用户会立即阻止其访问,即使提供商仍允许其登录。
+- **删除**用户只会移除本地记录;该记录会在其下次登录时重新创建。请使用提供商的组,或禁用该用户,来移除访问权限。
+- LDAP 和 OIDC 用户的**密码**由提供商管理,因此不提供 **Reset Password**,`bootimus user set-password` 也会拒绝为他们设置密码。
+
+如果有人使用的名称已属于另一来源的用户,登录会被拒绝,并提示 *a user with this name already exists from a different source*。这包括在 LDAP 用户被自动创建之前就已存在的本地账号。请删除旧的本地账号,以便它在下次登录时从 LDAP 或 OIDC 重新创建。
 
 ## 配置参考
 
@@ -227,6 +348,17 @@ TOKEN=$(curl -s -X POST http://localhost:8081/api/login \
 | `--ldap-user-filter` | `(sAMAccountName=%s)` | 用户搜索过滤器(`%s` = 用户名) |
 | `--ldap-group-filter` | *(空)* | 管理员组的 CN |
 | `--ldap-group-base-dn` | *(空)* | 组搜索的 base DN(默认与 base DN 相同) |
+| `--oidc-issuer` | *(空)* | OIDC issuer URL(启用 OIDC 登录) |
+| `--oidc-client-id` | *(空)* | OIDC 客户端 ID |
+| `--oidc-client-secret` | *(空)* | OIDC 客户端密钥 |
+| `--oidc-redirect-url` | *(空)* | 在提供商处注册的重定向 URL,以 `/api/oidc/callback` 结尾 |
+| `--oidc-scopes` | `openid,profile,email` | 以逗号分隔的请求 scope(始终包含 `openid`) |
+| `--oidc-username-claim` | `preferred_username` | 用作 Bootimus 用户名的声明(例如 `email`) |
+| `--oidc-groups-claim` | `groups` | 列出用户所属组的声明 |
+| `--oidc-admin-groups` | *(空)* | 以逗号分隔的组,其成员为管理员 |
+| `--oidc-allowed-groups` | *(空)* | 以逗号分隔的允许登录的组(为空则允许任何人) |
+| `--oidc-display-name` | `SSO` | 登录按钮上显示的名称 |
+| `--oidc-skip-verify` | `false` | 与提供商通信时跳过 TLS 证书校验 |
 
 ### 环境变量
 
@@ -245,6 +377,17 @@ TOKEN=$(curl -s -X POST http://localhost:8081/api/login \
 | `BOOTIMUS_LDAP_USER_FILTER` | `--ldap-user-filter` |
 | `BOOTIMUS_LDAP_GROUP_FILTER` | `--ldap-group-filter` |
 | `BOOTIMUS_LDAP_GROUP_BASE_DN` | `--ldap-group-base-dn` |
+| `BOOTIMUS_OIDC_ISSUER` | `--oidc-issuer` |
+| `BOOTIMUS_OIDC_CLIENT_ID` | `--oidc-client-id` |
+| `BOOTIMUS_OIDC_CLIENT_SECRET` | `--oidc-client-secret` |
+| `BOOTIMUS_OIDC_REDIRECT_URL` | `--oidc-redirect-url` |
+| `BOOTIMUS_OIDC_SCOPES` | `--oidc-scopes` |
+| `BOOTIMUS_OIDC_USERNAME_CLAIM` | `--oidc-username-claim` |
+| `BOOTIMUS_OIDC_GROUPS_CLAIM` | `--oidc-groups-claim` |
+| `BOOTIMUS_OIDC_ADMIN_GROUPS` | `--oidc-admin-groups` |
+| `BOOTIMUS_OIDC_ALLOWED_GROUPS` | `--oidc-allowed-groups` |
+| `BOOTIMUS_OIDC_DISPLAY_NAME` | `--oidc-display-name` |
+| `BOOTIMUS_OIDC_SKIP_VERIFY` | `--oidc-skip-verify` |
 
 ### 配置文件 (bootimus.yaml)
 
@@ -259,6 +402,15 @@ ldap:
   base_dn: dc=example,dc=com
   user_filter: (sAMAccountName=%s)
   group_filter: cn=bootimus-admins
+
+oidc:
+  issuer: https://authentik.example.com/application/o/bootimus/
+  client_id: bootimus
+  client_secret: client-secret
+  redirect_url: https://bootimus.example.com/api/oidc/callback
+  admin_groups: bootimus-admins
+  allowed_groups: bootimus-operators
+  display_name: Authentik
 ```
 
 ## 故障排查
@@ -295,6 +447,32 @@ ldapsearch -H ldap://dc.example.com -D "bind-dn" -w password \
   -b "dc=example,dc=com" "(sAMAccountName=testuser)" memberOf
 ```
 
+### OIDC:"Unable to reach the identity provider"
+
+当第一个用户登录时,Bootimus 会获取 `<issuer>/.well-known/openid-configuration`。请查看服务器日志中的具体错误,并确认 Bootimus 主机可以访问 issuer:
+
+```bash
+curl https://authentik.example.com/application/o/bootimus/.well-known/openid-configuration
+```
+
+该文档中的 `issuer` 值必须与 `BOOTIMUS_OIDC_ISSUER` 完全一致,包括末尾的斜杠(如有)。如果提供商使用私有 CA,请将其添加到主机的信任库;`BOOTIMUS_OIDC_SKIP_VERIFY=true` 可用于测试,但不推荐使用。
+
+### OIDC:提供商显示重定向 URI 错误
+
+在提供商处注册的重定向 URI 与 `BOOTIMUS_OIDC_REDIRECT_URL` 必须完全一致 — 包括协议、主机、端口和路径。
+
+### OIDC:"Sign-in expired or was started elsewhere"
+
+登录必须在 10 分钟内、在发起登录的同一浏览器中完成,并且期间 Bootimus 不能重启。如果在反向代理后面反复出现这种情况,请确保代理会透传 cookie,并且用户访问 Bootimus 所用的主机与重定向 URL 中的主机相同。
+
+### OIDC:用户不是管理员或被拒绝登录
+
+服务器日志会记录每次登录被拒绝的原因。请检查提供商实际发送了哪些组 — 组名必须与 `BOOTIMUS_OIDC_ADMIN_GROUPS` 或 `BOOTIMUS_OIDC_ALLOWED_GROUPS` 匹配,并且除非关闭 **Full group path**,否则 Keycloak 会发送完整路径(`/bootimus-admins`)。如果你的提供商使用不同的声明名称,请设置 `BOOTIMUS_OIDC_GROUPS_CLAIM`。
+
+### "A user with this name already exists from a different source"
+
+参见 [来自 LDAP 和 OIDC 的用户](#来自-ldap-和-oidc-的用户)。请在 **Users** 下删除现有账号,然后重新登录。
+
 ### Token 过期
 
 JWT token 有效期 24 小时。过期后会自动显示登录页。服务器重启时 token 也会失效(签名密钥会被重新生成)。
@@ -311,4 +489,4 @@ JWT token 有效期 24 小时。过期后会自动显示登录页。服务器重
 ./bootimus user set-password admin
 ```
 
-无论 LDAP 配置如何,这总是可用。
+无论 LDAP 或 OIDC 配置如何,这总是可用。

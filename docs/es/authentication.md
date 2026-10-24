@@ -1,6 +1,6 @@
 # Guía de autenticación
 
-Bootimus usa autenticación JWT (JSON Web Token) para el panel admin. Opcionalmente, puedes conectar un servidor LDAP o Active Directory como backend de autenticación.
+Bootimus usa autenticación JWT (JSON Web Token) para el panel admin. Opcionalmente, puedes conectar un servidor LDAP o Active Directory, o un proveedor de identidad OpenID Connect (OIDC) como Authentik o Keycloak para el inicio de sesión único.
 
 ## Tabla de contenidos
 
@@ -8,6 +8,8 @@ Bootimus usa autenticación JWT (JSON Web Token) para el panel admin. Opcionalme
 - [Flujo de login](#flujo-de-login)
 - [Autenticación de la API](#autenticación-de-la-api)
 - [LDAP / Active Directory](#ldap--active-directory)
+- [OIDC / inicio de sesión único](#oidc--inicio-de-sesión-único)
+- [Usuarios de LDAP y OIDC](#usuarios-de-ldap-y-oidc)
 - [Referencia de configuración](#referencia-de-configuración)
 - [Solución de problemas](#solución-de-problemas)
 
@@ -57,12 +59,13 @@ Se pueden crear usuarios adicionales desde la pestaña **Users** del panel admin
 - **Password**: Almacenada como hash bcrypt
 - **Admin**: Si el usuario tiene privilegios de admin
 - **Enabled**: Se puede deshabilitar sin borrar
+- **Source**: `Local`, `LDAP` o `OIDC` — de dónde procede la cuenta (mira [Usuarios de LDAP y OIDC](#usuarios-de-ldap-y-oidc))
 
 Los usuarios también se pueden gestionar desde la CLI sin arrancar el servidor
 (útil para recuperación). Estos comandos operan directamente sobre la base de
 datos configurada (SQLite o PostgreSQL):
 ```bash
-./bootimus user list                       # listar todos los usuarios locales
+./bootimus user list                       # listar todos los usuarios y su origen
 ./bootimus user enable <username>          # habilitar una cuenta
 ./bootimus user disable <username>         # deshabilitar una cuenta
 ./bootimus user set-admin <username>       # conceder derechos de admin
@@ -75,13 +78,14 @@ datos configurada (SQLite o PostgreSQL):
 1. Navega a `http://your-server:8081`
 2. Se muestra la página de login con campos de usuario y contraseña
 3. Si LDAP está configurado, aparece un desplegable de autenticación para elegir el backend
-4. Tras un login exitoso, se emite un token JWT (válido 24 horas)
-5. El token se almacena en el navegador y se envía con todas las peticiones a la API
-6. Al hacer logout o expirar el token, se muestra de nuevo la página de login
+4. Si OIDC está configurado, aparece un botón **Sign in with …** debajo del formulario
+5. Tras un login exitoso, se emite un token JWT (válido 24 horas)
+6. El token se almacena en el navegador y se envía con todas las peticiones a la API
+7. Al hacer logout o expirar el token, se muestra de nuevo la página de login
 
 ## Autenticación de la API
 
-Todos los endpoints de la API (excepto `/api/login` y `/api/auth-info`) requieren un token JWT válido.
+Todos los endpoints de la API (excepto `/api/login`, `/api/auth-info` y los endpoints de inicio de sesión `/api/oidc/`) requieren un token JWT válido.
 
 ### Obtener un token
 
@@ -124,7 +128,8 @@ Respuesta:
   "success": true,
   "data": [
     {"id": "local", "name": "Local"},
-    {"id": "ldap", "name": "LDAP (dc.example.com)"}
+    {"id": "ldap", "name": "LDAP (dc.example.com)"},
+    {"id": "oidc", "name": "Authentik", "type": "redirect", "url": "/api/oidc/login"}
   ]
 }
 ```
@@ -140,7 +145,8 @@ Bootimus soporta autenticación LDAP como backend adicional. Cuando está config
 3. Busca al usuario por el filtro configurado
 4. Intenta bindear como el usuario encontrado con la contraseña proporcionada
 5. Si tiene éxito, comprueba la membresía de grupo para acceso admin
-6. Emite un token JWT (igual que en auth local)
+6. Crea o actualiza un registro de usuario local para él (mira [Usuarios de LDAP y OIDC](#usuarios-de-ldap-y-oidc))
+7. Emite un token JWT (igual que en auth local)
 
 ### Ejemplo con Active Directory
 
@@ -203,6 +209,8 @@ Si `BOOTIMUS_LDAP_GROUP_FILTER` está definido, solo los usuarios miembros del g
 
 Si `BOOTIMUS_LDAP_GROUP_FILTER` **no está definido**, todos los usuarios LDAP obtienen acceso admin.
 
+Los derechos de admin se reevalúan en cada login, así que si quitas a alguien del grupo, pierde el rol de admin la próxima vez que inicie sesión.
+
 ### Login por API con LDAP
 
 ```bash
@@ -211,6 +219,119 @@ TOKEN=$(curl -s -X POST http://localhost:8081/api/login \
   -H "Content-Type: application/json" \
   -d '{"username":"jdoe","password":"ldap-password","auth_method":"ldap"}' | jq -r '.data.token')
 ```
+
+## OIDC / inicio de sesión único
+
+Bootimus puede autenticar usuarios mediante cualquier proveedor OpenID Connect — Authentik, Keycloak, Zitadel, Authelia, Entra ID, Google Workspace y otros. Los usuarios hacen click en **Sign in with …** en la página de login, se autentican en el proveedor y vuelven a Bootimus con la sesión ya iniciada. Las cuentas se crean automáticamente en el primer login, y los derechos de admin siguen los grupos del usuario en el proveedor.
+
+### Cómo funciona
+
+1. El usuario hace click en **Sign in with …** en la página de login
+2. Bootimus lo redirige al proveedor (flujo de código de autorización con PKCE)
+3. El usuario inicia sesión en el proveedor, que lo redirige de vuelta a `/api/oidc/callback`
+4. Bootimus intercambia el código por un ID token, verifica su firma, audiencia, expiración y nonce, y lee los claims de username y grupos
+5. Si hay grupos permitidos configurados, el usuario debe estar en uno de ellos (o en un grupo admin)
+6. Se crea o actualiza un registro de usuario local (mira [Usuarios de LDAP y OIDC](#usuarios-de-ldap-y-oidc)), con derechos de admin si está en un grupo admin
+7. El navegador vuelve al panel admin con un token JWT (igual que en auth local)
+
+Si el ID token no incluye el claim de username o de grupos, Bootimus también consulta el endpoint userinfo del proveedor.
+
+### Configuración del proveedor
+
+Crea un cliente OIDC (a veces llamado aplicación o relying party) en tu proveedor con:
+
+| Ajuste | Valor |
+|--------|-------|
+| Tipo de cliente | Confidencial (con client secret) |
+| Tipo de grant | Código de autorización |
+| Redirect URI | `https://bootimus.example.com/api/oidc/callback` — la URL con la que los usuarios acceden al panel admin, más `/api/oidc/callback` |
+| Scopes | `openid`, `profile`, `email` |
+
+Asegúrate de que el proveedor incluya los grupos del usuario en un claim `groups`. Bootimus no adivina su propia URL pública, así que `BOOTIMUS_OIDC_REDIRECT_URL` debe coincidir exactamente con la redirect URI registrada en el proveedor.
+
+### Ejemplo con Authentik
+
+1. En Authentik, ve a **Applications → Providers** y crea un **OAuth2/OpenID Provider**:
+   - **Name**: `bootimus`
+   - **Authorisation flow**: tu flujo de consentimiento explícito o implícito habitual
+   - **Client type**: Confidential
+   - **Redirect URIs/Origins**: `https://bootimus.example.com/api/oidc/callback` (strict)
+   - **Scopes**: mantén los mappings por defecto `openid`, `email` y `profile` — el mapping `profile` de Authentik incluye el claim `groups`
+   - **Subject mode**: cualquiera; Bootimus usa `preferred_username` como username por defecto
+2. Anota el **Client ID** y el **Client Secret**
+3. Ve a **Applications → Applications** y crea una aplicación con slug `bootimus` usando ese provider. Opcionalmente, vincúlale una política o grupo para controlar quién puede lanzarla.
+4. Crea grupos para los administradores de Bootimus (p. ej. `bootimus-admins`) y, opcionalmente, para otros usuarios permitidos (p. ej. `bootimus-operators`)
+5. Configura Bootimus:
+
+```bash
+export BOOTIMUS_OIDC_ISSUER=https://authentik.example.com/application/o/bootimus/
+export BOOTIMUS_OIDC_CLIENT_ID=<client id>
+export BOOTIMUS_OIDC_CLIENT_SECRET=<client secret>
+export BOOTIMUS_OIDC_REDIRECT_URL=https://bootimus.example.com/api/oidc/callback
+export BOOTIMUS_OIDC_ADMIN_GROUPS=bootimus-admins
+export BOOTIMUS_OIDC_ALLOWED_GROUPS=bootimus-operators
+export BOOTIMUS_OIDC_DISPLAY_NAME=Authentik
+```
+
+La URL del issuer aparece en la página de resumen del provider en Authentik como **OpenID Configuration Issuer**, y siempre termina en `/application/o/<application slug>/`.
+
+### Ejemplo con Keycloak
+
+Crea un cliente OpenID Connect confidencial con **Standard flow** habilitado y la redirect URI anterior. Keycloak no envía los grupos por defecto: añade un mapper **Group Membership** al dedicated scope del cliente con el nombre de claim de token `groups` y **Full group path** desactivado.
+
+```bash
+export BOOTIMUS_OIDC_ISSUER=https://keycloak.example.com/realms/example
+export BOOTIMUS_OIDC_CLIENT_ID=bootimus
+export BOOTIMUS_OIDC_CLIENT_SECRET=<client secret>
+export BOOTIMUS_OIDC_REDIRECT_URL=https://bootimus.example.com/api/oidc/callback
+export BOOTIMUS_OIDC_ADMIN_GROUPS=bootimus-admins
+export BOOTIMUS_OIDC_DISPLAY_NAME=Keycloak
+```
+
+### Mapeo de grupos
+
+| Ajuste | Efecto |
+|--------|--------|
+| `BOOTIMUS_OIDC_ADMIN_GROUPS` | Los miembros de cualquiera de estos grupos son administradores. Si está vacío, ningún usuario OIDC es administrador. |
+| `BOOTIMUS_OIDC_ALLOWED_GROUPS` | Si está definido, solo los miembros de estos grupos (o de un grupo admin) pueden iniciar sesión. Si está vacío, puede iniciar sesión cualquiera que el proveedor autentique. |
+
+Ambos aceptan una lista separada por comas, así que los nombres de grupo pueden contener espacios (`Bootimus Admins,Infrastructure`). La comparación ignora mayúsculas y minúsculas. La membresía de grupo se vuelve a leer en cada login, así que los cambios en el proveedor se aplican la próxima vez que el usuario inicie sesión.
+
+> **Nota:** Actualmente todas las páginas del panel admin requieren derechos de administrador. Los usuarios que no están en un grupo admin pueden iniciar sesión y aparecen en **Users**, pero no pueden ver ni cambiar nada hasta que se añada un rol de solo lectura. Por ahora, define `BOOTIMUS_OIDC_ALLOWED_GROUPS` con los mismos grupos que `BOOTIMUS_OIDC_ADMIN_GROUPS` si quieres evitar que se creen estas cuentas.
+
+### Ejemplo con Docker Compose
+
+```yaml
+services:
+  bootimus:
+    image: garybowers/bootimus:latest
+    environment:
+      BOOTIMUS_OIDC_ISSUER: https://authentik.example.com/application/o/bootimus/
+      BOOTIMUS_OIDC_CLIENT_ID: bootimus
+      BOOTIMUS_OIDC_CLIENT_SECRET: client-secret
+      BOOTIMUS_OIDC_REDIRECT_URL: https://bootimus.example.com/api/oidc/callback
+      BOOTIMUS_OIDC_ADMIN_GROUPS: bootimus-admins
+      BOOTIMUS_OIDC_DISPLAY_NAME: Authentik
+```
+
+### Notas de seguridad
+
+- El state del login, el nonce y el verifier PKCE se guardan en una cookie `HttpOnly` firmada y de corta duración (10 minutos), limitada a `/api/oidc/`. Se marca como `Secure` cuando la redirect URL usa HTTPS — sirve el panel admin por HTTPS en producción.
+- Solo se usa el flujo de código de autorización; los tokens del proveedor nunca llegan al navegador. El navegador recibe el JWT habitual de Bootimus.
+- El login local con contraseña sigue funcionando junto a OIDC, así que la cuenta local `admin` sigue disponible para recuperación.
+
+## Usuarios de LDAP y OIDC
+
+Los usuarios que inician sesión mediante LDAP u OIDC obtienen un registro de usuario local la primera vez que se autentican. Esto te permite verlos en **Users**, deshabilitarlos y que su acceso se compruebe en cada petición igual que el de los usuarios locales.
+
+- **Source**: cada usuario se marca como `Local`, `LDAP` u `OIDC`. Un usuario solo puede iniciar sesión por su propio origen: un login OIDC o LDAP nunca se apropiará de una cuenta local con el mismo nombre (como `admin`), y los usuarios LDAP y OIDC no pueden usar el login local con contraseña.
+- **Los usernames** se pasan a minúsculas y pueden contener letras, dígitos y `. _ @ + -`. Los logins con otros caracteres se rechazan.
+- **Los derechos de admin** siguen los grupos del usuario y se actualizan en cada login, así que cambiar la casilla **Administrator** de un usuario LDAP u OIDC solo dura hasta que vuelva a iniciar sesión.
+- **Deshabilitar** un usuario en Bootimus lo bloquea de inmediato, aunque el proveedor todavía le permita iniciar sesión.
+- **Borrar** un usuario solo elimina el registro local; se vuelve a crear en su próximo login. Usa los grupos del proveedor, o deshabilita al usuario, para quitarle el acceso.
+- **Las contraseñas** de los usuarios LDAP y OIDC las gestiona el proveedor, así que no se ofrece **Reset Password** para ellos y `bootimus user set-password` los rechaza.
+
+Si alguien inicia sesión con un nombre que ya pertenece a un usuario de otro origen, el login se rechaza con *a user with this name already exists from a different source*. Esto incluye cuentas locales creadas antes de que los usuarios LDAP se aprovisionaran automáticamente. Borra la cuenta local antigua para que se pueda recrear desde LDAP u OIDC en el siguiente login.
 
 ## Referencia de configuración
 
@@ -229,6 +350,17 @@ TOKEN=$(curl -s -X POST http://localhost:8081/api/login \
 | `--ldap-user-filter` | `(sAMAccountName=%s)` | Filtro de búsqueda de usuarios (`%s` = username) |
 | `--ldap-group-filter` | *(vacío)* | CN del grupo para acceso admin |
 | `--ldap-group-base-dn` | *(vacío)* | Base DN para búsqueda de grupos (por defecto, el base DN) |
+| `--oidc-issuer` | *(vacío)* | URL del issuer OIDC (habilita el login OIDC) |
+| `--oidc-client-id` | *(vacío)* | Client ID de OIDC |
+| `--oidc-client-secret` | *(vacío)* | Client secret de OIDC |
+| `--oidc-redirect-url` | *(vacío)* | Redirect URL registrada en el proveedor, terminada en `/api/oidc/callback` |
+| `--oidc-scopes` | `openid,profile,email` | Scopes a solicitar separados por comas (`openid` siempre se incluye) |
+| `--oidc-username-claim` | `preferred_username` | Claim usado como username de Bootimus (p. ej. `email`) |
+| `--oidc-groups-claim` | `groups` | Claim que lista los grupos del usuario |
+| `--oidc-admin-groups` | *(vacío)* | Grupos separados por comas cuyos miembros son administradores |
+| `--oidc-allowed-groups` | *(vacío)* | Grupos separados por comas con permiso para iniciar sesión (vacío permite a cualquiera) |
+| `--oidc-display-name` | `SSO` | Nombre mostrado en el botón de login |
+| `--oidc-skip-verify` | `false` | Saltarse la verificación del certificado TLS al comunicarse con el proveedor |
 
 ### Variables de entorno
 
@@ -247,6 +379,17 @@ Todos los flags se pueden definir vía variables de entorno con el prefijo `BOOT
 | `BOOTIMUS_LDAP_USER_FILTER` | `--ldap-user-filter` |
 | `BOOTIMUS_LDAP_GROUP_FILTER` | `--ldap-group-filter` |
 | `BOOTIMUS_LDAP_GROUP_BASE_DN` | `--ldap-group-base-dn` |
+| `BOOTIMUS_OIDC_ISSUER` | `--oidc-issuer` |
+| `BOOTIMUS_OIDC_CLIENT_ID` | `--oidc-client-id` |
+| `BOOTIMUS_OIDC_CLIENT_SECRET` | `--oidc-client-secret` |
+| `BOOTIMUS_OIDC_REDIRECT_URL` | `--oidc-redirect-url` |
+| `BOOTIMUS_OIDC_SCOPES` | `--oidc-scopes` |
+| `BOOTIMUS_OIDC_USERNAME_CLAIM` | `--oidc-username-claim` |
+| `BOOTIMUS_OIDC_GROUPS_CLAIM` | `--oidc-groups-claim` |
+| `BOOTIMUS_OIDC_ADMIN_GROUPS` | `--oidc-admin-groups` |
+| `BOOTIMUS_OIDC_ALLOWED_GROUPS` | `--oidc-allowed-groups` |
+| `BOOTIMUS_OIDC_DISPLAY_NAME` | `--oidc-display-name` |
+| `BOOTIMUS_OIDC_SKIP_VERIFY` | `--oidc-skip-verify` |
 
 ### Archivo de configuración (bootimus.yaml)
 
@@ -261,6 +404,15 @@ ldap:
   base_dn: dc=example,dc=com
   user_filter: (sAMAccountName=%s)
   group_filter: cn=bootimus-admins
+
+oidc:
+  issuer: https://authentik.example.com/application/o/bootimus/
+  client_id: bootimus
+  client_secret: client-secret
+  redirect_url: https://bootimus.example.com/api/oidc/callback
+  admin_groups: bootimus-admins
+  allowed_groups: bootimus-operators
+  display_name: Authentik
 ```
 
 ## Solución de problemas
@@ -297,6 +449,32 @@ ldapsearch -H ldap://dc.example.com -D "bind-dn" -w password \
   -b "dc=example,dc=com" "(sAMAccountName=testuser)" memberOf
 ```
 
+### OIDC: "Unable to reach the identity provider"
+
+Bootimus obtiene `<issuer>/.well-known/openid-configuration` cuando el primer usuario inicia sesión. Revisa el log del servidor para ver el error exacto, y comprueba que el host de Bootimus pueda alcanzar el issuer:
+
+```bash
+curl https://authentik.example.com/application/o/bootimus/.well-known/openid-configuration
+```
+
+El valor `issuer` de ese documento debe coincidir exactamente con `BOOTIMUS_OIDC_ISSUER`, incluida cualquier barra final. Si el proveedor usa una CA privada, añádela al almacén de confianza del host; `BOOTIMUS_OIDC_SKIP_VERIFY=true` sirve para pruebas pero no se recomienda.
+
+### OIDC: el proveedor muestra un error de redirect URI
+
+La redirect URI registrada en el proveedor y `BOOTIMUS_OIDC_REDIRECT_URL` deben coincidir exactamente — esquema, host, puerto y ruta.
+
+### OIDC: "Sign-in expired or was started elsewhere"
+
+El login debe completarse en 10 minutos, en el mismo navegador que lo inició, y Bootimus no debe haberse reiniciado entretanto. Si sigue ocurriendo detrás de un reverse proxy, asegúrate de que el proxy deje pasar las cookies y de que los usuarios accedan a Bootimus por el mismo host que la redirect URL.
+
+### OIDC: el usuario no es administrador o es rechazado
+
+El log del servidor registra por qué se rechazó cada login. Comprueba qué grupos envía realmente el proveedor — los nombres de grupo deben coincidir con `BOOTIMUS_OIDC_ADMIN_GROUPS` o `BOOTIMUS_OIDC_ALLOWED_GROUPS`, y Keycloak envía rutas completas (`/bootimus-admins`) a menos que **Full group path** esté desactivado. Si tu proveedor usa otro nombre de claim, define `BOOTIMUS_OIDC_GROUPS_CLAIM`.
+
+### "A user with this name already exists from a different source"
+
+Mira [Usuarios de LDAP y OIDC](#usuarios-de-ldap-y-oidc). Borra la cuenta existente en **Users** e inicia sesión de nuevo.
+
 ### Token expirado
 
 Los tokens JWT son válidos durante 24 horas. Tras la expiración, la página de login se muestra automáticamente. Los tokens también se invalidan cuando el servidor se reinicia (el secret de firma se regenera).
@@ -314,4 +492,4 @@ la contraseña directamente en la base de datos:
 ./bootimus user set-password admin
 ```
 
-Esto siempre funciona, independientemente de la configuración LDAP.
+Esto siempre funciona, independientemente de la configuración LDAP u OIDC.

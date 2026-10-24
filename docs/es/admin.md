@@ -24,7 +24,7 @@ http://your-server:8081/
 **Requisitos**:
 - La interfaz admin corre en un puerto separado (por defecto 8081)
 - Funciona con SQLite o PostgreSQL
-- Autenticación basada en tokens JWT (con backend LDAP/AD opcional)
+- Autenticación basada en tokens JWT (con backend LDAP/AD opcional e inicio de sesión único OIDC)
 
 ### Primer inicio de sesión
 
@@ -48,7 +48,7 @@ Navega a `http://your-server:8081` y verás una página de login dedicada. Intro
 - **Usuario**: `admin`
 - **Contraseña**: Revisa los logs de arranque del servidor
 
-Si LDAP está configurado, aparecerá un desplegable en la página de login para elegir entre autenticación local y LDAP. Mira la [Guía de autenticación](authentication.md) para más detalles.
+Si LDAP está configurado, aparecerá un desplegable en la página de login para elegir entre autenticación local y LDAP. Si OIDC está configurado, aparece un botón **Sign in with …** para el inicio de sesión único. Mira la [Guía de autenticación](authentication.md) para más detalles.
 
 ### Inicio rápido
 
