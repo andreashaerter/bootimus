@@ -115,6 +115,7 @@ type Server struct {
 	tftpServer            *tftp.Server
 	proxyDHCPServer       *proxydhcp.Server
 	proxyDHCPRecorder     *proxydhcp.Recorder
+	bsdSelections         *bsdSelections
 	webhookNotifier       *webhook.Notifier
 	scheduler             *scheduler.Scheduler
 	housekeeping          *housekeeping.Runner
@@ -324,6 +325,7 @@ func New(cfg *Config) *Server {
 		bootLogDedup:      make(map[string]time.Time),
 		webhookNotifier:   webhook.New(cfg.Storage),
 		proxyDHCPRecorder: proxydhcp.NewRecorder(proxydhcp.DefaultRecorderSize),
+		bsdSelections:     newBSDSelections(),
 	}
 	s.scheduler = scheduler.New(cfg.Storage, s.executeScheduledTask)
 	if cfg.Storage != nil {
@@ -939,6 +941,13 @@ func (s *Server) serveTFTPFile(filename string, rf io.ReaderFrom) error {
 	log.Printf("TFTP: Client requesting file: %s", filename)
 	metrics.TFTPRequests.WithLabelValues(cleanPath).Inc()
 
+	if handled, err := s.serveBSDTFTP(cleanPath, remote, rf); handled {
+		if err != nil {
+			log.Printf("TFTP: %v", err)
+		}
+		return err
+	}
+
 	setName, bootloaderFilename, err := s.resolveBootloaderRequest(cleanPath)
 	if err != nil {
 		return err
@@ -1269,6 +1278,8 @@ func (s *Server) startHTTPServer() error {
 	mux.Handle("/node-images/", http.StripPrefix("/node-images/", http.FileServer(http.Dir(s.provisionAssetDir()))))
 
 	mux.HandleFunc("/files/", s.handleCustomFile)
+
+	mux.HandleFunc("/bsd/", s.handleBSDBoot)
 
 	mux.HandleFunc("/bootenv/", func(w http.ResponseWriter, r *http.Request) {
 		urlPath := strings.TrimPrefix(r.URL.Path, "/bootenv/")

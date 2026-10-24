@@ -43,6 +43,7 @@ type BootFiles struct {
 	NetbootURL      string
 	NetbootArch     string
 	InstallWim      string
+	Loaders         []string
 }
 
 type Extractor struct {
@@ -228,6 +229,7 @@ func detectDistroFromFilename(filename string) string {
 		"fedora": "fedora", "centos": "centos", "rocky": "fedora", "alma": "fedora",
 		"nixos": "nixos", "opensuse": "opensuse", "alpine": "alpine", "gentoo": "gentoo",
 		"void": "void", "slackware": "slackware", "freebsd": "freebsd",
+		"openbsd": "openbsd", "netbsd": "netbsd",
 		"proxmox": "debian", "truenas": "debian", "kali": "kali", "parrot": "parrot",
 	}
 	for pattern, distro := range patterns {
@@ -388,6 +390,8 @@ func detectDistroName(img *iso9660.Image, isoPath string) string {
 		"tails":           "tails",
 		"opensuse":        "opensuse",
 		"freebsd":         "freebsd",
+		"openbsd":         "openbsd",
+		"netbsd":          "netbsd",
 		"nixos":           "nixos",
 		"endeavouros":     "endeavouros",
 		"garuda":          "garuda",
@@ -1221,6 +1225,8 @@ func (e *Extractor) detectAndExtractUnified(reader FileSystemReader, isoPath str
 		{"Arch Linux Family", e.detectArchUnified},
 		{"Fedora/RHEL Family", e.detectFedoraRHELUnified},
 		{"CentOS/Rocky/Alma Family", e.detectCentOSUnified},
+		{"OpenBSD", e.detectOpenBSDUnified},
+		{"NetBSD", e.detectNetBSDUnified},
 		{"FreeBSD", e.detectFreeBSDUnified},
 		{"OpenSUSE", e.detectOpenSUSEUnified},
 		{"NixOS", e.detectNixOSUnified},

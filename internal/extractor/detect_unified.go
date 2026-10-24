@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"bootimus/internal/bsdboot"
 )
 
 func detectDistroNameUnified(reader FileSystemReader, isoPath string) string {
@@ -40,6 +42,8 @@ func detectDistroNameUnified(reader FileSystemReader, isoPath string) string {
 		"tails":           "tails",
 		"opensuse":        "opensuse",
 		"freebsd":         "freebsd",
+		"openbsd":         "openbsd",
+		"netbsd":          "netbsd",
 		"nixos":           "nixos",
 		"endeavouros":     "endeavouros",
 		"garuda":          "garuda",
@@ -543,6 +547,10 @@ func (e *Extractor) cacheBootFilesUnified(files *BootFiles, reader FileSystemRea
 
 	if err := os.MkdirAll(bootFilesDir, 0755); err != nil {
 		return fmt.Errorf("failed to create boot files subdirectory: %w", err)
+	}
+
+	if bsdboot.IsBSD(files.Distro) {
+		return e.cacheBSDFiles(files, reader, bootFilesDir)
 	}
 
 	if files.Distro == "windows" {

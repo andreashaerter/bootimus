@@ -5461,6 +5461,9 @@ function getDefaultBootParams(img) {
             return 'initrd=initrd ip=dhcp url={{BASE_URL}}/isos/{{FILENAME}}';
         case 'freebsd':
             return 'vfs.root.mountfrom=cd9660:/dev/md0 kernelname=/boot/kernel/kernel';
+        case 'openbsd':
+        case 'netbsd':
+            return '';
         case 'windows':
         case 'windows7':
             return '';
