@@ -1716,6 +1716,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/autoinstall-files/upload", adminWrap(adminHandler.UploadAutoInstallFile))
 	mux.HandleFunc("/api/autoinstall-files/download", adminWrap(adminHandler.DownloadAutoInstallFile))
 	mux.HandleFunc("/api/autoinstall-files/delete", adminWrap(adminHandler.DeleteAutoInstallFile))
+	mux.HandleFunc("/api/autoinstall-files/render", adminWrap(adminHandler.RenderAutoInstallFile))
 
 	mux.HandleFunc("/api/profiles", readWrap(adminHandler.ListDistroProfiles))
 	mux.HandleFunc("/api/profiles/save", adminWrap(adminHandler.SaveDistroProfile))
@@ -2546,9 +2547,11 @@ func (s *Server) handleAutoInstallScript(w http.ResponseWriter, r *http.Request)
 	}
 
 	var client *models.Client
+	var group *models.ClientGroup
 	if mac != "" {
 		if c, err := s.config.Storage.GetClient(mac); err == nil {
 			client = c
+			group = s.clientGroupOf(client)
 		}
 	}
 
@@ -2575,34 +2578,31 @@ func (s *Server) handleAutoInstallScript(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	script, scriptType, source, err := s.resolveAutoInstallScript(image, client)
+	script, scriptType, source, err := resolveAutoInstallSource(s.autoInstallLib, image, client, group)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 
-	clientName := ""
-	if client != nil {
-		clientName = client.Name
-	}
 	clientIP := r.RemoteAddr
 	if i := strings.LastIndex(clientIP, ":"); i > 0 {
 		clientIP = clientIP[:i]
 	}
 	installToken := s.noteAutoInstallFetch(mac, image)
-	substitutions := map[string]string{
-		"{{CALLBACK_URL}}":   s.installCallbackURL(installToken),
-		"{{INSTALL_TOKEN}}":  installToken,
-		"{{MAC}}":            mac,
-		"{{CLIENT_NAME}}":    clientName,
-		"{{HOSTNAME}}":       clientName,
-		"{{IP}}":             clientIP,
-		"{{SERVER_ADDR}}":    s.config.ServerAddr,
-		"{{IMAGE_NAME}}":     image.Name,
-		"{{IMAGE_FILENAME}}": image.Filename,
-	}
-	for k, v := range substitutions {
-		script = strings.ReplaceAll(script, k, v)
+	vars := autoinstall.Context{
+		MAC:        mac,
+		ClientIP:   clientIP,
+		ServerAddr: s.config.ServerAddr,
+		ServerPort: s.config.HTTPPort,
+		Image:      image,
+		Client:     client,
+		Group:      group,
+	}.Variables()
+	vars["CALLBACK_URL"] = s.installCallbackURL(installToken)
+	vars["INSTALL_TOKEN"] = installToken
+	script, unresolved := autoinstall.Render(script, vars)
+	if len(unresolved) > 0 {
+		log.Printf("auto-install script for %s has unresolved placeholders: %s", image.Filename, strings.Join(unresolved, ", "))
 	}
 
 	if image.Distro == "arch" {
@@ -2628,10 +2628,25 @@ func (s *Server) handleAutoInstallScript(w http.ResponseWriter, r *http.Request)
 		image.Filename, source, scriptType, len(script))
 }
 
+func (s *Server) clientGroupOf(client *models.Client) *models.ClientGroup {
+	if client == nil || client.ClientGroupID == nil || s.config.Storage == nil {
+		return nil
+	}
+	group, err := s.config.Storage.GetClientGroup(*client.ClientGroupID)
+	if err != nil {
+		return nil
+	}
+	return group
+}
+
 func (s *Server) resolveAutoInstallScript(image *models.Image, client *models.Client) (string, string, string, error) {
-	if s.autoInstallLib != nil {
+	return resolveAutoInstallSource(s.autoInstallLib, image, client, s.clientGroupOf(client))
+}
+
+func resolveAutoInstallSource(lib *autoinstall.Library, image *models.Image, client *models.Client, group *models.ClientGroup) (string, string, string, error) {
+	if lib != nil {
 		tryFile := func(rel, src string) (string, string, string, error) {
-			content, err := s.autoInstallLib.ReadPath(rel)
+			content, err := lib.ReadPath(rel)
 			if err != nil {
 				return "", "", "", err
 			}
@@ -2643,11 +2658,9 @@ func (s *Server) resolveAutoInstallScript(image *models.Image, client *models.Cl
 				return c, t, src, nil
 			}
 		}
-		if client != nil && client.ClientGroupID != nil {
-			if g, err := s.config.Storage.GetClientGroup(*client.ClientGroupID); err == nil && g.AutoInstallFile != "" {
-				if c, t, src, err := tryFile(g.AutoInstallFile, "group:"+g.Name); err == nil {
-					return c, t, src, nil
-				}
+		if group != nil && group.AutoInstallFile != "" {
+			if c, t, src, err := tryFile(group.AutoInstallFile, "group:"+group.Name); err == nil {
+				return c, t, src, nil
 			}
 		}
 		if image.AutoInstallFile != "" {

@@ -10,6 +10,9 @@ Run unattended installs across Windows, Ubuntu, Debian, and Red Hat-family distr
 - [Attaching Files](#attaching-files)
 - [Resolution Order](#resolution-order)
 - [Placeholders](#placeholders)
+- [Variables](#variables)
+- [Preview](#preview)
+- [Validation](#validation)
 - [Examples](#examples)
 - [Reporting Install Completion](#reporting-install-completion)
 - [Windows Notes](#windows-notes)
@@ -23,7 +26,8 @@ Auto-install configs are stored in a per-distro library under `data/autoinstall/
 - **Manage files in the UI** under the **Auto-Install** tab — create, edit, upload, download, and delete configs without touching the filesystem.
 - **Set a default** per image (every client booting that image gets the same config).
 - **Override per client** or **per client group** when one machine needs a different config (different hostname, disk layout, role, etc.).
-- **Templatise** with placeholders like `{{HOSTNAME}}` and `{{IP}}` resolved at serve time using the booting client's identity.
+- **Templatise** with placeholders like `{{HOSTNAME}}` and `{{IP}}` resolved at serve time using the booting client's identity, plus your own `{{VAR.name}}` variables set per client or per group.
+- **Preview** the rendered result for any client and image, and have YAML, XML and JSON files checked for well-formedness when you save them.
 
 Bootimus serves the rendered file over HTTP on the auto-install endpoint. Linux installers fetch it through a kernel parameter; for Windows, wimboot fetches the same URL as an extra `initrd` and injects it into the WinPE RAM disk as `AutoUnattend.xml`, so `setup.exe /unattend:` picks it up automatically (see [Windows Notes](#windows-notes)).
 
@@ -118,14 +122,84 @@ These tokens are substituted per-client at serve time:
 | `{{MAC}}` | Client MAC address (lowercase, colon-separated) |
 | `{{CLIENT_NAME}}` | Friendly name from the Clients table |
 | `{{HOSTNAME}}` | Same as `{{CLIENT_NAME}}` (alias for clarity in configs) |
+| `{{CLIENT_GROUP}}` | Name of the client's group, or empty when it has none |
 | `{{IP}}` | Client IP that issued the request |
 | `{{SERVER_ADDR}}` | Bootimus server address |
+| `{{SERVER_PORT}}` | Bootimus HTTP boot port |
+| `{{SERVER_URL}}` | `http://<SERVER_ADDR>:<SERVER_PORT>`, the same base URL the boot menu uses |
 | `{{IMAGE_NAME}}` | Display name of the booting image |
 | `{{IMAGE_FILENAME}}` | ISO filename of the booting image |
+| `{{IMAGE_URL}}` | URL of the ISO as served under `/isos/`, the same value the boot menu passes as `iso-url=` |
 | `{{CALLBACK_URL}}` | Full URL the installer calls to report completion, including a one-time token (see [Reporting Install Completion](#reporting-install-completion)) |
 | `{{INSTALL_TOKEN}}` | The bare token behind `{{CALLBACK_URL}}`, for building your own request |
+| `{{VAR.<name>}}` | The client or group variable called `<name>` (see [Variables](#variables)) |
 
-Placeholders are plain string substitution — no escaping. Quote them appropriately for the target format (XML, YAML, etc.).
+Placeholders are plain string substitution — no escaping. Quote them appropriately for the target format (XML, YAML, etc.). A placeholder with no value is left exactly as written and logged as unresolved when the file is served; use [Preview](#preview) to spot these before a machine boots.
+
+## Variables
+
+Built-in placeholders cover the client's identity, but most fleets also need values Bootimus cannot know: a role, a rack number, a disk device, a mirror URL. Variables fill that gap. Each client and each client group carries a set of named string values, and every one of them is available in auto-install files as `{{VAR.<name>}}`.
+
+- Names use letters, digits and underscores only (`role`, `rack_id`, `DISK`); the server rejects anything else when the client or group is saved.
+- **Group variables are defaults** for every member. **Client variables override** them one name at a time, so a group can set `role: worker` and a single machine can set `role: control-plane` while still inheriting the group's `rack`.
+- A `{{VAR.<name>}}` token with no value at either level is left unresolved.
+
+Set them in the UI under **Clients** → open a client → **Auto-install variables**, or **Groups** → open a group → **Auto-install variables**: each row is a name and a value, with **Add variable** and a remove button per row. Over the API, `variables` is an object of strings on both the client and the group payloads:
+
+```bash
+# Group defaults
+curl -u admin:pw -X PUT "http://localhost:8081/api/client-groups/update?id=3" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"lab-3","variables":{"role":"worker","rack":"3","disk":"/dev/sda"}}'
+
+# One machine overrides a single value
+curl -u admin:pw -X PUT "http://localhost:8081/api/clients?mac=b4:2e:99:01:5f:a3" \
+  -H "Content-Type: application/json" \
+  -d '{"variables":{"role":"control-plane"}}'
+```
+
+Sending `"variables": null` on a client update clears them; leaving the key out leaves them unchanged. `GET /api/clients` and `GET /api/client-groups` return them under the same key.
+
+A kickstart that uses both levels:
+
+```
+network --bootproto=dhcp --hostname={{HOSTNAME}}
+ignoredisk --only-use={{VAR.disk}}
+%post
+echo "{{VAR.role}} in rack {{VAR.rack}} ({{CLIENT_GROUP}})" > /etc/machine-role
+%end
+```
+
+The CSV import under **Clients** does not carry variables; existing variables are kept when a CSV row updates a client.
+
+## Preview
+
+The editor under **Auto-Install** has a **Preview** action for any saved file. Pick a client and, optionally, an image, and the panel shows the exact text Bootimus would serve to that machine, read-only, with a warning listing every placeholder that stayed unresolved. Without a client, the client and group values render empty; without an image, the `IMAGE_*` placeholders stay unresolved. `{{CALLBACK_URL}}` and `{{INSTALL_TOKEN}}` render with the fixed token `preview`, because no install record is created.
+
+The same rendering is available over the API:
+
+```bash
+curl -u admin:pw "http://localhost:8081/api/autoinstall-files/render?distro=ubuntu&filename=default.yaml&mac=b4:2e:99:01:5f:a3&image=ubuntu-24.04-live-server-amd64.iso"
+```
+
+```json
+{"success":true,"data":{"content":"#cloud-config\n...","unresolved":["VAR.disk"]}}
+```
+
+`mac` and `image` are optional. Rendering never writes anything: it does not create an install record or move an install through its states.
+
+## Validation
+
+When a file is saved from the editor or uploaded, Bootimus checks it for well-formedness by extension before writing it:
+
+| Extension | Check |
+|-----------|-------|
+| `.yaml`, `.yml` | Parses as YAML (multi-document files are allowed) |
+| `.xml` | Well-formed XML |
+| `.json` | Valid JSON |
+| anything else | Not checked |
+
+Every placeholder is replaced with a harmless dummy value first, so `hostname: {{HOSTNAME}}` passes even though a bare `{{HOSTNAME}}` is not valid YAML on its own. A failure answers `400` with the parser's message and, where the parser provides it, the line number; the editor shows it inline under the content and offers **Save anyway** for the cases where you know better than the parser (for instance a file that is deliberately a fragment). Over the API, pass `"force": true` in the save body or `force=true` as a multipart field on upload to skip the check.
 
 Substitution happens on the auto-install endpoint, so it applies to every format. Windows `autounattend.xml` is rendered for the booting client too, because wimboot fetches it from that endpoint at boot (see [Windows Notes](#windows-notes)); only the unrendered SMB fallback copy described there bypasses it.
 
@@ -330,10 +404,13 @@ curl -u admin:pw http://localhost:8081/api/autoinstall-files
 # Read a file
 curl -u admin:pw "http://localhost:8081/api/autoinstall-files/get?distro=ubuntu&filename=default.yaml"
 
-# Create or overwrite a file
+# Create or overwrite a file (answers 400 when YAML, XML or JSON is malformed; add "force":true to save anyway)
 curl -u admin:pw -X POST http://localhost:8081/api/autoinstall-files/save \
   -H "Content-Type: application/json" \
   -d '{"distro":"ubuntu","filename":"default.yaml","content":"#cloud-config\n..."}'
+
+# Render a file for a client and image, listing unresolved placeholders
+curl -u admin:pw "http://localhost:8081/api/autoinstall-files/render?distro=ubuntu&filename=default.yaml&mac=b4:2e:99:01:5f:a3&image=ubuntu-24.04-live-server-amd64.iso"
 
 # Upload a file
 curl -u admin:pw -X POST http://localhost:8081/api/autoinstall-files/upload \
@@ -385,6 +462,8 @@ The boot menu builds these URLs with the client's MAC address so per-client over
 `{{HOSTNAME}}` showing up as the literal string in the installed system means the file was served before the substitution ran — usually because the client booted by IP only and the request didn't include a `mac` query param. Confirm the boot menu is generating URLs of the form `/autoinstall/<iso>?mac=<mac>` or `/autoinstall/<iso>/mac/<mac>/`.
 
 On Windows, literal placeholders mean Setup used the unrendered copy staged on the SMB share rather than the file wimboot injects. Preview the client's boot menu (see [Previewing a Client's Boot Menu](clients.md#previewing-a-clients-boot-menu)) and check the Windows section contains an `initrd .../autoinstall/<iso>?mac=<mac> AutoUnattend.xml` line, and that the image's boot parameters don't include `rawwim`.
+
+A `{{VAR.<name>}}` left literal means neither the client nor its group defines that variable, or the name is spelt differently (names are case-sensitive). Every unresolved placeholder is logged when the file is served, and the editor's **Preview** lists them for a chosen client before anything boots.
 
 ### Wrong file served
 

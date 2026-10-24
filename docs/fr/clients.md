@@ -29,6 +29,7 @@ Bootimus utilise un contrôle d'accès basé sur les adresses MAC pour gérer qu
 - **Images assignées** : quand un client a des images assignées, il voit **uniquement ces images** (pas la liste publique complète)
 - **Show Public Images** : quand activé en parallèle des images assignées, le client voit à la fois les images assignées et les images publiques
 - **Next Boot Action** : un override d'image de boot one-time qui s'efface automatiquement après usage
+- **Variables d'installation automatique** : des valeurs nommées disponibles dans les fichiers d'auto-installation sous la forme `{{VAR.<name>}}` ; les variables de groupe sont des valeurs par défaut, celles du client les surchargent (voir [Auto-Install](auto-install.md#variables))
 
 ### Auto-découverte de clients
 

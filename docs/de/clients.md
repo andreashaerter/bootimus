@@ -29,6 +29,7 @@ Bootimus nutzt MAC-Adress-basierte Zugriffskontrolle, um zu steuern, welche Clie
 - **Zugewiesene Images**: Wenn ein Client zugewiesene Images hat, sieht er **nur diese** (nicht die volle Public-Liste)
 - **Öffentliche Images zeigen**: Wenn zusätzlich zu zugewiesenen Images aktiviert, sieht der Client sowohl zugewiesene als auch öffentliche Images
 - **Next-Boot-Aktion**: Einmaliger Boot-Image-Override, der sich nach Nutzung automatisch löscht
+- **Auto-Installations-Variablen**: Benannte Werte, die Auto-Install-Dateien als `{{VAR.<name>}}` zur Verfügung stehen; Gruppenvariablen sind Defaults, Client-Variablen überschreiben sie (siehe [Auto-Install](auto-install.md#variablen))
 
 ### Client-Auto-Discovery
 

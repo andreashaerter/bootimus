@@ -29,6 +29,7 @@ Bootimus usa control de acceso basado en direcciones MAC para gestionar qué cli
 - **Assigned Images**: Cuando un cliente tiene imágenes asignadas, ve **solo esas imágenes** (no la lista pública completa)
 - **Show Public Images**: Cuando se habilita junto con imágenes asignadas, el cliente ve tanto las asignadas como las públicas
 - **Next Boot Action**: Un override de imagen de arranque de un solo uso que se auto-limpia tras usarse
+- **Variables de instalación automática**: Valores con nombre disponibles para los archivos de auto-instalación como `{{VAR.<name>}}`; las variables de grupo son defaults y las de cliente las sobreescriben (ver [Auto-Install](auto-install.md#variables))
 
 ### Auto-descubrimiento de clientes
 

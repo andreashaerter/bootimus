@@ -177,10 +177,11 @@ var APISections = []APISection{
 	{Tag: "Auto-Install Files", Endpoints: []APIEndpoint{
 		{Method: "GET", Path: "/api/autoinstall-files", Summary: "List auto-install files."},
 		{Method: "GET", Path: "/api/autoinstall-files/get", Summary: "Get the content of a file.", Params: []APIParam{qFilename("File name")}},
-		{Method: "POST", Path: "/api/autoinstall-files/save", Summary: "Save a file.", Body: "{filename, content}"},
-		{Method: "POST", Path: "/api/autoinstall-files/upload", Summary: "Upload a file.", Body: "file", Multipart: true},
+		{Method: "POST", Path: "/api/autoinstall-files/save", Summary: "Save a file. YAML, XML and JSON content is checked for well-formedness first; answers 400 unless force is true.", Body: "{distro, filename, content, force}"},
+		{Method: "POST", Path: "/api/autoinstall-files/upload", Summary: "Upload a file. YAML, XML and JSON content is checked for well-formedness first; answers 400 unless force is true.", Body: "distro, filename, file, force", Multipart: true},
 		{Method: "GET", Path: "/api/autoinstall-files/download", Summary: "Download a file.", Params: []APIParam{qFilename("File name")}},
 		{Method: "DELETE", Path: "/api/autoinstall-files/delete", Summary: "Delete a file.", Params: []APIParam{qFilename("File name")}},
+		{Method: "GET", Path: "/api/autoinstall-files/render", Summary: "Render a file with its placeholders substituted and list the ones left unresolved.", Params: []APIParam{{Name: "distro", In: "query", Description: "Distro profile ID", Required: true}, qFilename("File name"), {Name: "mac", In: "query", Description: "MAC address of the client to render for; without it client and group values are empty"}, {Name: "image", In: "query", Description: "ISO filename of the image to render for; without it image placeholders stay unresolved"}}},
 	}},
 	{Tag: "Custom Files", Endpoints: []APIEndpoint{
 		{Method: "GET", Path: "/api/files", Summary: "List custom files.", ReadOnly: true},

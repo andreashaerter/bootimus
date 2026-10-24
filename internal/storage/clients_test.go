@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"reflect"
 	"testing"
 
 	"bootimus/internal/models"
@@ -281,5 +282,55 @@ func TestSyncImagesSetsUKIDefaultsOnCreateOnly(t *testing.T) {
 	img, _ = store.GetImage("hello-world.efi")
 	if img.BootParams != "audit=0 console=ttyS0" {
 		t.Errorf("rescan overwrote edited boot params: %q", img.BootParams)
+	}
+}
+
+func TestClientAndGroupVariablesRoundTrip(t *testing.T) {
+	store := newTestStore(t)
+
+	group := &models.ClientGroup{Name: "lab", Enabled: true, Variables: models.StringMap{"role": "worker", "rack": "3"}}
+	if err := store.CreateClientGroup(group); err != nil {
+		t.Fatal(err)
+	}
+	client := &models.Client{MACAddress: "aa:bb:cc:dd:ee:40", Enabled: true, ClientGroupID: &group.ID, Variables: models.StringMap{"role": "control-plane"}}
+	if err := store.CreateClient(client); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name      string
+		update    models.StringMap
+		wantAfter models.StringMap
+	}{
+		{"replace", models.StringMap{"rack": "9"}, models.StringMap{"rack": "9"}},
+		{"clear to empty map", models.StringMap{}, models.StringMap{}},
+		{"clear with nil", nil, models.StringMap{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client.Variables = tt.update
+			if err := store.UpdateClient(client.MACAddress, client); err != nil {
+				t.Fatal(err)
+			}
+			got, err := store.GetClient(client.MACAddress)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got.Variables, tt.wantAfter) {
+				t.Errorf("client variables = %#v, want %#v", got.Variables, tt.wantAfter)
+			}
+
+			group.Variables = tt.update
+			if err := store.UpdateClientGroup(group.ID, group); err != nil {
+				t.Fatal(err)
+			}
+			gotGroup, err := store.GetClientGroup(group.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(gotGroup.Variables, tt.wantAfter) {
+				t.Errorf("group variables = %#v, want %#v", gotGroup.Variables, tt.wantAfter)
+			}
+		})
 	}
 }

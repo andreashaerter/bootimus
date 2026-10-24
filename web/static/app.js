@@ -1827,6 +1827,7 @@ async function editClient(mac) {
             }
 
             await populateAutoInstallFileDropdown('edit-client-autoinstall-select', currentClient.auto_install_file);
+            renderVariableRows('edit-client-variables', currentClient.variables);
 
             // Populate images select using allowed_images (persisted filename list)
             const select = document.getElementById('edit-images-select');
@@ -3168,6 +3169,12 @@ function setupForms() {
             san_target_id: formData.get('san_target_id') ? parseInt(formData.get('san_target_id'), 10) : null,
             boot_from_san: formData.get('boot_from_san') === 'on',
         };
+        try {
+            updates.variables = collectVariables('edit-client-variables');
+        } catch (err) {
+            showAlert(err.message, 'error');
+            return;
+        }
         console.log('Updating client:', mac, updates);
 
         try {
@@ -6917,6 +6924,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 boot_from_san: fd.get('boot_from_san') === 'on',
             };
             try {
+                body.variables = collectVariables('cg-variables');
+            } catch (err) {
+                showAlert(err.message, 'error');
+                return;
+            }
+            try {
                 const res = await authFetch(`${API_BASE}/client-groups/update?id=${id}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
@@ -6955,6 +6968,64 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+
+const VARIABLE_NAME_PATTERN = /^[A-Za-z0-9_]+$/;
+
+function renderVariableRows(containerId, vars) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = '';
+    for (const name of Object.keys(vars || {}).sort()) {
+        addVariableRow(containerId, name, vars[name]);
+    }
+}
+
+function addVariableRow(containerId, name = '', value = '') {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const row = document.createElement('div');
+    row.className = 'kv-row';
+
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'kv-name';
+    nameInput.placeholder = t('variables.name');
+    nameInput.autocomplete = 'off';
+    nameInput.spellcheck = false;
+    nameInput.value = name;
+
+    const valueInput = document.createElement('input');
+    valueInput.type = 'text';
+    valueInput.className = 'kv-value';
+    valueInput.placeholder = t('variables.value');
+    valueInput.autocomplete = 'off';
+    valueInput.value = value;
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'btn btn-sm btn-icon';
+    remove.title = t('variables.remove');
+    remove.setAttribute('aria-label', t('variables.remove'));
+    remove.textContent = '×';
+    remove.onclick = () => row.remove();
+
+    row.append(nameInput, valueInput, remove);
+    container.appendChild(row);
+    if (!name) nameInput.focus();
+}
+
+function collectVariables(containerId) {
+    const vars = {};
+    for (const row of document.querySelectorAll(`#${containerId} .kv-row`)) {
+        const name = row.querySelector('.kv-name').value.trim();
+        if (!name) continue;
+        if (!VARIABLE_NAME_PATTERN.test(name)) {
+            throw new Error(t('variables.invalid_name', { name }));
+        }
+        vars[name] = row.querySelector('.kv-value').value;
+    }
+    return vars;
+}
 
 async function fetchGroupMembers(id) {
     try {
@@ -7003,6 +7074,7 @@ async function showEditClientGroupModal(id) {
         } catch (err) {}
 
         await populateAutoInstallFileDropdown('cg-autoinstall-select', g.auto_install_file);
+        renderVariableRows('cg-variables', g.variables);
         await populateSANTargetSelect('cg-san-select', g.san_target_id, '(none)');
         form.elements.boot_from_san.checked = !!g.boot_from_san;
 
@@ -7206,7 +7278,7 @@ function handleAutoInstallUpload(input) {
     openModal('autoinstall-upload-modal');
 }
 
-async function confirmAutoInstallUpload() {
+async function confirmAutoInstallUpload(force = false) {
     const distro = document.getElementById('autoinstall-upload-distro').value;
     const rename = document.getElementById('autoinstall-upload-rename').value.trim();
     if (!distro) {
@@ -7221,6 +7293,7 @@ async function confirmAutoInstallUpload() {
     fd.append('distro', distro);
     fd.append('file', pendingUploadFile);
     if (rename) fd.append('filename', rename);
+    if (force) fd.append('force', 'true');
     try {
         const token = localStorage.getItem('bootimus_token');
         const res = await fetch(`${API_BASE}/autoinstall-files/upload`, {
@@ -7229,6 +7302,12 @@ async function confirmAutoInstallUpload() {
             body: fd,
         });
         const data = await res.json();
+        if (!data.success && data.data && data.data.validation_failed) {
+            if (confirm(t('autoinstall.upload_anyway_confirm', { error: data.error }))) {
+                return confirmAutoInstallUpload(true);
+            }
+            return;
+        }
         if (!data.success) throw new Error(data.error || 'Upload failed');
         showNotification('Uploaded', 'success');
         closeModal('autoinstall-upload-modal');
@@ -7302,6 +7381,8 @@ async function showAutoInstallFileEditor(file) {
     const delBtn = document.getElementById('autoinstall-editor-delete-btn');
 
     const dlBtn = document.getElementById('autoinstall-editor-download-btn');
+    const previewBtn = document.getElementById('autoinstall-editor-preview-btn');
+    hideAutoInstallEditorError();
     if (file) {
         title.textContent = `Edit ${file.distro}/${file.filename}`;
         distroSel.value = file.distro;
@@ -7310,6 +7391,7 @@ async function showAutoInstallFileEditor(file) {
         filenameInput.disabled = true;
         delBtn.style.display = 'inline-block';
         dlBtn.style.display = 'inline-block';
+        previewBtn.style.display = 'inline-block';
         contentArea.value = 'Loading…';
         try {
             const res = await authFetch(`${API_BASE}/autoinstall-files/get?distro=${encodeURIComponent(file.distro)}&filename=${encodeURIComponent(file.filename)}`);
@@ -7329,12 +7411,25 @@ async function showAutoInstallFileEditor(file) {
         contentArea.value = '';
         delBtn.style.display = 'none';
         dlBtn.style.display = 'none';
+        previewBtn.style.display = 'none';
     }
 
     openModal('autoinstall-editor-modal');
 }
 
-async function saveAutoInstallFile() {
+function hideAutoInstallEditorError() {
+    const box = document.getElementById('autoinstall-editor-error');
+    if (box) box.style.display = 'none';
+}
+
+function showAutoInstallEditorError(message) {
+    const box = document.getElementById('autoinstall-editor-error');
+    if (!box) return;
+    document.getElementById('autoinstall-editor-error-text').textContent = t('autoinstall.validation_failed', { error: message });
+    box.style.display = 'flex';
+}
+
+async function saveAutoInstallFile(force = false) {
     const distro = document.getElementById('autoinstall-editor-distro').value.trim();
     const filename = document.getElementById('autoinstall-editor-filename').value.trim();
     const content = document.getElementById('autoinstall-editor-content').value;
@@ -7346,15 +7441,86 @@ async function saveAutoInstallFile() {
         const res = await authFetch(`${API_BASE}/autoinstall-files/save`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ distro, filename, content }),
+            body: JSON.stringify({ distro, filename, content, force: !!force }),
         });
         const data = await res.json();
+        if (!data.success && data.data && data.data.validation_failed) {
+            showAutoInstallEditorError(data.error);
+            return;
+        }
         if (!data.success) throw new Error(data.error || 'Save failed');
+        hideAutoInstallEditorError();
         showNotification('Saved', 'success');
         closeModal('autoinstall-editor-modal');
         loadAutoInstallFiles();
     } catch (err) {
         showNotification('Save failed: ' + err.message, 'error');
+    }
+}
+
+let autoInstallPreviewFile = null;
+
+async function showAutoInstallPreview() {
+    const distro = document.getElementById('autoinstall-editor-distro').value;
+    const filename = document.getElementById('autoinstall-editor-filename').value;
+    if (!distro || !filename) return;
+    autoInstallPreviewFile = { distro, filename };
+    document.getElementById('autoinstall-preview-title').textContent = t('autoinstall.preview_title', { file: `${distro}/${filename}` });
+
+    if (!clients || clients.length === 0) await loadClients();
+    if (!images || images.length === 0) await loadImages();
+
+    const clientSel = document.getElementById('autoinstall-preview-client');
+    clientSel.innerHTML = `<option value="">${escapeHtml(t('autoinstall.preview_no_client'))}</option>`;
+    const sortedClients = [...clients].sort((a, b) => (a.name || a.mac_address).localeCompare(b.name || b.mac_address));
+    for (const c of sortedClients) {
+        const label = c.name ? `${c.name} (${c.mac_address})` : c.mac_address;
+        clientSel.innerHTML += `<option value="${escapeHtml(c.mac_address)}">${escapeHtml(label)}</option>`;
+    }
+
+    const imageSel = document.getElementById('autoinstall-preview-image');
+    imageSel.innerHTML = `<option value="">${escapeHtml(t('autoinstall.preview_no_image'))}</option>`;
+    const matching = images.filter(img => img.distro === distro);
+    const others = images.filter(img => img.distro !== distro);
+    for (const img of [...matching, ...others]) {
+        imageSel.innerHTML += `<option value="${escapeHtml(img.filename)}">${escapeHtml(img.name || img.filename)}</option>`;
+    }
+    if (matching.length > 0) imageSel.value = matching[0].filename;
+
+    openModal('autoinstall-preview-modal');
+    renderAutoInstallPreview();
+}
+
+async function renderAutoInstallPreview() {
+    if (!autoInstallPreviewFile) return;
+    const mac = document.getElementById('autoinstall-preview-client').value;
+    const image = document.getElementById('autoinstall-preview-image').value;
+    const output = document.getElementById('autoinstall-preview-output');
+    const unresolvedBox = document.getElementById('autoinstall-preview-unresolved');
+    const resolvedBox = document.getElementById('autoinstall-preview-resolved');
+    output.textContent = t('common.loading');
+    unresolvedBox.style.display = 'none';
+    resolvedBox.style.display = 'none';
+
+    let url = `${API_BASE}/autoinstall-files/render?distro=${encodeURIComponent(autoInstallPreviewFile.distro)}&filename=${encodeURIComponent(autoInstallPreviewFile.filename)}`;
+    if (mac) url += `&mac=${encodeURIComponent(mac)}`;
+    if (image) url += `&image=${encodeURIComponent(image)}`;
+    try {
+        const res = await authFetch(url);
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Render failed');
+        output.textContent = data.data.content || '';
+        const unresolved = data.data.unresolved || [];
+        if (unresolved.length > 0) {
+            const list = unresolved.map(name => `{{${name}}}`).join(', ');
+            unresolvedBox.innerHTML = `<strong>${escapeHtml(t('autoinstall.preview_unresolved', { list }))}</strong><br><span style="font-size: 12px;">${escapeHtml(t('autoinstall.preview_unresolved_hint'))}</span>`;
+            unresolvedBox.style.display = 'block';
+        } else {
+            resolvedBox.style.display = 'block';
+        }
+    } catch (err) {
+        output.textContent = '';
+        showNotification(t('autoinstall.preview_failed', { error: err.message }), 'error');
     }
 }
 

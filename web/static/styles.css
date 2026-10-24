@@ -592,6 +592,12 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 .alert-error { background: var(--alert-error-bg); }
 .alert-info { background: var(--alert-info-bg); }
 
+/* Key/value editors for client and group variables */
+.kv-editor:not(:empty) { margin-bottom: 8px; }
+.kv-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+.kv-row input { flex: 1; min-width: 0; margin: 0; }
+.kv-row .kv-name { font-family: monospace; }
+
 /* Inline guidance warnings inside forms / modals */
 .guide-warning {
     padding: 12px 14px; border-radius: var(--radius-sm);

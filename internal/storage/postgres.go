@@ -249,7 +249,7 @@ func (s *PostgresStore) CreateClient(client *models.Client) error {
 func (s *PostgresStore) UpdateClient(mac string, client *models.Client) error {
 	return s.db.Model(&models.Client{}).Where("mac_address = ?", mac).
 		Select("Name", "Description", "Enabled", "ShowPublicImages", "BootloaderSet", "Static", "ClientGroupID",
-			"BMCProtocol", "IPMIHost", "IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "ProxyDHCPNoVendorOption", "SANTargetID", "BootFromSAN", "UpdatedAt").
+			"BMCProtocol", "IPMIHost", "IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "Variables", "ProxyDHCPNoVendorOption", "SANTargetID", "BootFromSAN", "UpdatedAt").
 		Updates(client).Error
 }
 
@@ -965,6 +965,7 @@ func (s *PostgresStore) CreateClientGroup(group *models.ClientGroup) error {
 		existing.BootloaderSet = group.BootloaderSet
 		existing.WOLBroadcastAddr = group.WOLBroadcastAddr
 		existing.StaggerDelayMillis = group.StaggerDelayMillis
+		existing.Variables = group.Variables
 		if err := s.db.Unscoped().Save(&existing).Error; err != nil {
 			return err
 		}
@@ -977,7 +978,7 @@ func (s *PostgresStore) CreateClientGroup(group *models.ClientGroup) error {
 func (s *PostgresStore) UpdateClientGroup(id uint, group *models.ClientGroup) error {
 	return s.db.Model(&models.ClientGroup{}).Where("id = ?", id).
 		Select("Name", "Description", "Enabled", "AllowedImages", "BootloaderSet", "WOLBroadcastAddr", "StaggerDelayMillis",
-			"BMCProtocol", "IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "SANTargetID", "BootFromSAN", "UpdatedAt").
+			"BMCProtocol", "IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "Variables", "SANTargetID", "BootFromSAN", "UpdatedAt").
 		Updates(group).Error
 }
 

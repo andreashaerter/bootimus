@@ -10,6 +10,9 @@ Lanza instalaciones desatendidas en Windows, Ubuntu, Debian y las distros de la 
 - [Adjuntar archivos](#adjuntar-archivos)
 - [Orden de resolución](#orden-de-resolución)
 - [Placeholders](#placeholders)
+- [Variables](#variables)
+- [Vista previa](#vista-previa)
+- [Validación](#validación)
 - [Ejemplos](#ejemplos)
 - [Informar de la finalización de la instalación](#informar-de-la-finalización-de-la-instalación)
 - [Notas sobre Windows](#notas-sobre-windows)
@@ -23,7 +26,8 @@ Los configs de auto-instalación se almacenan en una biblioteca por distro bajo 
 - **Gestionar archivos en la UI** bajo la pestaña **Auto-Install** — crear, editar, subir, descargar y borrar configs sin tocar el filesystem.
 - **Definir un default** por imagen (cada cliente que arranque esa imagen recibe el mismo config).
 - **Override por cliente** o **por grupo de cliente** cuando una máquina necesita un config diferente (hostname distinto, layout de disco, rol, etc.).
-- **Plantillar** con placeholders como `{{HOSTNAME}}` e `{{IP}}` resueltos al servir, usando la identidad del cliente que arranca.
+- **Plantillar** con placeholders como `{{HOSTNAME}}` e `{{IP}}` resueltos al servir, usando la identidad del cliente que arranca, además de tus propias variables `{{VAR.name}}` definidas por cliente o por grupo.
+- **Previsualizar** el resultado renderizado para cualquier cliente e imagen, y comprobar que los archivos YAML, XML y JSON están bien formados al guardarlos.
 
 Bootimus sirve el archivo renderizado por HTTP en el endpoint de auto-instalación. Los instaladores Linux lo obtienen mediante un parámetro del kernel; para Windows, wimboot descarga la misma URL como un `initrd` adicional y lo inyecta en el RAM disk de WinPE como `AutoUnattend.xml`, de modo que `setup.exe /unattend:` lo recoge automáticamente (ver [Notas sobre Windows](#notas-sobre-windows)).
 
@@ -118,14 +122,84 @@ Estos tokens se sustituyen por cliente al servir:
 | `{{MAC}}` | Dirección MAC del cliente (minúsculas, separada por dos puntos) |
 | `{{CLIENT_NAME}}` | Nombre amigable de la tabla de Clients |
 | `{{HOSTNAME}}` | Igual que `{{CLIENT_NAME}}` (alias por claridad en los configs) |
+| `{{CLIENT_GROUP}}` | Nombre del grupo del cliente, o vacío si no tiene ninguno |
 | `{{IP}}` | IP del cliente que emitió la petición |
 | `{{SERVER_ADDR}}` | Dirección del servidor Bootimus |
+| `{{SERVER_PORT}}` | Puerto HTTP de arranque de Bootimus |
+| `{{SERVER_URL}}` | `http://<SERVER_ADDR>:<SERVER_PORT>`, la misma URL base que usa el menú de arranque |
 | `{{IMAGE_NAME}}` | Nombre de display de la imagen que arranca |
 | `{{IMAGE_FILENAME}}` | Filename del ISO de la imagen que arranca |
+| `{{IMAGE_URL}}` | URL del ISO tal como se sirve bajo `/isos/`, el mismo valor que el menú de arranque pasa como `iso-url=` |
 | `{{CALLBACK_URL}}` | URL completa a la que llama el instalador para informar de la finalización, incluido un token de un solo uso (ver [Informar de la finalización de la instalación](#informar-de-la-finalización-de-la-instalación)) |
 | `{{INSTALL_TOKEN}}` | El token a secas que hay detrás de `{{CALLBACK_URL}}`, para construir tu propia petición |
+| `{{VAR.<name>}}` | La variable de cliente o de grupo llamada `<name>` (ver [Variables](#variables)) |
 
-Los placeholders son sustitución de strings plana — sin escape. Cítalos apropiadamente para el formato objetivo (XML, YAML, etc.).
+Los placeholders son sustitución de strings plana — sin escape. Cítalos apropiadamente para el formato objetivo (XML, YAML, etc.). Un placeholder sin valor se deja exactamente como está escrito y se registra como sin resolver cuando se sirve el archivo; usa la [Vista previa](#vista-previa) para detectarlos antes de que arranque una máquina.
+
+## Variables
+
+Los placeholders integrados cubren la identidad del cliente, pero la mayoría de flotas también necesitan valores que Bootimus no puede conocer: un rol, un número de rack, un dispositivo de disco, una URL de mirror. Las variables llenan ese hueco. Cada cliente y cada grupo de clientes lleva un conjunto de valores string con nombre, y todos ellos están disponibles en los archivos de auto-instalación como `{{VAR.<name>}}`.
+
+- Los nombres usan solo letras, dígitos y guiones bajos (`role`, `rack_id`, `DISK`); el servidor rechaza cualquier otra cosa al guardar el cliente o el grupo.
+- **Las variables de grupo son defaults** para cada miembro. **Las variables de cliente las sobreescriben** nombre a nombre, así que un grupo puede definir `role: worker` y una sola máquina `role: control-plane` mientras sigue heredando el `rack` del grupo.
+- Un token `{{VAR.<name>}}` sin valor en ninguno de los dos niveles queda sin resolver.
+
+Defínelas en la UI bajo **Clients** → abrir un cliente → **Variables de instalación automática**, o **Groups** → abrir un grupo → **Variables de instalación automática**: cada fila es un nombre y un valor, con **Añadir variable** y un botón de quitar por fila. Por la API, `variables` es un objeto de strings tanto en el payload del cliente como en el del grupo:
+
+```bash
+# Defaults del grupo
+curl -u admin:pw -X PUT "http://localhost:8081/api/client-groups/update?id=3" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"lab-3","variables":{"role":"worker","rack":"3","disk":"/dev/sda"}}'
+
+# Una máquina sobreescribe un único valor
+curl -u admin:pw -X PUT "http://localhost:8081/api/clients?mac=b4:2e:99:01:5f:a3" \
+  -H "Content-Type: application/json" \
+  -d '{"variables":{"role":"control-plane"}}'
+```
+
+Enviar `"variables": null` en una actualización de cliente las borra; omitir la clave las deja sin cambios. `GET /api/clients` y `GET /api/client-groups` las devuelven bajo la misma clave.
+
+Un kickstart que usa ambos niveles:
+
+```
+network --bootproto=dhcp --hostname={{HOSTNAME}}
+ignoredisk --only-use={{VAR.disk}}
+%post
+echo "{{VAR.role}} in rack {{VAR.rack}} ({{CLIENT_GROUP}})" > /etc/machine-role
+%end
+```
+
+La importación CSV bajo **Clients** no transporta variables; las variables existentes se conservan cuando una fila CSV actualiza un cliente.
+
+## Vista previa
+
+El editor bajo **Auto-Install** tiene una acción **Vista previa** para cualquier archivo guardado. Elige un cliente y, opcionalmente, una imagen, y el panel muestra el texto exacto que Bootimus serviría a esa máquina, en solo lectura, con un aviso que lista cada placeholder que quedó sin resolver. Sin cliente, los valores de cliente y grupo se renderizan vacíos; sin imagen, los placeholders `IMAGE_*` quedan sin resolver. `{{CALLBACK_URL}}` e `{{INSTALL_TOKEN}}` se renderizan con el token fijo `preview`, porque no se crea ningún registro de instalación.
+
+El mismo renderizado está disponible por la API:
+
+```bash
+curl -u admin:pw "http://localhost:8081/api/autoinstall-files/render?distro=ubuntu&filename=default.yaml&mac=b4:2e:99:01:5f:a3&image=ubuntu-24.04-live-server-amd64.iso"
+```
+
+```json
+{"success":true,"data":{"content":"#cloud-config\n...","unresolved":["VAR.disk"]}}
+```
+
+`mac` e `image` son opcionales. Renderizar nunca escribe nada: no crea un registro de instalación ni mueve una instalación por sus estados.
+
+## Validación
+
+Cuando se guarda un archivo desde el editor o se sube, Bootimus comprueba que está bien formado según su extensión antes de escribirlo:
+
+| Extensión | Comprobación |
+|-----------|-------|
+| `.yaml`, `.yml` | Se parsea como YAML (se permiten archivos multi-documento) |
+| `.xml` | XML bien formado |
+| `.json` | JSON válido |
+| cualquier otra | Sin comprobar |
+
+Primero se reemplaza cada placeholder por un valor dummy inocuo, de modo que `hostname: {{HOSTNAME}}` pasa aunque un `{{HOSTNAME}}` a secas no sea YAML válido por sí solo. Un fallo responde `400` con el mensaje del parser y, cuando el parser lo proporciona, el número de línea; el editor lo muestra inline bajo el contenido y ofrece **Guardar de todos modos** para los casos en que sabes más que el parser (por ejemplo, un archivo que es deliberadamente un fragmento). Por la API, pasa `"force": true` en el body de guardado o `force=true` como campo multipart en la subida para saltarte la comprobación.
 
 La sustitución ocurre en el endpoint de auto-instalación, así que aplica a todos los formatos. El `autounattend.xml` de Windows también se renderiza para el cliente que arranca, porque wimboot lo descarga de ese endpoint al arrancar (ver [Notas sobre Windows](#notas-sobre-windows)); solo la copia de respaldo SMB sin renderizar que se describe allí se la salta.
 
@@ -330,10 +404,13 @@ curl -u admin:pw http://localhost:8081/api/autoinstall-files
 # Read a file
 curl -u admin:pw "http://localhost:8081/api/autoinstall-files/get?distro=ubuntu&filename=default.yaml"
 
-# Create or overwrite a file
+# Crear o sobreescribir un archivo (responde 400 si el YAML, XML o JSON está mal formado; añade "force":true para guardar de todos modos)
 curl -u admin:pw -X POST http://localhost:8081/api/autoinstall-files/save \
   -H "Content-Type: application/json" \
   -d '{"distro":"ubuntu","filename":"default.yaml","content":"#cloud-config\n..."}'
+
+# Renderizar un archivo para un cliente y una imagen, listando los placeholders sin resolver
+curl -u admin:pw "http://localhost:8081/api/autoinstall-files/render?distro=ubuntu&filename=default.yaml&mac=b4:2e:99:01:5f:a3&image=ubuntu-24.04-live-server-amd64.iso"
 
 # Upload a file
 curl -u admin:pw -X POST http://localhost:8081/api/autoinstall-files/upload \
@@ -385,6 +462,8 @@ El menú de arranque construye estas URLs con la dirección MAC del cliente para
 `{{HOSTNAME}}` apareciendo como la string literal en el sistema instalado significa que el archivo se sirvió antes de que se ejecutara la sustitución — normalmente porque el cliente arrancó solo por IP y la petición no incluyó un query param `mac`. Confirma que el menú de arranque está generando URLs del estilo `/autoinstall/<iso>?mac=<mac>` o `/autoinstall/<iso>/mac/<mac>/`.
 
 En Windows, los placeholders literales significan que Setup usó la copia sin renderizar colocada en el share SMB en lugar del archivo que inyecta wimboot. Previsualiza el menú de arranque del cliente (ver [Previsualizar el menú de arranque de un cliente](clients.md#previewing-a-clients-boot-menu)) y comprueba que la sección de Windows contiene una línea `initrd .../autoinstall/<iso>?mac=<mac> AutoUnattend.xml`, y que los parámetros de arranque de la imagen no incluyen `rawwim`.
+
+Un `{{VAR.<name>}}` que queda literal significa que ni el cliente ni su grupo definen esa variable, o que el nombre está escrito de otra forma (los nombres distinguen mayúsculas de minúsculas). Cada placeholder sin resolver se registra al servir el archivo, y la **Vista previa** del editor los lista para el cliente elegido antes de que arranque nada.
 
 ### Archivo equivocado servido
 
