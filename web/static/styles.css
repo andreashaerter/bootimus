@@ -768,3 +768,23 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
     .info-grid { grid-template-columns: 1fr; }
     .rs-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
 }
+
+.read-only-banner {
+    display: none;
+    margin: 0 0 16px;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+body.read-only .read-only-banner {
+    display: block;
+}
+body.read-only .admin-only {
+    display: none !important;
+}
+body.read-only :is(.main-content, .modal) .btn:not(.read-ok):not(.modal-close):not([onclick^="closeModal("]):not([onclick^="load"]):not([onclick^="switch"]):not([onclick^="copy"]) {
+    display: none !important;
+}

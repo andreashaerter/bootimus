@@ -110,6 +110,7 @@ function consumeOIDCRedirect() {
 }
 
 function showApp() {
+    applyRole();
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('main-header').style.display = '';
     document.getElementById('main-app').style.display = '';
@@ -226,7 +227,9 @@ function escapeHtml(text) {
 }
 
 function openModal(modalId) {
-    document.getElementById(modalId).classList.add('active');
+    const modal = document.getElementById(modalId);
+    applyReadOnlyToModal(modal);
+    modal.classList.add('active');
 }
 
 function closeModal(modalId) {
@@ -279,9 +282,49 @@ document.addEventListener('click', (e) => {
 
 function loadCurrentUser() {
     const username = localStorage.getItem('bootimus_username') || 'admin';
-    const isAdmin = localStorage.getItem('bootimus_is_admin') === 'true';
     document.getElementById('current-username').textContent = username;
-    document.getElementById('current-user-role').textContent = isAdmin ? 'Administrator' : 'User';
+    document.getElementById('current-user-role').textContent = isReadOnly() ? 'Read-only' : 'Administrator';
+}
+
+function isReadOnly() {
+    return localStorage.getItem('bootimus_is_admin') !== 'true';
+}
+
+function applyRole() {
+    const readOnly = isReadOnly();
+    document.body.classList.toggle('read-only', readOnly);
+    loadCurrentUser();
+    const active = document.querySelector('.sidebar-nav .nav-item.active');
+    if (readOnly && active && active.classList.contains('admin-only')) {
+        document.querySelector('.sidebar-nav .nav-item[data-tab="server"]').click();
+    }
+}
+
+async function refreshRole() {
+    try {
+        const res = await authFetch(`${API_BASE}/me`);
+        const data = await res.json();
+        if (data.success) {
+            localStorage.setItem('bootimus_username', data.data.username);
+            localStorage.setItem('bootimus_is_admin', data.data.is_admin);
+            applyRole();
+        }
+    } catch (err) {
+        console.error('Failed to refresh role:', err);
+    }
+}
+
+function applyReadOnlyToModal(modal) {
+    const readOnly = isReadOnly();
+    modal.querySelectorAll('form input, form select, form textarea').forEach(el => {
+        if (readOnly && !el.disabled) {
+            el.disabled = true;
+            el.dataset.readOnlyDisabled = '1';
+        } else if (!readOnly && el.dataset.readOnlyDisabled) {
+            el.disabled = false;
+            delete el.dataset.readOnlyDisabled;
+        }
+    });
 }
 
 function showNotification(message, type = 'info') {
@@ -356,7 +399,7 @@ function initApp() {
     if (appInitialised) return;
     appInitialised = true;
 
-    loadCurrentUser();
+    refreshRole();
     loadStats();
     loadServerInfo();
     loadProfileCache();
@@ -364,7 +407,7 @@ function initApp() {
     loadImages();
     loadPublicFiles();
     loadLogs();
-    loadUsers();
+    if (!isReadOnly()) loadUsers();
     loadActiveSessions();
 
     // Refresh every 30 seconds
@@ -376,7 +419,7 @@ function initApp() {
         if (activeTab === 'images') loadImages();
         if (activeTab === 'public-files') loadPublicFiles();
         if (activeTab === 'logs') loadLogs();
-        if (activeTab === 'users') loadUsers();
+        if (activeTab === 'users' && !isReadOnly()) loadUsers();
     }, 30000);
 
     // Refresh server info more frequently for live stats (every 5 seconds)
@@ -3537,7 +3580,7 @@ async function loadBootloaders() {
             // Header row
             html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">`;
             html += `<div style="display: flex; align-items: center; gap: 12px;">`;
-            html += `<input type="radio" name="active-bootloader-set" value="${escapedName}" ${isActive ? 'checked' : ''} onchange="selectBootloaderSet('${escapedName}')" style="width: auto; accent-color: var(--success); transform: scale(1.3);">`;
+            html += `<input type="radio" name="active-bootloader-set" value="${escapedName}" ${isActive ? 'checked' : ''} ${isReadOnly() ? 'disabled' : ''} onchange="selectBootloaderSet('${escapedName}')" style="width: auto; accent-color: var(--success); transform: scale(1.3);">`;
             html += `<div>`;
             html += `<strong style="font-size: 16px;">${escapedName}</strong>`;
             if (isActive) html += ` <span class="badge badge-success">Active</span>`;
@@ -3884,7 +3927,9 @@ function showUploadModal() {
 
 // Utilities
 function showModal(id) {
-    document.getElementById(id).classList.add('active');
+    const modal = document.getElementById(id);
+    applyReadOnlyToModal(modal);
+    modal.classList.add('active');
 }
 
 function closeModal(id) {
@@ -4073,7 +4118,7 @@ function renderUsersTable(users) {
     `;
 
     users.forEach(user => {
-        const role = user.is_admin ? '<span class="badge badge-info">Admin</span>' : '<span class="badge badge-success">User</span>';
+        const role = user.is_admin ? '<span class="badge badge-info">Admin</span>' : '<span class="badge badge-success">Read-only</span>';
         const source = { local: 'Local', ldap: 'LDAP', oidc: 'OIDC' }[user.source || 'local'] || user.source;
         const isLocal = !user.source || user.source === 'local';
         const status = user.enabled ? '<span class="badge badge-success">Enabled</span>' : '<span class="badge badge-danger">Disabled</span>';

@@ -51,6 +51,7 @@ const TRANSLATIONS = {
         'user.role.admin': 'Admin',
 
         'ui.toggle_dark_mode': 'Toggle dark mode',
+        'ui.read_only_banner': 'You have read-only access. Ask an administrator if you need to make changes.',
 
         'server.info.title': 'Server Information',
         'server.info.loading': 'Loading server info...',
@@ -230,6 +231,7 @@ const TRANSLATIONS = {
         'user.role.admin': 'Administrator',
 
         'ui.toggle_dark_mode': 'Dunkelmodus umschalten',
+        'ui.read_only_banner': 'Sie haben nur Lesezugriff. Wenden Sie sich an einen Administrator, wenn Sie etwas ändern müssen.',
 
         'server.info.title': 'Serverinformationen',
         'server.info.loading': 'Serverinfo wird geladen…',
@@ -409,6 +411,7 @@ const TRANSLATIONS = {
         'user.role.admin': 'Administrateur',
 
         'ui.toggle_dark_mode': 'Basculer le mode sombre',
+        'ui.read_only_banner': 'Vous avez un accès en lecture seule. Demandez à un administrateur si vous devez effectuer des modifications.',
 
         'server.info.title': 'Informations du serveur',
         'server.info.loading': 'Chargement des informations du serveur…',
@@ -588,6 +591,7 @@ const TRANSLATIONS = {
         'user.role.admin': 'Administrador',
 
         'ui.toggle_dark_mode': 'Alternar modo oscuro',
+        'ui.read_only_banner': 'Tiene acceso de solo lectura. Pida a un administrador que realice los cambios que necesite.',
 
         'server.info.title': 'Información del servidor',
         'server.info.loading': 'Cargando información del servidor…',
@@ -767,6 +771,7 @@ const TRANSLATIONS = {
         'user.role.admin': 'Amministratore',
 
         'ui.toggle_dark_mode': 'Attiva/disattiva modalità scura',
+        'ui.read_only_banner': 'Hai accesso in sola lettura. Chiedi a un amministratore se devi apportare modifiche.',
 
         'server.info.title': 'Informazioni sul server',
         'server.info.loading': 'Caricamento informazioni sul server…',
@@ -946,6 +951,7 @@ const TRANSLATIONS = {
         'user.role.admin': 'Beheerder',
 
         'ui.toggle_dark_mode': 'Donkere modus wisselen',
+        'ui.read_only_banner': 'Je hebt alleen-lezen toegang. Vraag een beheerder als je iets moet wijzigen.',
 
         'server.info.title': 'Serverinformatie',
         'server.info.loading': 'Serverinfo laden…',
@@ -1125,6 +1131,7 @@ const TRANSLATIONS = {
         'user.role.admin': 'Администратор',
 
         'ui.toggle_dark_mode': 'Переключить тёмную тему',
+        'ui.read_only_banner': 'У вас доступ только для чтения. Если нужно что-то изменить, обратитесь к администратору.',
 
         'server.info.title': 'Информация о сервере',
         'server.info.loading': 'Загрузка информации о сервере…',
@@ -1304,6 +1311,7 @@ const TRANSLATIONS = {
         'user.role.admin': '管理员',
 
         'ui.toggle_dark_mode': '切换深色模式',
+        'ui.read_only_banner': '你只有只读权限。如需修改,请联系管理员。',
 
         'server.info.title': '服务器信息',
         'server.info.loading': '正在加载服务器信息…',
