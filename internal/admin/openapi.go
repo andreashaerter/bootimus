@@ -114,6 +114,7 @@ var APISections = []APISection{
 		{Method: "POST", Path: "/api/images/patch-smb", Summary: "Patch boot.wim for a Windows SMB install.", Params: []APIParam{qFilename("ISO filename")}},
 		{Method: "POST", Path: "/api/images/unpatch-smb", Summary: "Restore the original boot.wim, removing the SMB patch.", Params: []APIParam{qFilename("ISO filename")}},
 		{Method: "POST", Path: "/api/images/boot-method", Summary: "Set the boot method.", Params: []APIParam{qFilename("ISO filename")}, Body: "{method} (sanboot, kernel, nbd or nfs)"},
+		{Method: "PUT", Path: "/api/images/winpe", Summary: "Choose which WIM file and image index a Windows or WinPE image boots.", Params: []APIParam{qFilename("ISO filename")}, Body: "{wim_path, wim_index}"},
 		{Method: "POST", Path: "/api/images/netboot/download", Summary: "Fetch the netboot kernel and initrd from the distribution mirror.", Params: []APIParam{qFilename("ISO filename")}},
 		{Method: "GET", Path: "/api/images/autoinstall", Summary: "Get the auto-install script for an image.", Params: []APIParam{qFilename("ISO filename")}},
 		{Method: "POST", Path: "/api/images/autoinstall", Summary: "Set the auto-install script for an image.", Params: []APIParam{qFilename("ISO filename")}, Body: "{script, type, enabled}"},

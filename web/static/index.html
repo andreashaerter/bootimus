@@ -1894,6 +1894,20 @@
                     <small style="color: var(--text-muted);" data-i18n="props.field.bootfile_hint">Serve a specific kernel/initrd from the extracted ISO instead of the auto-detected ones.</small>
                 </div>
 
+                <div id="image-props-wim-row" style="display: none;">
+                    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px;">
+                        <div class="form-group" style="margin-bottom: 4px;">
+                            <label>Boot WIM</label>
+                            <select id="image-props-wim-path" class="form-control"></select>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 4px;">
+                            <label>Image index</label>
+                            <input type="number" id="image-props-wim-index" class="form-control" min="1" step="1" value="1">
+                        </div>
+                    </div>
+                    <small style="color: var(--text-muted);">WinPE and rescue media often carry several WIM files. Pick the one wimboot should load and, for multi-image WIMs, which image inside it.</small>
+                </div>
+
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                     <div class="form-group checkbox-group">
                         <input type="checkbox" id="image-props-enabled">

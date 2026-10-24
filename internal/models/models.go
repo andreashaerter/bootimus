@@ -352,8 +352,30 @@ type Image struct {
 	SMBPatchFingerprint   string         `json:"smb_patch_fingerprint,omitempty"`
 	SMBNeedsRepatch       bool           `gorm:"-" json:"smb_needs_repatch"`
 	SMBUnpatchAvailable   bool           `gorm:"-" json:"smb_unpatch_available"`
+	WIMFiles              []WIMFile      `gorm:"serializer:json" json:"wim_files,omitempty"`
+	WIMPath               string         `json:"wim_path,omitempty"`
+	WIMIndex              int            `gorm:"default:0" json:"wim_index,omitempty"`
 
 	AutoInstallFile string `json:"auto_install_file,omitempty"`
+}
+
+type WIMFile struct {
+	Path string `json:"path"`
+	Size int64  `json:"size"`
+}
+
+const (
+	DistroWindows  = "windows"
+	DistroWindows7 = "windows7"
+	DistroWinPE    = "winpe"
+)
+
+func IsWindowsDistro(distro string) bool {
+	switch distro {
+	case DistroWindows, DistroWindows7, DistroWinPE:
+		return true
+	}
+	return false
 }
 
 type BootLog struct {

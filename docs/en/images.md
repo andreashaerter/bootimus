@@ -6,6 +6,7 @@ Complete guide for managing ISO images, extracting boot files, and handling spec
 
 - [Adding Images](#adding-images)
 - [Unified Kernel Images (UKI)](#unified-kernel-images-uki)
+- [WinPE and Rescue Media](#winpe-and-rescue-media)
 - [Kernel Extraction](#kernel-extraction)
 - [Netboot Support](#netboot-support)
 - [Ubuntu Desktop Optimisation](#ubuntu-desktop-optimisation)
@@ -107,6 +108,28 @@ kernel http://<server>:8080/isos/<image>.efi <boot parameters>
 With Secure Boot disabled, these parameters replace the embedded command line, which is why the embedded one is pre-filled. With Secure Boot enabled, the systemd-stub inside most UKIs ignores them and always uses the embedded command line.
 
 **UEFI only**: UKIs are EFI programs, so legacy BIOS clients cannot boot them. Choosing one on a BIOS client shows a message saying it needs UEFI.
+
+## WinPE and Rescue Media
+
+Bootimus boots Windows installers through [wimboot](https://ipxe.org/wimboot), and the same path now covers WinPE-based rescue media such as Sergei Strelec's WinPE, Active@ Boot Disk and Hiren's BootCD PE.
+
+**Supported layouts**: any ISO that carries a `BCD` (under `boot/` or `efi/microsoft/boot/`), `boot/boot.sdi` and at least one `.wim` file. Installer media also has `sources/install.wim` or `install.esd`; media without one is classified as the **WinPE / Rescue Media** profile (`winpe`) instead of **Windows**, so no auto-install or SMB handling is applied to it. WIM files anywhere in the first four directory levels are found, so Strelec's `SSTR/*.wim` and similar layouts work without renaming anything.
+
+**Choosing the WIM**: after extraction, the image properties panel lists every WIM found with its size. Pick the one wimboot should load and, when a WIM holds several images, the image index. The index is only added to the wimboot line when it is greater than one, and an explicit `index=` in the boot parameters takes precedence. The same can be set through the API:
+
+```bash
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"wim_path":"SSTR/strelec10x64Eng.wim","wim_index":1}' \
+  "http://localhost:8081/api/images/winpe?filename=WinPE_Strelec.iso"
+```
+
+**How it boots**: only the selected WIM is sent to the client; wimboot synthesises the BCD and `boot.sdi` itself, which avoids the black screen some media produce when the DVD BCD is used. Boot parameters are limited to wimboot's own options (`rawbcd`, `rawwim`, `gui`, `linear`, `quiet`, `pause`, `index`, `initrdfile`), exactly as for Windows installers.
+
+**Limitations**:
+
+- Programs that the rescue environment expects to find on its own boot media (for example Strelec's `SSTR` folder of portable tools) are not inside the WIM, so they are missing after a PXE boot unless the environment can fetch them over the network itself. The core WinPE desktop and the tools built into the WIM work.
+- Media that needs its own BCD entries (custom `bootmgr` menus, multi-WIM chooser menus) boots straight into the chosen WIM instead of showing that menu.
+- Bare `.wim` files cannot be uploaded on their own yet; put them on an ISO with a `BCD` and `boot.sdi`, or use a complete rescue ISO.
 
 ## Kernel Extraction
 

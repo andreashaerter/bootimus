@@ -1042,7 +1042,7 @@ async function cancelRestore() {
 function downloadISOFromProperties() {
     const filename = document.getElementById('image-props-filename').value;
     if (!filename) return;
-    const url = `${window.location.protocol}//${window.location.hostname}:${cachedHTTPPort}/isos/${encodeURIComponent(filename)}`;
+    const url = `http://${window.location.hostname}:${cachedHTTPPort}/isos/${encodeURIComponent(filename)}`;
     const a = document.createElement('a');
     a.href = url;
     a.download = filename;
@@ -2390,7 +2390,7 @@ function imageRowHTML(img, includeGroupCell, depth = 0) {
                         <td>${formatBytes(img.size)}</td>
                         <td>
                             ${img.extracted ?
-                                (img.distro ? '<span class="badge badge-info">'+img.distro+'</span>' : '<span class="badge badge-success">✓ Extracted</span>') :
+                                (img.distro ? '<span class="badge badge-info">'+(img.distro === 'winpe' ? 'WinPE' : img.distro)+'</span>' : '<span class="badge badge-success">✓ Extracted</span>') :
                                 (img.extraction_error ? '<span class="badge badge-danger" title="'+img.extraction_error+'">Error</span>' : '')
                             }
                             ${img.smb_install_enabled ? ' <span class="badge badge-warning" title="boot.wim patched to auto-mount SMB share and launch setup.exe">SMB</span>' : ''}
@@ -5469,6 +5469,7 @@ function getDefaultBootParams(img) {
             return 'vfs.root.mountfrom=cd9660:/dev/md0 kernelname=/boot/kernel/kernel';
         case 'windows':
         case 'windows7':
+        case 'winpe':
             return '';
         default:
             return 'iso-url={{BASE_URL}}/isos/{{FILENAME}} ip=dhcp';
@@ -5519,6 +5520,7 @@ async function showImagePropertiesModal(filename, opts) {
     document.getElementById('image-props-public').checked = img.public;
 
     await populateBootFileOverrides(img);
+    populateWIMSelector(img);
 
     applyBootParamsWindowsLock(distroSelect.value);
     distroSelect.onchange = () => applyBootParamsWindowsLock(distroSelect.value);
@@ -5602,7 +5604,7 @@ async function populateBootFileOverrides(img) {
     kernelSelect.innerHTML = autoOption;
     initrdSelect.innerHTML = autoOption;
 
-    if (!img.extracted || img.distro === 'windows') {
+    if (!img.extracted || isWindowsFamily(img.distro)) {
         row.style.display = 'none';
         return;
     }
@@ -5632,7 +5634,7 @@ function updateImagePropsWarnings() {
     if (!_imagePropsState) return;
     const img = _imagePropsState.img;
     const fname = img.filename || '';
-    const looksWindows = img.distro === 'windows' || filenameLooksWindows(fname);
+    const looksWindows = isWindowsFamily(img.distro) || filenameLooksWindows(fname);
 
     // 1. Not extracted but probably needs to be.
     const needsExtract = !img.extracted && filenameLikelyNeedsExtraction(fname);
@@ -5674,10 +5676,56 @@ async function saveAndRepatchFromProperties() {
     await patchSmbFromProperties();
 }
 
+function isWindowsFamily(distro) {
+    return distro === 'windows' || distro === 'windows7' || distro === 'winpe';
+}
+
+function populateWIMSelector(img) {
+    const row = document.getElementById('image-props-wim-row');
+    const select = document.getElementById('image-props-wim-path');
+    const index = document.getElementById('image-props-wim-index');
+    if (!row || !select || !index) return;
+    const wims = img.wim_files || [];
+    if (!img.extracted || !isWindowsFamily(img.distro) || wims.length === 0) {
+        row.style.display = 'none';
+        return;
+    }
+    select.innerHTML = wims.map(w =>
+        `<option value="${escapeHtml(w.path)}" ${w.path === img.wim_path ? 'selected' : ''}>${escapeHtml(w.path)} (${formatBytes(w.size || 0)})</option>`
+    ).join('');
+    if (img.wim_path && !wims.some(w => w.path === img.wim_path)) {
+        select.innerHTML += `<option value="${escapeHtml(img.wim_path)}" selected>${escapeHtml(img.wim_path)}</option>`;
+    }
+    index.value = img.wim_index || 1;
+    row.dataset.path = img.wim_path || '';
+    row.dataset.index = String(img.wim_index || 0);
+    row.style.display = '';
+}
+
+async function saveWIMSelection(filename) {
+    const row = document.getElementById('image-props-wim-row');
+    if (!row || row.style.display === 'none') return true;
+    const path = document.getElementById('image-props-wim-path').value;
+    const index = parseInt(document.getElementById('image-props-wim-index').value, 10) || 0;
+    const storedIndex = parseInt(row.dataset.index, 10) || 0;
+    if (path === row.dataset.path && (index === storedIndex || (index <= 1 && storedIndex <= 1))) return true;
+    const res = await authFetch(`${API_BASE}/images/winpe?filename=${encodeURIComponent(filename)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wim_path: path, wim_index: index <= 1 ? 0 : index })
+    });
+    const data = await res.json();
+    if (!data.success) {
+        showNotification('Failed to update boot WIM: ' + (data.error || 'Unknown error'), 'error');
+        return false;
+    }
+    return true;
+}
+
 function applyBootParamsWindowsLock(distro) {
     const input = document.getElementById('image-props-boot-params');
     const redetect = document.getElementById('image-props-redetect-btn');
-    const isWindows = distro === 'windows' || distro === 'windows7';
+    const isWindows = isWindowsFamily(distro);
     input.disabled = isWindows;
     input.style.opacity = isWindows ? '0.5' : '';
     input.style.cursor = isWindows ? 'not-allowed' : '';
@@ -5958,6 +6006,8 @@ async function saveImageProperties(opts) {
     }
 
     try {
+        if (!await saveWIMSelection(filename)) return false;
+
         // Update general image properties
         const res = await authFetch(`${API_BASE}/images?filename=${encodeURIComponent(filename)}`, {
             method: 'PUT',
