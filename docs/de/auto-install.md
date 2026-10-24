@@ -1,6 +1,6 @@
 # Auto-Install-Leitfaden
 
-Unbeaufsichtigte Installationen für Windows, Ubuntu, Debian und die Red-Hat-Familie. Einmal eine Config-Datei reinwerfen, an ein Image anhängen — und jeder PXE-Boot zieht die Installation ohne einen einzigen Tastendruck durch.
+Unbeaufsichtigte Installationen für Windows, Ubuntu, Debian, die Red-Hat-Familie, openSUSE, Fedora CoreOS, Flatcar und Proxmox VE. Einmal eine Config-Datei reinwerfen, an ein Image anhängen — und jeder PXE-Boot zieht die Installation ohne einen einzigen Tastendruck durch.
 
 ## Inhaltsverzeichnis
 
@@ -14,6 +14,7 @@ Unbeaufsichtigte Installationen für Windows, Ubuntu, Debian und die Red-Hat-Fam
 - [Vorschau](#vorschau)
 - [Validierung](#validierung)
 - [Beispiele](#beispiele)
+- [Nicht unterstützt](#nicht-unterstützt)
 - [Installationsabschluss melden](#installationsabschluss-melden)
 - [Windows-Hinweise](#windows-hinweise)
 - [REST-API](#rest-api)
@@ -39,9 +40,27 @@ Bootimus liefert die gerenderte Datei über HTTP am Auto-Install-Endpunkt aus. L
 | Ubuntu (Server live, 20.04+) | cloud-init / autoinstall | `.yaml`, `.yml` | `autoinstall` |
 | Debian | preseed | `.cfg` | `preseed` |
 | Red Hat / Rocky / Fedora / Alma | kickstart | `.ks` | `kickstart` |
+| openSUSE Leap 15 / SLES 15 | AutoYaST-Profil | `.xml` unter `opensuse/` | `autoyast` |
+| openSUSE Leap 16 / Tumbleweed / SLES 16 | Agama-Profil | `.json`, `.jsonnet` unter `opensuse/` | `agama` |
+| Fedora CoreOS / Flatcar | Ignition-Config | `.ign` | `ignition` |
+| Proxmox VE | Answer-Datei | `.toml` unter `proxmox/` | `proxmox` |
 | Alles andere | raw | beliebig | `generic` |
 
-Die Endung steuert sowohl das Label im UI als auch den `Content-Type`-Header beim Ausliefern.
+Der Typ wird aus der Datei-Endung und dem Distro-Verzeichnis abgeleitet, in dem die Datei liegt — eine `.xml`-Datei ist unter `windows/` also ein autounattend-Dokument, unter `opensuse/` aber ein AutoYaST-Profil. Der Typ steuert das Label im UI, den `Content-Type`-Header beim Ausliefern und den Kernel-Parameter, den das Boot-Menü hinzufügt:
+
+| Typ | Vom Boot-Menü hinzugefügter Kernel-Parameter | `Content-Type` |
+|------|------------------------------------------|----------------|
+| `preseed` | `auto=true priority=critical url=<url>` | `text/plain` |
+| `kickstart` | `inst.ks=<url>` | `text/plain` |
+| `autoinstall` | `autoinstall ds=nocloud-net;s=<seed-url>/` | `text/yaml` |
+| `autounattend` | keiner (wimboot lädt sie als zusätzliche `initrd`, siehe [Windows-Hinweise](#windows-hinweise)) | `application/xml` |
+| `autoyast` | `autoyast=<url>` | `application/xml` |
+| `agama` | `inst.auto=<url>` | `application/json` |
+| `ignition` | `ignition.config.url=<url> ignition.firstboot ignition.platform.id=metal` (Fedora CoreOS) oder `flatcar.first_boot=1 ignition.config.url=<url>` (Flatcar) | `application/json` |
+| `proxmox` | keiner (der Installer holt die Answer-Datei selbst, siehe [Proxmox VE](#proxmox-ve-answer-datei)) | `application/toml` |
+| `generic` | keiner | `text/plain` |
+
+`<url>` ist `http://<server>:8080/autoinstall/<image-filename>?mac=<mac>`. Eine `generic`-Datei wird auf Anfrage ausgeliefert, aber kein Installer erfährt davon; wähle eines der spezifischen Formate, wenn das Boot-Menü sie an den Installer durchreichen soll.
 
 ## Die Dateibibliothek
 
@@ -57,8 +76,15 @@ data/autoinstall/
 │   └── lab-bench.yaml
 ├── debian/
 │   └── server.cfg
-└── rocky/
-    └── workstation.ks
+├── rocky/
+│   └── workstation.ks
+├── opensuse/
+│   ├── leap15.xml
+│   └── leap16.jsonnet
+├── coreos/
+│   └── worker.ign
+└── proxmox/
+    └── answer.toml
 ```
 
 Das Segment `<distro>` muss zu einer bekannten Distro-Profil-ID passen (siehe [Distro-Profile](distro-profiles.md)). Das Verzeichnis wird beim ersten Start automatisch angelegt.
@@ -119,7 +145,7 @@ Diese Tokens werden beim Ausliefern pro Client ersetzt:
 
 | Token | Wird ersetzt durch |
 |-------|---------------|
-| `{{MAC}}` | Client-MAC-Adresse (lowercase, mit Doppelpunkten) |
+| `{{MAC}}` | Client-MAC-Adresse (lowercase, mit Doppelpunkten); bei Proxmox VE die erste Interface-MAC aus dem Request des Installers, die zu einem bekannten Client passt, sonst das erste aufgeführte Interface |
 | `{{CLIENT_NAME}}` | Anzeigename aus der Clients-Tabelle |
 | `{{HOSTNAME}}` | Wie `{{CLIENT_NAME}}` (Alias zur Klarheit in Configs) |
 | `{{CLIENT_GROUP}}` | Name der Client-Gruppe, oder leer, wenn der Client keine hat |
@@ -285,6 +311,130 @@ openssh-server
 <ComputerName>{{HOSTNAME}}</ComputerName>
 ```
 
+### openSUSE Leap 15 / SLES 15 (AutoYaST)
+
+`data/autoinstall/opensuse/leap15.xml`: ein Standard-AutoYaST-Profil — siehe den [AutoYaST-Leitfaden](https://doc.opensuse.org/projects/autoyast/). Bootimus fügt `autoyast=<url>` zur Kernel-Zeile hinzu. Das openSUSE-Profil übergibt bereits `install=` mit Verweis auf die extrahierte ISO — das bringt das Netzwerk hoch und stellt das Installations-Repository bereit.
+
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE profile>
+<profile xmlns="http://www.suse.com/1.0/yast2ns" xmlns:config="http://www.suse.com/1.0/configns">
+  <networking>
+    <dns>
+      <hostname>{{HOSTNAME}}</hostname>
+    </dns>
+  </networking>
+  <users config:type="list">
+    <user>
+      <username>root</username>
+      <user_password>$6$rounds=4096$...</user_password>
+      <encrypted config:type="boolean">true</encrypted>
+    </user>
+  </users>
+</profile>
+```
+
+### openSUSE Leap 16 / Tumbleweed (Agama)
+
+`data/autoinstall/opensuse/leap16.jsonnet` (oder `.json`): ein [Agama-Profil](https://agama-project.github.io/docs/user/profile). Bootimus fügt `inst.auto=<url>` hinzu; mehr braucht Agama auf der Kommandozeile für eine unbeaufsichtigte Installation nicht.
+
+```jsonnet
+{
+  product: { id: 'Leap_16.1' },
+  user: {
+    fullName: 'Admin',
+    userName: 'admin',
+    hashedPassword: true,
+    password: '$6$rounds=4096$...',
+  },
+  localization: { language: 'en_GB.UTF-8', keyboard: 'gb', timezone: 'Europe/London' },
+  network: { connections: [{ id: 'wired', method4: 'auto' }] },
+  storage: { drives: [{ partitions: [{ generate: 'default' }] }] },
+  scripts: {
+    post: [{ name: 'report', body: 'curl -fsS "{{CALLBACK_URL}}"' }],
+  },
+}
+```
+
+Agama versteht nur `inst.auto`; wenn dein Leap-16- oder Tumbleweed-Medium Agama bootet und du eine `.xml`-Datei anhängst, übergibt Bootimus `autoyast=` und der Installer ignoriert es. Behalte AutoYaST-Profile für Leap-15- und SLES-15-Medien.
+
+### Fedora CoreOS / Flatcar (Ignition)
+
+`data/autoinstall/coreos/worker.ign` oder `data/autoinstall/flatcar/worker.ign`: ein [Ignition](https://coreos.github.io/ignition/)-JSON-Dokument, üblicherweise aus Butane erzeugt. Bootimus fügt `ignition.config.url=<url> ignition.firstboot ignition.platform.id=metal` für Fedora CoreOS und `flatcar.first_boot=1 ignition.config.url=<url>` für Flatcar hinzu. Das `coreos`-Profil übergibt außerdem `coreos.live.rootfs_url=` mit Verweis auf die aus der Live-ISO extrahierte `rootfs.img`.
+
+```json
+{
+  "ignition": { "version": "3.4.0" },
+  "passwd": {
+    "users": [{ "name": "core", "sshAuthorizedKeys": ["ssh-ed25519 AAAA..."] }]
+  },
+  "storage": {
+    "files": [{
+      "path": "/etc/hostname",
+      "mode": 420,
+      "contents": { "source": "data:,{{HOSTNAME}}" }
+    }]
+  }
+}
+```
+
+Damit bootet das Live-System mit deiner Config. Um auf die Platte zu installieren, ergänze `coreos.inst.install_dev=/dev/sda coreos.inst.ignition_url={{BASE_URL}}/autoinstall/{{FILENAME}}?mac={{MAC}}` in den Boot-Parametern des Images, damit `coreos-installer` dieselbe Config ins installierte System schreibt. Ignition wendet die Config trotzdem zuerst auf die Live-Umgebung an; das passt also für Configs, die Benutzer, Schlüssel und Dateien anlegen — eine Config, die Platten partitioniert oder formatiert, scheitert im Live-System und sollte nur über `coreos.inst.ignition_url` ausgeliefert werden.
+
+### Proxmox VE (Answer-Datei)
+
+Proxmox VE installiert aus einer `answer.toml` ([Automated Installation](https://pve.proxmox.com/wiki/Automated_Installation)). Der Standard-Installer liest keine Answer-Datei-URL von der Kernel-Kommandozeile, daher muss die ISO einmal mit `proxmox-auto-install-assistant` vorbereitet werden, damit sie die Antwort per HTTP von Bootimus holt:
+
+1. Installiere auf einem beliebigen Debian- oder Proxmox-Host `proxmox-auto-install-assistant` und remastere die ISO; die Fetch-URL zeigt dabei auf den Bootimus-Auto-Install-Endpunkt für den Dateinamen, den du gleich hochlädst:
+
+   ```bash
+   proxmox-auto-install-assistant prepare-iso proxmox-ve_9.1-1.iso \
+     --fetch-from http \
+     --url "http://<server>:8080/autoinstall/proxmox-ve_9.1-1-auto-from-http.iso"
+   ```
+
+   Der Assistent legt `proxmox-ve_9.1-1-auto-from-http.iso` neben die Quelle. Die URL muss den Dateinamen der ISO enthalten, die du hochlädst — beide müssen also zusammenpassen.
+
+2. Lade die remasterte ISO über **Images** hoch. Das `proxmox`-Profil extrahiert `/boot/linux26` und `/boot/initrd.img`, und das Boot-Menü lädt die ISO selbst als zweite initrd (`proxmox.iso`) — so liefert auch der offizielle iPXE-Ablauf das Installationsmedium.
+
+3. Lege `data/autoinstall/proxmox/answer.toml` an und hänge sie an das Image, einen Client oder eine Gruppe:
+
+   ```toml
+   [global]
+   keyboard = "en-gb"
+   country = "gb"
+   fqdn = "{{HOSTNAME}}.lan"
+   mailto = "root@lan"
+   timezone = "Europe/London"
+   root-password-hashed = "$6$rounds=4096$..."
+   root-ssh-keys = ["ssh-ed25519 AAAA..."]
+
+   [network]
+   source = "from-dhcp"
+
+   [disk-setup]
+   filesystem = "zfs"
+   zfs.raid = "raid1"
+   disk-list = ["sda", "sdb"]
+
+   [post-installation-webhook]
+   url = "{{CALLBACK_URL}}"
+   ```
+
+Beim Boot `POST`et der Installer eine JSON-Beschreibung der Maschine (Produkt, ISO-Release, DMI-Daten und `network_interfaces` mit jeweils `link` und `mac`) an die URL. Bootimus liest die Interface-MACs, löst den Client über die erste auf, die zu einem bekannten Client passt (sonst greift der Image-Default), rendert die angehängte `.toml` und liefert sie als `application/toml` zurück. `{{MAC}}` ist die MAC, die gepasst hat. Der Abschnitt `[post-installation-webhook]` lässt den Installer nach Abschluss der Installation `{{CALLBACK_URL}}` aufrufen, sodass der Install-Eintrag des Clients nach `completed` wechselt.
+
+Für diesen Typ wird nichts zur Kernel-Kommandozeile hinzugefügt. Ein Kernel-Parameter `proxmox-answer=<url>` wurde upstream angefragt ([Proxmox-Bug 8219](https://bugzilla.proxmox.com/show_bug.cgi?id=8219)), ist aber noch nicht ausgeliefert; sobald das passiert, entfällt der Remastering-Schritt.
+
+## Nicht unterstützt
+
+Manche Distributionen haben keine Möglichkeit, eine Datei für die unbeaufsichtigte Installation von der Kernel-Kommandozeile aufzugreifen — Bootimus tut also nicht so, als würde es sie unterstützen. Dateien für diese Distros werden weiterhin als `generic` ausgeliefert, aber nichts teilt dem Installer etwas darüber mit:
+
+- **Alpine Linux** — `setup-alpine -f <answerfile>` ist ein Befehl, den du nach dem Boot ausführst; der Installer hat keinen Kernel-Parameter-Hook, um eine Datei zu holen.
+- **NixOS** — die Installation läuft über `nixos-install` mit einer Konfiguration, die du auf das Ziel schreibst; die Live-ISO hat keinen unbeaufsichtigten Installer.
+- **FreeBSD** — `bsdinstall`-Skripte werden vom lokalen Medium oder aus `BSDINSTALL_SCRIPT` in der Umgebung gelesen, nicht von einer URL auf der Loader-Kommandozeile.
+- **Arch Linux** — die Live-ISO hat keinen Installer; `archinstall` kann eine Config-Datei nehmen, die aber von Hand oder aus einem eigenen Profil geholt und ausgeführt werden muss.
+
+Boote für diese stattdessen das Live-Image und starte den Installer aus einer SSH-Session oder einem eigenen Skript.
+
 ## Installationsabschluss melden
 
 Bootimus verfolgt jede unbeaufsichtigte Installation ab dem Moment, in dem der Client den Kernel des Images lädt. Der Eintrag durchläuft vier Zustände:
@@ -444,12 +594,13 @@ curl -u admin:pw -X PUT http://localhost:8081/api/clients/b4:2e:99:01:5f:a3 \
 Den Auto-Install-Endpunkt, den Clients beim Boot ansprechen:
 
 ```
-GET /autoinstall/<image-filename>?mac=<mac>             # preseed, kickstart
-GET /autoinstall/<image-filename>/mac/<mac>/user-data   # Ubuntu autoinstall
-GET /autoinstall/<image-filename>/mac/<mac>/meta-data   # Ubuntu autoinstall
+GET  /autoinstall/<image-filename>?mac=<mac>             # preseed, kickstart, autoyast, agama, ignition
+GET  /autoinstall/<image-filename>/mac/<mac>/user-data   # Ubuntu autoinstall
+GET  /autoinstall/<image-filename>/mac/<mac>/meta-data   # Ubuntu autoinstall
+POST /autoinstall/<image-filename>                       # Proxmox VE (JSON system information in the body)
 ```
 
-Das Boot-Menü baut diese URLs mit der MAC-Adresse des Clients, damit Per-Client-Overrides korrekt aufgelöst werden; bei Ubuntu hängt cloud-init `user-data` und `meta-data` selbst an. Anfragen ohne MAC-Adresse oder in anderer Form, etwa `/autoinstall/<image-filename>/user-data`, liefern 404.
+Das Boot-Menü baut diese URLs mit der MAC-Adresse des Clients, damit Per-Client-Overrides korrekt aufgelöst werden; bei Ubuntu hängt cloud-init `user-data` und `meta-data` selbst an. Der Proxmox-Installer kennt die MAC nicht, mit der Bootimus ihn gebootet hat, daher `POST`et er seine Netzwerk-Interfaces und Bootimus gleicht sie mit der Clients-Tabelle ab. `GET`-Anfragen ohne MAC-Adresse oder in anderer Form, etwa `/autoinstall/<image-filename>/user-data`, liefern 404.
 
 ## Fehlersuche
 
@@ -474,6 +625,10 @@ Served auto-install script for ... (source: client:..., type: ..., size: ...)
 ```
 
 Das Feld `source:` sagt dir genau, welcher Slot gewonnen hat.
+
+### Proxmox-Installer meldet, dass er die Answer-Datei nicht holen kann
+
+Die remasterte ISO holt von genau der URL, die `prepare-iso` eingebacken hat. Prüfe, dass der Dateiname in dieser URL zur hochgeladenen ISO passt (die ISO nach dem Remastering umzubenennen bricht das), dass der Client Port 8080 erreicht und dass auf irgendeiner Ebene der Auflösungskette eine `.toml`-Datei angehängt ist. Das Server-Log zeigt den `POST` und die aufgelöste Quelle; ein `400` bedeutet, dass der Body keine `network_interfaces` enthielt, was auf einen sehr alten Installer hindeutet.
 
 ### Windows-Setup läuft interaktiv
 

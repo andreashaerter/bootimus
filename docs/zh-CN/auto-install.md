@@ -1,6 +1,6 @@
 # 无人值守安装指南
 
-跨 Windows、Ubuntu、Debian 和 Red Hat 系列发行版运行无人值守安装。配置文件丢进去一次,挂到镜像上,之后每次 PXE 引导都能在不按一次键的情况下完成安装。
+跨 Windows、Ubuntu、Debian、Red Hat 系列发行版、openSUSE、Fedora CoreOS、Flatcar 和 Proxmox VE 运行无人值守安装。配置文件丢进去一次,挂到镜像上,之后每次 PXE 引导都能在不按一次键的情况下完成安装。
 
 ## 目录
 
@@ -14,6 +14,7 @@
 - [预览](#预览)
 - [校验](#校验)
 - [示例](#示例)
+- [不支持的发行版](#不支持的发行版)
 - [报告安装完成](#报告安装完成)
 - [Windows 注意事项](#windows-注意事项)
 - [REST API](#rest-api)
@@ -39,9 +40,27 @@ Bootimus 通过 HTTP 在无人值守安装端点上提供渲染后的文件。Li
 | Ubuntu (Server live, 20.04+) | cloud-init / autoinstall | `.yaml`, `.yml` | `autoinstall` |
 | Debian | preseed | `.cfg` | `preseed` |
 | Red Hat / Rocky / Fedora / Alma | kickstart | `.ks` | `kickstart` |
+| openSUSE Leap 15 / SLES 15 | AutoYaST profile | `opensuse/` 下的 `.xml` | `autoyast` |
+| openSUSE Leap 16 / Tumbleweed / SLES 16 | Agama profile | `opensuse/` 下的 `.json`, `.jsonnet` | `agama` |
+| Fedora CoreOS / Flatcar | Ignition 配置 | `.ign` | `ignition` |
+| Proxmox VE | 应答文件 | `proxmox/` 下的 `.toml` | `proxmox` |
 | 其他任何 | 原始格式 | 任意 | `generic` |
 
-扩展名同时决定了 UI 内的标签和文件被服务时的 `Content-Type` 头。
+类型由文件的扩展名及其所在的发行版目录共同决定,因此同一个 `.xml` 文件在 `windows/` 下是 autounattend 文档,而在 `opensuse/` 下则是 AutoYaST profile。类型决定了 UI 内的标签、文件被服务时的 `Content-Type` 头,以及引导菜单添加的内核参数:
+
+| 类型 | 引导菜单添加的内核参数 | `Content-Type` |
+|------|------------------------------------------|----------------|
+| `preseed` | `auto=true priority=critical url=<url>` | `text/plain` |
+| `kickstart` | `inst.ks=<url>` | `text/plain` |
+| `autoinstall` | `autoinstall ds=nocloud-net;s=<seed-url>/` | `text/yaml` |
+| `autounattend` | 无(wimboot 将其作为额外的 `initrd` 获取,见 [Windows 注意事项](#windows-注意事项)) | `application/xml` |
+| `autoyast` | `autoyast=<url>` | `application/xml` |
+| `agama` | `inst.auto=<url>` | `application/json` |
+| `ignition` | `ignition.config.url=<url> ignition.firstboot ignition.platform.id=metal`(Fedora CoreOS)或 `flatcar.first_boot=1 ignition.config.url=<url>`(Flatcar) | `application/json` |
+| `proxmox` | 无(安装程序自行获取应答文件,见 [Proxmox VE](#proxmox-ve-应答文件)) | `application/toml` |
+| `generic` | 无 | `text/plain` |
+
+`<url>` 即 `http://<server>:8080/autoinstall/<image-filename>?mac=<mac>`。`generic` 文件在请求时会被提供,但不会告知任何安装程序;如果希望引导菜单把文件传给安装程序,请选用上述某种具体格式。
 
 ## 文件库
 
@@ -57,8 +76,15 @@ data/autoinstall/
 │   └── lab-bench.yaml
 ├── debian/
 │   └── server.cfg
-└── rocky/
-    └── workstation.ks
+├── rocky/
+│   └── workstation.ks
+├── opensuse/
+│   ├── leap15.xml
+│   └── leap16.jsonnet
+├── coreos/
+│   └── worker.ign
+└── proxmox/
+    └── answer.toml
 ```
 
 `<distro>` 段必须匹配一个已知的发行版 profile ID(详见 [发行版 Profile](distro-profiles.md))。该目录在首次启动时自动创建。
@@ -119,7 +145,7 @@ Served auto-install script for ubuntu-24.04-live-server-amd64.iso \
 
 | 占位符 | 替换为 |
 |-------|---------------|
-| `{{MAC}}` | 客户端 MAC 地址(小写,冒号分隔) |
+| `{{MAC}}` | 客户端 MAC 地址(小写,冒号分隔);对 Proxmox VE 而言,是安装程序请求中第一个匹配到已知客户端的接口 MAC,若无匹配则为列出的第一个接口 |
 | `{{CLIENT_NAME}}` | Clients 表中的友好名称 |
 | `{{HOSTNAME}}` | 同 `{{CLIENT_NAME}}`(在配置中更清晰的别名) |
 | `{{CLIENT_GROUP}}` | 客户端所属组的名称,没有组时为空 |
@@ -285,6 +311,130 @@ openssh-server
 <ComputerName>{{HOSTNAME}}</ComputerName>
 ```
 
+### openSUSE Leap 15 / SLES 15 (AutoYaST)
+
+`data/autoinstall/opensuse/leap15.xml`:标准 AutoYaST profile — 参见 [AutoYaST 指南](https://doc.opensuse.org/projects/autoyast/)。Bootimus 会在内核命令行中添加 `autoyast=<url>`。openSUSE profile 已经传入了指向提取后 ISO 的 `install=`,正是它负责启用网络并提供安装仓库。
+
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE profile>
+<profile xmlns="http://www.suse.com/1.0/yast2ns" xmlns:config="http://www.suse.com/1.0/configns">
+  <networking>
+    <dns>
+      <hostname>{{HOSTNAME}}</hostname>
+    </dns>
+  </networking>
+  <users config:type="list">
+    <user>
+      <username>root</username>
+      <user_password>$6$rounds=4096$...</user_password>
+      <encrypted config:type="boolean">true</encrypted>
+    </user>
+  </users>
+</profile>
+```
+
+### openSUSE Leap 16 / Tumbleweed (Agama)
+
+`data/autoinstall/opensuse/leap16.jsonnet`(或 `.json`):一份 [Agama profile](https://agama-project.github.io/docs/user/profile)。Bootimus 会添加 `inst.auto=<url>`;无人值守安装时 Agama 不再需要命令行上的其他任何参数。
+
+```jsonnet
+{
+  product: { id: 'Leap_16.1' },
+  user: {
+    fullName: 'Admin',
+    userName: 'admin',
+    hashedPassword: true,
+    password: '$6$rounds=4096$...',
+  },
+  localization: { language: 'en_GB.UTF-8', keyboard: 'gb', timezone: 'Europe/London' },
+  network: { connections: [{ id: 'wired', method4: 'auto' }] },
+  storage: { drives: [{ partitions: [{ generate: 'default' }] }] },
+  scripts: {
+    post: [{ name: 'report', body: 'curl -fsS "{{CALLBACK_URL}}"' }],
+  },
+}
+```
+
+Agama 只认 `inst.auto`;如果你的 Leap 16 或 Tumbleweed 介质引导的是 Agama,而你挂载的是 `.xml` 文件,Bootimus 会传入 `autoyast=`,安装程序则会忽略它。AutoYaST profile 请留给 Leap 15 和 SLES 15 介质使用。
+
+### Fedora CoreOS / Flatcar (Ignition)
+
+`data/autoinstall/coreos/worker.ign` 或 `data/autoinstall/flatcar/worker.ign`:一份 [Ignition](https://coreos.github.io/ignition/) JSON 文档,通常由 Butane 生成。Bootimus 会为 Fedora CoreOS 添加 `ignition.config.url=<url> ignition.firstboot ignition.platform.id=metal`,为 Flatcar 添加 `flatcar.first_boot=1 ignition.config.url=<url>`。`coreos` profile 还会传入 `coreos.live.rootfs_url=`,指向从 live ISO 中提取的 `rootfs.img`。
+
+```json
+{
+  "ignition": { "version": "3.4.0" },
+  "passwd": {
+    "users": [{ "name": "core", "sshAuthorizedKeys": ["ssh-ed25519 AAAA..."] }]
+  },
+  "storage": {
+    "files": [{
+      "path": "/etc/hostname",
+      "mode": 420,
+      "contents": { "source": "data:,{{HOSTNAME}}" }
+    }]
+  }
+}
+```
+
+这样引导的 live 系统会应用你的配置。若要安装到磁盘,请在镜像的引导参数中加入 `coreos.inst.install_dev=/dev/sda coreos.inst.ignition_url={{BASE_URL}}/autoinstall/{{FILENAME}}?mac={{MAC}}`,让 `coreos-installer` 把同一份配置写入已安装的系统。Ignition 仍会先把配置应用到 live 环境,因此这适合创建用户、密钥和文件的配置;对磁盘分区或格式化的配置会在 live 系统中失败,只应通过 `coreos.inst.ignition_url` 分发。
+
+### Proxmox VE (应答文件)
+
+Proxmox VE 从 `answer.toml` 安装([自动化安装](https://pve.proxmox.com/wiki/Automated_Installation))。原版安装程序不会从内核命令行读取应答文件的 URL,因此必须先用 `proxmox-auto-install-assistant` 对 ISO 做一次准备,让它通过 HTTP 从 Bootimus 获取应答文件:
+
+1. 在任意 Debian 或 Proxmox 主机上安装 `proxmox-auto-install-assistant` 并重新制作 ISO,把获取 URL 指向 Bootimus 无人值守安装端点上你即将上传的文件名:
+
+   ```bash
+   proxmox-auto-install-assistant prepare-iso proxmox-ve_9.1-1.iso \
+     --fetch-from http \
+     --url "http://<server>:8080/autoinstall/proxmox-ve_9.1-1-auto-from-http.iso"
+   ```
+
+   该助手会在源文件旁边写出 `proxmox-ve_9.1-1-auto-from-http.iso`。URL 中必须包含你上传的 ISO 的文件名,所以两者要保持一致。
+
+2. 通过 **Images** 上传重新制作的 ISO。`proxmox` profile 会提取 `/boot/linux26` 和 `/boot/initrd.img`,引导菜单则把 ISO 本身作为第二个 initrd(`proxmox.iso`)加载,这正是官方 iPXE 流程提供安装介质的方式。
+
+3. 创建 `data/autoinstall/proxmox/answer.toml` 并把它挂载到镜像、客户端或组:
+
+   ```toml
+   [global]
+   keyboard = "en-gb"
+   country = "gb"
+   fqdn = "{{HOSTNAME}}.lan"
+   mailto = "root@lan"
+   timezone = "Europe/London"
+   root-password-hashed = "$6$rounds=4096$..."
+   root-ssh-keys = ["ssh-ed25519 AAAA..."]
+
+   [network]
+   source = "from-dhcp"
+
+   [disk-setup]
+   filesystem = "zfs"
+   zfs.raid = "raid1"
+   disk-list = ["sda", "sdb"]
+
+   [post-installation-webhook]
+   url = "{{CALLBACK_URL}}"
+   ```
+
+引导时,安装程序会把一份描述该机器的 JSON(产品、ISO 版本、DMI 数据,以及带有各接口 `link` 和 `mac` 的 `network_interfaces`)以 `POST` 发送到该 URL。Bootimus 读取其中的接口 MAC,按第一个匹配到已知客户端的 MAC 解析客户端(否则回退到镜像默认值),渲染挂载的 `.toml` 并以 `application/toml` 返回。`{{MAC}}` 即匹配到的那个 MAC。`[post-installation-webhook]` 段让安装程序在安装完成后调用 `{{CALLBACK_URL}}`,从而把该客户端的安装记录转为 `completed`。
+
+此类型不会向内核命令行添加任何内容。上游已有人请求增加 `proxmox-answer=<url>` 内核参数([Proxmox bug 8219](https://bugzilla.proxmox.com/show_bug.cgi?id=8219)),但尚未发布;一旦发布,重新制作 ISO 的步骤就不再需要了。
+
+## 不支持的发行版
+
+有些发行版没有任何办法从内核命令行获取无人值守安装文件,因此 Bootimus 不会假装支持它们。这些发行版的文件仍会作为 `generic` 提供,但不会有任何东西告知安装程序:
+
+- **Alpine Linux** — `setup-alpine -f <answerfile>` 是引导之后才运行的命令;安装程序没有可通过内核参数获取应答文件的钩子。
+- **NixOS** — 安装由 `nixos-install` 驱动,依赖你写入目标系统的配置;live ISO 没有无人值守安装程序。
+- **FreeBSD** — `bsdinstall` 脚本从本地介质或环境变量 `BSDINSTALL_SCRIPT` 读取,而不是从 loader 命令行上的 URL。
+- **Arch Linux** — live ISO 没有安装程序;`archinstall` 可以接受配置文件,但必须手动或通过自定义 profile 获取并运行。
+
+对于这些发行版,请改为引导 live 镜像,然后通过 SSH 会话或自定义脚本运行安装程序。
+
 ## 报告安装完成
 
 Bootimus 从客户端加载镜像内核的那一刻起就跟踪每一次无人值守安装。记录会经历四种状态:
@@ -444,12 +594,13 @@ curl -u admin:pw -X PUT http://localhost:8081/api/clients/b4:2e:99:01:5f:a3 \
 客户端在启动时访问的无人值守安装端点:
 
 ```
-GET /autoinstall/<image-filename>?mac=<mac>             # preseed, kickstart
-GET /autoinstall/<image-filename>/mac/<mac>/user-data   # Ubuntu autoinstall
-GET /autoinstall/<image-filename>/mac/<mac>/meta-data   # Ubuntu autoinstall
+GET  /autoinstall/<image-filename>?mac=<mac>             # preseed, kickstart, autoyast, agama, ignition
+GET  /autoinstall/<image-filename>/mac/<mac>/user-data   # Ubuntu autoinstall
+GET  /autoinstall/<image-filename>/mac/<mac>/meta-data   # Ubuntu autoinstall
+POST /autoinstall/<image-filename>                       # Proxmox VE (JSON system information in the body)
 ```
 
-引导菜单会用客户端的 MAC 地址构造这些 URL,以便按客户端覆盖能正确解析;对于 Ubuntu,cloud-init 会自行追加 `user-data` 和 `meta-data`。不带 MAC 地址或其他形式的请求(例如 `/autoinstall/<image-filename>/user-data`)会返回 404。
+引导菜单会用客户端的 MAC 地址构造这些 URL,以便按客户端覆盖能正确解析;对于 Ubuntu,cloud-init 会自行追加 `user-data` 和 `meta-data`。Proxmox 安装程序并不知道 Bootimus 用哪个 MAC 引导了它,所以它会以 `POST` 发送自己的网络接口,由 Bootimus 与 Clients 表进行匹配。不带 MAC 地址或其他形式的 `GET` 请求(例如 `/autoinstall/<image-filename>/user-data`)会返回 404。
 
 ## 故障排查
 
@@ -474,6 +625,10 @@ Served auto-install script for ... (source: client:..., type: ..., size: ...)
 ```
 
 `source:` 字段告诉你究竟是哪个槽位胜出。
+
+### Proxmox 安装程序提示无法获取应答文件
+
+重新制作的 ISO 会从 `prepare-iso` 烧录进去的精确 URL 获取文件。请检查该 URL 中的文件名与上传的 ISO 一致(重新制作后再重命名 ISO 会导致失效)、客户端能访问 8080 端口,以及解析链的某个层级挂载了 `.toml` 文件。服务器日志会显示该 `POST` 和解析到的来源;`400` 表示请求体中没有 `network_interfaces`,这说明安装程序版本非常老。
 
 ### Windows Setup 交互式运行
 
