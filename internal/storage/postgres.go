@@ -98,6 +98,7 @@ func (s *PostgresStore) AutoMigrate() error {
 		&models.WebhookConfig{},
 		&models.HousekeepingSettings{},
 		&models.ScheduledTask{},
+		&models.AuditLog{},
 	); err != nil {
 		return err
 	}

@@ -10,6 +10,7 @@ Complete guide for using the Bootimus admin interface and REST API.
 - [Image Management](#image-management)
 - [Boot Logs](#boot-logs)
 - [Housekeeping and Retention](#housekeeping-and-retention)
+- [Audit Log](#audit-log)
 - [REST API](#rest-api)
 - [Automation Examples](#automation-examples)
 - [Security Best Practises](#security-best-practises)
@@ -345,6 +346,26 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json
 curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/housekeeping/run
 ```
 
+## Audit Log
+
+Every change made through the admin API is recorded: the user, the HTTP method and path, the query string, the status the server answered with, and the caller's IP address. Reads (`GET` requests) and the login endpoint itself are not recorded. Query values that look like passwords or tokens are stored as `[redacted]`.
+
+The **Audit Log** tab is visible to administrators only. It can be filtered by user, by path and by a start time, and pages through older entries with **Load more**.
+
+The same entries can be forwarded as `admin.action` webhook events by ticking that event under **Settings → Webhook**. The payload carries the user, method, path, query, status and a short summary in its `metadata` map.
+
+**Via API**:
+```bash
+# Latest 100 entries
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/audit
+
+# Everything alice did to clients since a point in time
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8081/api/audit?username=alice&path=/api/clients&since=2026-10-01T00:00:00Z&limit=500"
+```
+
+The response contains `entries` (newest first) and `total`, so `offset` can be used to page.
+
 ## REST API
 
 All admin functions available via REST API for automation.
@@ -395,6 +416,7 @@ GET /api/stats
 | `PUT` | `/api/clients?mac=<MAC>` | Update client |
 | `DELETE` | `/api/clients?mac=<MAC>` | Delete client |
 | `POST` | `/api/assign-images` | Assign images to client |
+| `GET` | `/api/clients/menu-preview?mac=<MAC>` | Render the iPXE script a client would receive (no side effects; omit `mac` for the anonymous menu) |
 
 #### Images
 

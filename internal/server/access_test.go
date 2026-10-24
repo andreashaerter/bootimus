@@ -43,11 +43,14 @@ var viewerReadRoutes = map[string]bool{
 	"/api/client-groups/get":         true,
 	"/api/scheduled-tasks":           true,
 	"/api/clients/power/status":      true,
+	"/api/clients/menu-preview":      true,
 	"/api/theme":                     true,
 	"/api/usb":                       true,
 	"/api/usb/download":              true,
 	"/api/images/files":              true,
 	"/api/housekeeping":              true,
+	"/api/proxydhcp/events":          true,
+	"/api/proxydhcp/stream":          true,
 }
 
 var publicRoutes = map[string]bool{
@@ -77,6 +80,7 @@ func registeredAPIRoutes(t *testing.T) []string {
 
 type accessEnv struct {
 	handler http.Handler
+	server  *Server
 	store   *storage.SQLiteStore
 	admin   string
 	viewer  string
@@ -109,7 +113,7 @@ func newAccessEnv(t *testing.T) *accessEnv {
 
 	adminTok, _ := mgr.GenerateToken("admin", true)
 	viewerTok, _ := mgr.GenerateToken("viewer", false)
-	return &accessEnv{handler: mux, store: store, admin: adminTok, viewer: viewerTok}
+	return &accessEnv{handler: mux, server: srv, store: store, admin: adminTok, viewer: viewerTok}
 }
 
 func (e *accessEnv) do(method, path, token string) (code int, body string) {

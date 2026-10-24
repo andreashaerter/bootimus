@@ -91,6 +91,9 @@ type Storage interface {
 	DeleteBootLogsBefore(cutoff time.Time) (int64, error)
 	DeleteInventoryHistoryBefore(cutoff time.Time) (int64, error)
 	DeleteDiscoveredClientsNotSeenSince(cutoff time.Time) (int64, error)
+	CreateAuditLog(entry *models.AuditLog) error
+	ListAuditLogs(filter AuditLogFilter) ([]models.AuditLog, int64, error)
+	DeleteAuditLogsBefore(cutoff time.Time) (int64, error)
 
 	ListScheduledTasks() ([]*models.ScheduledTask, error)
 	ListScheduledTasksByGroup(groupID uint) ([]*models.ScheduledTask, error)
