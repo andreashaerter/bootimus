@@ -343,16 +343,16 @@ if not exist !SETUP! (
 
 if exist x:\drivers set SETUP_ARGS=!SETUP_ARGS! /installdrivers x:\drivers
 
+set UNATTEND=
+if exist X:\Windows\System32\AutoUnattend.xml set UNATTEND=X:\Windows\System32\AutoUnattend.xml
 {{- if .AutoInstall }}
-
-if exist Z:\AutoUnattend.xml (
+if not defined UNATTEND if exist Z:\AutoUnattend.xml (
 	copy /Y Z:\AutoUnattend.xml X:\AutoUnattend.xml >nul
- 	set SETUP_ARGS=!SETUP_ARGS! /unattend:X:\AutoUnattend.xml
-) else (
-	echo WARNING: AutoUnattend.xml not on share, running interactive setup.
+	set UNATTEND=X:\AutoUnattend.xml
 )
-
+if not defined UNATTEND echo WARNING: AutoUnattend.xml neither injected by wimboot nor staged on the share, running interactive setup.
 {{- end }}
+if defined UNATTEND set SETUP_ARGS=!SETUP_ARGS! /unattend:!UNATTEND!
 
 echo Starting Windows Setup as !SETUP! !SETUP_ARGS!...
 !SETUP! !SETUP_ARGS!
