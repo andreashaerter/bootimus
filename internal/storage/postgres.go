@@ -99,6 +99,8 @@ func (s *PostgresStore) AutoMigrate() error {
 		&models.HousekeepingSettings{},
 		&models.ScheduledTask{},
 		&models.AuditLog{},
+		&models.DiskImage{},
+		&models.DiskJob{},
 		&models.APIToken{},
 		&models.InstallRecord{},
 		&models.ReplicaState{},

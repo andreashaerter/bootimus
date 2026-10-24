@@ -11,6 +11,7 @@ Unbeaufsichtigte Installationen für Windows, Ubuntu, Debian und die Red-Hat-Fam
 - [Auflösungsreihenfolge](#auflösungsreihenfolge)
 - [Platzhalter](#platzhalter)
 - [Beispiele](#beispiele)
+- [Installationsabschluss melden](#installationsabschluss-melden)
 - [Windows-Hinweise](#windows-hinweise)
 - [REST-API](#rest-api)
 - [Fehlersuche](#fehlersuche)
@@ -121,6 +122,8 @@ Diese Tokens werden beim Ausliefern pro Client ersetzt:
 | `{{SERVER_ADDR}}` | Adresse des Bootimus-Servers |
 | `{{IMAGE_NAME}}` | Anzeigename des bootenden Images |
 | `{{IMAGE_FILENAME}}` | ISO-Dateiname des bootenden Images |
+| `{{CALLBACK_URL}}` | Vollständige URL, die der Installer zum Melden des Abschlusses aufruft, inklusive Einmal-Token (siehe [Installationsabschluss melden](#installationsabschluss-melden)) |
+| `{{INSTALL_TOKEN}}` | Der nackte Token hinter `{{CALLBACK_URL}}`, um einen eigenen Request zu bauen |
 
 Platzhalter sind plain String-Substitution — kein Escaping. Quote sie passend zum Zielformat (XML, YAML etc.).
 
@@ -204,6 +207,93 @@ openssh-server
 
 ```xml
 <ComputerName>{{HOSTNAME}}</ComputerName>
+```
+
+## Installationsabschluss melden
+
+Bootimus verfolgt jede unbeaufsichtigte Installation ab dem Moment, in dem der Client den Kernel des Images lädt. Der Eintrag durchläuft vier Zustände:
+
+| Zustand | Gesetzt, wenn |
+|---------|---------------|
+| `booted` | Der Client hat die Boot-Dateien des Images geholt und das Image hat eine Auto-Install-Datei oder ein Inline-Skript |
+| `installing` | Der Installer hat die Auto-Install-Datei geholt |
+| `completed` | Das installierte System hat `{{CALLBACK_URL}}` aufgerufen |
+| `failed` | Der Callback hat `status=failed` gemeldet, oder innerhalb des Timeouts kam keine Rückmeldung |
+
+Der aktuelle Zustand steht in der Spalte **Install** der Clients-Tabelle, die vollständige Historie unter **Install History** im Client-Editor. Installationen, die sich nie melden, werden nach sechs Stunden als fehlgeschlagen markiert; ändere das mit `--install-timeout-hours` oder `install_timeout_hours` in `bootimus.yaml`. Jeder Übergang nach `completed` oder `failed` löst ein `install.completed`- bzw. `install.failed`-Webhook-Event aus, wenn dieses Event unter **Settings → Webhook** aktiviert ist.
+
+Der Callback ist ein einfacher HTTP-Request, `GET` oder `POST`, an den Boot-Port:
+
+```
+http://<server>:8080/install/callback?token=<token>&status=completed|failed&message=<optionaler Text>
+```
+
+`{{CALLBACK_URL}}` enthält den Token bereits, ein Skript muss also nur `&status=failed&message=...` anhängen. Nur die erste Meldung pro Token zählt; spätere Aufrufe antworten mit `already recorded`.
+
+### Kickstart (`%post`)
+
+```
+%post --log=/root/ks-post.log
+curl -fsS "{{CALLBACK_URL}}" || curl -fsS "{{CALLBACK_URL}}&status=failed&message=post-script"
+%end
+```
+
+### Preseed (`late_command`)
+
+```
+d-i preseed/late_command string in-target sh -c 'wget -qO- "{{CALLBACK_URL}}" || curl -fsS "{{CALLBACK_URL}}"'
+```
+
+### Ubuntu autoinstall / cloud-init
+
+Das Modul `phone_home` meldet sich nach dem ersten Boot, was das zuverlässigste Signal ist:
+
+```yaml
+#cloud-config
+autoinstall:
+  version: 1
+  user-data:
+    phone_home:
+      url: "{{CALLBACK_URL}}"
+      post: [instance_id, hostname]
+      tries: 10
+```
+
+Oder melde aus der Installer-Umgebung mit `late-commands`:
+
+```yaml
+  late-commands:
+    - curtin in-target --target=/target -- curl -fsS "{{CALLBACK_URL}}"
+```
+
+### Windows (`autounattend.xml`)
+
+Füge unter `Microsoft-Windows-Shell-Setup` einen First-Logon-Befehl hinzu:
+
+```xml
+<FirstLogonCommands>
+  <SynchronousCommand wcm:action="add">
+    <Order>1</Order>
+    <CommandLine>powershell -NoProfile -Command "Invoke-WebRequest -UseBasicParsing '{{CALLBACK_URL}}'"</CommandLine>
+    <Description>Report install to Bootimus</Description>
+  </SynchronousCommand>
+</FirstLogonCommands>
+```
+
+Denke daran, dass `&` in XML-Attributen oder -Text als `&amp;` geschrieben werden muss, wenn du `status`- oder `message`-Parameter anhängst.
+
+### Talos- und Flatcar-Nodes
+
+Kubernetes-Nodes, die über den Tab **Kubernetes** aufgenommen wurden, melden sich bereits über den Machine-Config-Ablauf und die Events `node.install_started` / `node.install_completed`. Sie brauchen keinen Callback.
+
+### Historie abfragen
+
+```bash
+# Historie eines Clients
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/clients/installs?mac=b4:2e:99:01:5f:a3"
+
+# Aktuelle Installationen der gesamten Flotte
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/installs?limit=50"
 ```
 
 ## Windows-Hinweise

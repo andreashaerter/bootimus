@@ -49,6 +49,10 @@ type User struct {
 	IsAdmin   bool       `gorm:"default:false" json:"is_admin"`
 	Source    string     `gorm:"default:local" json:"source"`
 	LastLogin *time.Time `json:"last_login,omitempty"`
+
+	TOTPSecret    string `json:"-"`
+	TOTPEnabled   bool   `gorm:"default:false" json:"totp_enabled"`
+	RecoveryCodes string `gorm:"type:text" json:"-"`
 }
 
 const (
@@ -204,6 +208,7 @@ type WebhookConfig struct {
 	OnInventoryUpdated bool      `gorm:"default:false" json:"on_inventory_updated"`
 	OnEnrollment       bool      `gorm:"default:true" json:"on_enrollment"`
 	OnAdminAction      bool      `gorm:"default:false" json:"on_admin_action"`
+	OnDiskImaging      bool      `gorm:"default:true" json:"on_disk_imaging"`
 	OnInstall          bool      `gorm:"default:true" json:"on_install"`
 }
 
@@ -285,6 +290,7 @@ type HousekeepingSettings struct {
 	InventoryHistoryDays int        `json:"inventory_history_days"`
 	DiscoveredClientDays int        `json:"discovered_client_days"`
 	AuditLogDays         int        `json:"audit_log_days"`
+	CatalogueCheckOff    bool       `json:"catalogue_check_off"`
 	LastRun              *time.Time `json:"last_run,omitempty"`
 	LastStatus           string     `json:"last_status,omitempty"`
 	LastReport           string     `gorm:"type:text" json:"last_report,omitempty"`
@@ -415,6 +421,15 @@ type Image struct {
 	SMBPatchFingerprint   string         `json:"smb_patch_fingerprint,omitempty"`
 	SMBNeedsRepatch       bool           `gorm:"-" json:"smb_needs_repatch"`
 	SMBUnpatchAvailable   bool           `gorm:"-" json:"smb_unpatch_available"`
+	Checksum              string         `json:"checksum,omitempty"`
+	ChecksumVerified      bool           `gorm:"default:false" json:"checksum_verified"`
+	ChecksumCheckedAt     *time.Time     `json:"checksum_checked_at,omitempty"`
+	CatalogueID           string         `json:"catalogue_id,omitempty"`
+	CatalogueRelease      string         `json:"catalogue_release,omitempty"`
+	UpdateAvailable       bool           `gorm:"default:false" json:"update_available"`
+	UpdateVersion         string         `json:"update_version,omitempty"`
+	UpdateFilename        string         `json:"update_filename,omitempty"`
+	UpdateURL             string         `json:"update_url,omitempty"`
 	WIMFiles              []WIMFile      `gorm:"serializer:json" json:"wim_files,omitempty"`
 	WIMPath               string         `json:"wim_path,omitempty"`
 	WIMIndex              int            `gorm:"default:0" json:"wim_index,omitempty"`
@@ -556,5 +571,57 @@ type BootTool struct {
 	BootMethod      string `json:"boot_method,omitempty"`            // "kernel", "memdisk", or "chain"
 	ArchiveType     string `json:"archive_type,omitempty"`           // "zip", "bin", or "iso"
 	DownloadURLBIOS string `json:"download_url_bios,omitempty"`      // optional BIOS variant URL (chain tools)
-	KernelPathBIOS  string `json:"kernel_path_bios,omitempty"`       // optional BIOS variant local path
+	DownloadedURL   string `json:"downloaded_url,omitempty"`
+	UpdateAvailable bool   `gorm:"default:false" json:"update_available"`
+	UpdateURL       string `json:"update_url,omitempty"`
+	KernelPathBIOS  string `json:"kernel_path_bios,omitempty"` // optional BIOS variant local path
+}
+
+const (
+	DiskImageStateCapturing = "capturing"
+	DiskImageStateReady     = "ready"
+	DiskImageStateFailed    = "failed"
+
+	DiskJobKindCapture = "capture"
+	DiskJobKindDeploy  = "deploy"
+
+	DiskJobStatePending   = "pending"
+	DiskJobStateRunning   = "running"
+	DiskJobStateCompleted = "completed"
+	DiskJobStateFailed    = "failed"
+	DiskJobStateCancelled = "cancelled"
+)
+
+type DiskImage struct {
+	ID               uint      `gorm:"primarykey" json:"id"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+	Name             string    `gorm:"uniqueIndex;not null" json:"name"`
+	Description      string    `json:"description"`
+	SourceMAC        string    `json:"source_mac,omitempty"`
+	SourceClientName string    `json:"source_client_name,omitempty"`
+	Disk             string    `json:"disk"`
+	SizeBytes        int64     `json:"size_bytes"`
+	State            string    `gorm:"index" json:"state"`
+}
+
+type DiskJob struct {
+	ID          uint       `gorm:"primarykey" json:"id"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	ClientMAC   string     `gorm:"index" json:"client_mac"`
+	ClientName  string     `json:"client_name,omitempty"`
+	Kind        string     `gorm:"not null" json:"kind"`
+	DiskImageID uint       `gorm:"index" json:"disk_image_id"`
+	DiskImage   *DiskImage `gorm:"foreignKey:DiskImageID" json:"disk_image,omitempty"`
+	Disk        string     `json:"disk"`
+	State       string     `gorm:"index" json:"state"`
+	Token       string     `gorm:"uniqueIndex;not null" json:"-"`
+	Message     string     `json:"message,omitempty"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+	FinishedAt  *time.Time `json:"finished_at,omitempty"`
+}
+
+func (j *DiskJob) Active() bool {
+	return j.State == DiskJobStatePending || j.State == DiskJobStateRunning
 }

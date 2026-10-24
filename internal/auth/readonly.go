@@ -48,14 +48,21 @@ func (m *Manager) HandleMe(w http.ResponseWriter, r *http.Request) {
 		role = "admin"
 	}
 	principal := "user"
+	source := ""
+	totpEnabled := false
 	if IsTokenPrincipal(claims.Username) {
 		principal = "token"
+	} else if user, err := m.userStore.GetUser(claims.Username); err == nil {
+		source = user.AuthSource()
+		totpEnabled = user.TOTPEnabled
 	}
 	data := map[string]interface{}{
-		"username":  claims.Username,
-		"is_admin":  claims.IsAdmin,
-		"role":      role,
-		"principal": principal,
+		"username":     claims.Username,
+		"is_admin":     claims.IsAdmin,
+		"role":         role,
+		"principal":    principal,
+		"source":       source,
+		"totp_enabled": totpEnabled,
 	}
 	if m.MeExtras != nil {
 		for k, v := range m.MeExtras() {

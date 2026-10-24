@@ -6,6 +6,7 @@
     <title>Bootimus Admin Panel</title>
     <link rel="icon" type="image/png" href="/favicon.png">
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="vendor/xterm.css">
 </head>
 <body>
     <!-- Login Screen -->
@@ -39,6 +40,11 @@
                 <div class="form-group" style="margin-bottom: 20px;">
                     <label data-i18n="login.password" style="display: block; margin-bottom: 6px; font-size: 13px; font-weight: 500; color: var(--text-secondary);">Password</label>
                     <input type="password" name="password" id="login-password" required autocomplete="current-password"
+                        style="width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); font-size: 14px;">
+                </div>
+                <div class="form-group" id="login-totp-group" style="display: none; margin-bottom: 20px;">
+                    <label for="login-totp-code" style="display: block; margin-bottom: 6px; font-size: 13px; font-weight: 500; color: var(--text-secondary);">Two-factor code</label>
+                    <input type="text" name="code" id="login-totp-code" inputmode="numeric" autocomplete="one-time-code" placeholder="Authenticator or recovery code"
                         style="width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); font-size: 14px;">
                 </div>
                 <div id="login-error" style="display: none; color: var(--danger); font-size: 13px; margin-bottom: 12px;"></div>
@@ -96,6 +102,7 @@
                 <div class="nav-group">
                     <span class="nav-group-label" data-i18n="nav.group.management">Management</span>
                     <button class="nav-item" data-tab="images" data-i18n="nav.images"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg> Images</button>
+                    <button class="nav-item" data-tab="disk-images"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/></svg> Disk Images</button>
                     <button class="nav-item" data-tab="public-files" data-i18n="nav.public_files"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Public Files</button>
                     <button class="nav-item admin-only" data-tab="autoinstall" data-i18n="nav.autoinstall"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg> Auto-Install</button>
                     <button class="nav-item" data-tab="profiles" data-i18n="nav.profiles"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg> Distro Profiles</button>
@@ -154,6 +161,10 @@
                     <div class="stat-card">
                         <div class="stat-value" id="stat-boots">-</div>
                         <div class="stat-label" data-i18n="stats.total_boots">Total Boots</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-updates">-</div>
+                        <div class="stat-label">Updates Available</div>
                     </div>
                 </div>
 
@@ -554,6 +565,35 @@
                 </div>
             </div>
 
+            <div class="card" style="margin-top: 20px;" id="totp-card">
+                <h2>Two-Factor Authentication</h2>
+                <p style="color: var(--text-secondary); margin: 0 12px 8px; font-size: 13px;">
+                    Protect your own account with a time-based one-time code from an authenticator app such as Aegis, Google Authenticator or 1Password. Applies to local accounts only; LDAP and OIDC users get their second factor from their identity provider.
+                </p>
+                <div id="totp-status" style="padding: 0 12px 12px; font-size: 13px;"></div>
+                <div id="totp-setup" style="display: none; padding: 0 12px 12px;">
+                    <div style="display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start;">
+                        <img id="totp-qr" alt="Scan with an authenticator app" width="220" height="220" style="border-radius: var(--radius-sm); background: #fff;">
+                        <div style="flex: 1; min-width: 240px;">
+                            <p style="margin: 0 0 8px; font-size: 13px;">Scan the code, or enter this secret manually:</p>
+                            <code id="totp-secret" style="word-break: break-all;"></code>
+                            <div class="form-group" style="margin-top: 12px;">
+                                <label for="totp-confirm-code">Code from the app</label>
+                                <input type="text" id="totp-confirm-code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" style="max-width: 200px;">
+                            </div>
+                            <button type="button" class="btn btn-primary" onclick="enableTOTP()">Enable</button>
+                            <button type="button" class="btn" onclick="cancelTOTPSetup()">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+                <div id="totp-recovery" style="display: none; margin: 0 12px 12px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input);">
+                    <div style="font-size: 13px; margin-bottom: 8px;">Recovery codes. Each works once if you lose your authenticator. Save them now; they will not be shown again.</div>
+                    <pre id="totp-recovery-codes" style="margin: 0 0 8px; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;"></pre>
+                    <button type="button" class="btn btn-sm" onclick="copyTOTPRecoveryCodes()">Copy</button>
+                    <button type="button" class="btn btn-sm" onclick="document.getElementById('totp-recovery').style.display = 'none'">Dismiss</button>
+                </div>
+            </div>
+
             <div class="card" style="margin-top: 20px;">
                 <h2>API Tokens</h2>
                 <p style="color: var(--text-secondary); margin: 0 12px 8px; font-size: 13px;">
@@ -866,6 +906,10 @@
                             <label for="webhook-on-inventory-updated"><code>client.inventory_updated</code> — hardware info refreshed for an existing client</label>
                         </div>
                         <div class="form-group checkbox-group" style="margin: 4px 0;">
+                            <input type="checkbox" id="webhook-on-disk-imaging">
+                            <label for="webhook-on-disk-imaging"><code>disk.capture_completed</code>, <code>disk.capture_failed</code>, <code>disk.deploy_completed</code>, <code>disk.deploy_failed</code> — a Clonezilla capture or deploy job finished</label>
+                        </div>
+                        <div class="form-group checkbox-group" style="margin: 4px 0;">
                             <input type="checkbox" id="webhook-on-admin-action">
                             <label for="webhook-on-admin-action"><code>admin.action</code> — a change was made through the admin API (mirrors the audit log)</label>
                         </div>
@@ -942,6 +986,12 @@
                             <input type="number" id="housekeeping-audit-days" min="0" step="1" value="365">
                         </div>
                     </div>
+                    <div class="form-group checkbox-group" style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="housekeeping-catalogue-check" checked>
+                        <label for="housekeeping-catalogue-check" style="margin: 0;">Check the catalogue daily for newer releases of installed images and tools</label>
+                        <button type="button" class="btn btn-sm" id="catalogue-check-btn" onclick="checkCatalogueNow()" style="margin-left: auto;">Check now</button>
+                    </div>
+                    <div id="catalogue-check-result" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;"></div>
                     <div style="display: flex; gap: 8px; align-items: center;">
                         <button type="submit" class="btn">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
@@ -975,6 +1025,35 @@
         </div>
 
         <!-- PXE Debug Tab -->
+        <div id="disk-images-tab" class="tab-content">
+            <div class="card">
+                <h2>Disk Images</h2>
+                <p style="color: var(--text-secondary); margin: 0 12px 8px; font-size: 13px;">
+                    Capture a client's disk into an image with Clonezilla, then deploy that image to one client or a whole client group on their next PXE boot. Images are stored under <code>disk-images/</code> in the data directory and served to clients over the built-in NFS server.
+                </p>
+                <div id="disk-images-problems" class="alert alert-error" style="display: none; margin: 0 12px 12px;"></div>
+                <div class="toolbar">
+                    <button class="btn admin-only" type="button" onclick="showCaptureDiskModal('')">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        Capture Disk…
+                    </button>
+                    <button class="btn" type="button" onclick="loadDiskImages()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                        Refresh
+                    </button>
+                    <input type="search" class="toolbar-filter" id="disk-images-filter" placeholder="Filter images…" oninput="renderDiskImages()">
+                </div>
+                <div id="disk-images-table" style="padding: 0 12px 12px;"></div>
+            </div>
+            <div class="card">
+                <h2>Capture and Deploy Jobs</h2>
+                <p style="color: var(--text-secondary); margin: 0 12px 8px; font-size: 13px;">
+                    A job stays pending until the client PXE boots, runs while Clonezilla works, and is completed or failed when the client reports back. Pending and running jobs can be cancelled.
+                </p>
+                <div id="disk-jobs-table" style="padding: 0 12px 12px;"></div>
+            </div>
+        </div>
+
         <div id="pxe-debug-tab" class="tab-content">
             <div class="card">
                 <h2>PXE Debug</h2>
@@ -1265,6 +1344,7 @@
                         <button type="button" class="btn btn-sm" onclick="powerClient('GracefulShutdown')">Graceful Off</button>
                         <button type="button" class="btn btn-sm" onclick="powerClient('ForceRestart')">Restart</button>
                         <button type="button" class="btn btn-sm read-ok" onclick="powerStatusClient()">Status</button>
+                        <button type="button" class="btn btn-sm btn-primary" id="open-console-btn" onclick="openClientConsole()" style="display: none;">Open Console</button>
                     </div>
                     <div id="power-client-result" style="font-size: 12px; color: var(--text-secondary);"></div>
                 </details>
@@ -1305,6 +1385,23 @@
         </div>
     </div>
 
+    <div id="console-modal" class="modal">
+        <div class="modal-content" style="max-width: 960px; width: 95%;">
+            <div class="modal-header">
+                <h2>Remote Console <span id="console-title" style="font-weight: normal; font-size: 14px; color: var(--text-secondary);"></span></h2>
+            </div>
+            <p style="color: var(--text-secondary); margin-bottom: 10px; font-size: 13px;">
+                Serial console over the client's BMC. Output appears only while the firmware or operating system writes to the serial port; press Enter if the screen stays blank.
+            </p>
+            <div id="console-terminal" style="height: 440px; background: #000; border-radius: var(--radius-sm); padding: 6px;"></div>
+            <div style="display: flex; gap: 10px; align-items: center; margin-top: 10px;">
+                <button type="button" class="btn btn-danger btn-sm" onclick="disconnectClientConsole()">Disconnect</button>
+                <button type="button" class="btn btn-sm read-ok" onclick="closeModal('console-modal')">Close</button>
+                <span id="console-status" style="font-size: 12px; color: var(--text-secondary);"></span>
+            </div>
+        </div>
+    </div>
+
     <div id="next-boot-modal" class="modal">
         <div class="modal-content" style="max-width: 480px;">
             <div class="modal-header">
@@ -1328,6 +1425,70 @@
             <button class="btn btn-primary" onclick="saveNextBoot()">Set Next Boot</button>
             <button class="btn btn-success" onclick="saveNextBootAndWake()" style="margin-left: 8px;">Set & Wake</button>
             <button type="button" class="btn" onclick="closeModal('next-boot-modal')">Cancel</button>
+        </div>
+    </div>
+
+    <div id="capture-disk-modal" class="modal">
+        <div class="modal-content" style="max-width: 520px;">
+            <div class="modal-header">
+                <h2>Capture Disk</h2>
+            </div>
+            <p style="color: var(--text-secondary); margin-bottom: 16px; font-size: 13px;">On its next PXE boot the client boots Clonezilla, saves the chosen disk into a new image on this server and powers off.</p>
+            <form id="capture-disk-form" onsubmit="submitCaptureDisk(event)">
+                <div class="form-group">
+                    <label for="capture-disk-mac">Client</label>
+                    <select id="capture-disk-mac" required></select>
+                </div>
+                <div class="form-group">
+                    <label for="capture-disk-name">Image name</label>
+                    <input type="text" id="capture-disk-name" required pattern="[a-z0-9][a-z0-9._-]{0,63}" placeholder="win11-lab-2026" title="Lower-case letters, digits, dots, dashes and underscores">
+                    <small style="color: var(--text-secondary);">Lower-case letters, digits, dots, dashes and underscores. Becomes the directory name.</small>
+                </div>
+                <div class="form-group">
+                    <label for="capture-disk-description">Description</label>
+                    <input type="text" id="capture-disk-description" placeholder="Optional">
+                </div>
+                <div class="form-group">
+                    <label for="capture-disk-device">Disk</label>
+                    <input type="text" id="capture-disk-device" value="sda" placeholder="sda, nvme0n1 or auto">
+                    <small style="color: var(--text-secondary);"><code>auto</code> picks the first fixed, writable disk Clonezilla finds.</small>
+                </div>
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" id="capture-disk-wake">
+                    <label for="capture-disk-wake">Send Wake-on-LAN now</label>
+                </div>
+                <button type="submit" class="btn btn-primary">Queue Capture</button>
+                <button type="button" class="btn" onclick="closeModal('capture-disk-modal')" style="margin-left: 8px;">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="deploy-disk-modal" class="modal">
+        <div class="modal-content" style="max-width: 520px;">
+            <div class="modal-header">
+                <h2>Deploy Disk Image</h2>
+            </div>
+            <p style="color: var(--text-secondary); margin-bottom: 16px; font-size: 13px;">On the next PXE boot the target boots Clonezilla, restores the image over the chosen disk and reboots. <strong>Everything on that disk is overwritten.</strong></p>
+            <form id="deploy-disk-form" onsubmit="submitDeployDisk(event)">
+                <div class="form-group">
+                    <label for="deploy-disk-image">Image</label>
+                    <select id="deploy-disk-image" required></select>
+                </div>
+                <div class="form-group">
+                    <label for="deploy-disk-target">Target</label>
+                    <select id="deploy-disk-target" required></select>
+                </div>
+                <div class="form-group">
+                    <label for="deploy-disk-device">Disk</label>
+                    <input type="text" id="deploy-disk-device" value="sda" placeholder="sda, nvme0n1 or auto">
+                </div>
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" id="deploy-disk-wake">
+                    <label for="deploy-disk-wake">Send Wake-on-LAN now</label>
+                </div>
+                <button type="submit" class="btn btn-danger">Queue Deploy</button>
+                <button type="button" class="btn" onclick="closeModal('deploy-disk-modal')" style="margin-left: 8px;">Cancel</button>
+            </form>
         </div>
     </div>
 
@@ -1876,6 +2037,15 @@
             <div id="image-props-warn-wimlib" class="guide-warning" style="display:none;">
                 <span class="gw-text" data-i18n="props.warn.wimlib_missing">wimlib-imagex is not installed on the server. boot.wim cannot be patched without it. Install wimtools (or wimlib-imagex) on the host running bootimus, then restart.</span>
             </div>
+            <div id="image-props-update" class="guide-warning" style="display:none; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <span class="gw-text" id="image-props-update-text"></span>
+                <button type="button" class="btn btn-sm" onclick="downloadNewerImage()">Download newer version</button>
+            </div>
+            <div id="image-props-integrity" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 16px; font-size: 13px; color: var(--text-secondary);">
+                <span id="image-props-checksum-status"></span>
+                <input type="text" id="image-props-checksum-input" placeholder="SHA-256 or URL of a SHA256SUMS file" style="flex: 1; min-width: 240px; font-family: monospace; font-size: 12px; padding: 6px 8px;">
+                <button type="button" class="btn btn-sm" id="image-props-verify-btn" onclick="verifyImageFromProperties()">Verify</button>
+            </div>
 
             <div class="subtabs" style="margin: 0 0 20px;">
                 <button type="button" class="subtab active" data-props-tab="general" onclick="switchPropsTab('general')" data-i18n="props.tab.properties">Properties</button>
@@ -2322,6 +2492,7 @@
                     <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
                         <button type="button" class="btn btn-success btn-sm" onclick="bulkWakeClientGroup()">Wake All (WOL)</button>
                         <button type="button" class="btn btn-primary btn-sm" onclick="bulkClearNextBootClientGroup()">Clear Next Boot on All</button>
+                        <button type="button" class="btn btn-sm" onclick="bulkDeployDiskImageClientGroup()">Deploy Disk Image to All…</button>
                     </div>
                     <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 10px;">
                         <select id="cg-bulk-nextboot-image" style="flex: 1;"></select>
@@ -2542,6 +2713,8 @@
         </div>
     </div>
 
+    <script src="vendor/xterm.js"></script>
+    <script src="vendor/addon-fit.js"></script>
     <script src="i18n.js"></script>
     <script src="app.js"></script>
 </body>

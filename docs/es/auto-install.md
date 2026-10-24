@@ -11,6 +11,7 @@ Lanza instalaciones desatendidas en Windows, Ubuntu, Debian y las distros de la 
 - [Orden de resolución](#orden-de-resolución)
 - [Placeholders](#placeholders)
 - [Ejemplos](#ejemplos)
+- [Informar de la finalización de la instalación](#informar-de-la-finalización-de-la-instalación)
 - [Notas sobre Windows](#notas-sobre-windows)
 - [API REST](#api-rest)
 - [Solución de problemas](#solución-de-problemas)
@@ -121,6 +122,8 @@ Estos tokens se sustituyen por cliente al servir:
 | `{{SERVER_ADDR}}` | Dirección del servidor Bootimus |
 | `{{IMAGE_NAME}}` | Nombre de display de la imagen que arranca |
 | `{{IMAGE_FILENAME}}` | Filename del ISO de la imagen que arranca |
+| `{{CALLBACK_URL}}` | URL completa a la que llama el instalador para informar de la finalización, incluido un token de un solo uso (ver [Informar de la finalización de la instalación](#informar-de-la-finalización-de-la-instalación)) |
+| `{{INSTALL_TOKEN}}` | El token a secas que hay detrás de `{{CALLBACK_URL}}`, para construir tu propia petición |
 
 Los placeholders son sustitución de strings plana — sin escape. Cítalos apropiadamente para el formato objetivo (XML, YAML, etc.).
 
@@ -204,6 +207,93 @@ openssh-server
 
 ```xml
 <ComputerName>{{HOSTNAME}}</ComputerName>
+```
+
+## Informar de la finalización de la instalación
+
+Bootimus sigue cada instalación desatendida desde el momento en que el cliente carga el kernel de la imagen. El registro pasa por cuatro estados:
+
+| Estado | Se establece cuando |
+|--------|---------------------|
+| `booted` | El cliente descargó los archivos de arranque de la imagen y la imagen tiene un archivo de autoinstalación o un script inline |
+| `installing` | El instalador descargó el archivo de autoinstalación |
+| `completed` | El sistema instalado llamó a `{{CALLBACK_URL}}` |
+| `failed` | El callback informó `status=failed`, o nada informó de vuelta dentro del timeout |
+
+El estado actual se muestra en la columna **Install** de la tabla de Clients y el historial completo está en **Install History** dentro del editor de cliente. Las instalaciones que nunca informan se marcan como fallidas a las seis horas; cámbialo con `--install-timeout-hours` o `install_timeout_hours` en `bootimus.yaml`. Cada transición a `completed` o `failed` dispara un evento de webhook `install.completed` o `install.failed` cuando ese evento está habilitado en **Settings → Webhook**.
+
+El callback es una petición HTTP normal, `GET` o `POST`, al puerto de arranque:
+
+```
+http://<server>:8080/install/callback?token=<token>&status=completed|failed&message=<optional text>
+```
+
+`{{CALLBACK_URL}}` ya contiene el token, así que a un script le basta con añadir `&status=failed&message=...`. Solo cuenta el primer informe de cada token; las llamadas posteriores responden `already recorded`.
+
+### Kickstart (`%post`)
+
+```
+%post --log=/root/ks-post.log
+curl -fsS "{{CALLBACK_URL}}" || curl -fsS "{{CALLBACK_URL}}&status=failed&message=post-script"
+%end
+```
+
+### Preseed (`late_command`)
+
+```
+d-i preseed/late_command string in-target sh -c 'wget -qO- "{{CALLBACK_URL}}" || curl -fsS "{{CALLBACK_URL}}"'
+```
+
+### Ubuntu autoinstall / cloud-init
+
+El módulo `phone_home` hace el POST tras el primer arranque, que es la señal más fiable:
+
+```yaml
+#cloud-config
+autoinstall:
+  version: 1
+  user-data:
+    phone_home:
+      url: "{{CALLBACK_URL}}"
+      post: [instance_id, hostname]
+      tries: 10
+```
+
+O informa desde el entorno del instalador con `late-commands`:
+
+```yaml
+  late-commands:
+    - curtin in-target --target=/target -- curl -fsS "{{CALLBACK_URL}}"
+```
+
+### Windows (`autounattend.xml`)
+
+Añade un comando de primer inicio de sesión bajo `Microsoft-Windows-Shell-Setup`:
+
+```xml
+<FirstLogonCommands>
+  <SynchronousCommand wcm:action="add">
+    <Order>1</Order>
+    <CommandLine>powershell -NoProfile -Command "Invoke-WebRequest -UseBasicParsing '{{CALLBACK_URL}}'"</CommandLine>
+    <Description>Report install to Bootimus</Description>
+  </SynchronousCommand>
+</FirstLogonCommands>
+```
+
+Recuerda que `&` dentro de atributos o texto XML debe escribirse como `&amp;` si añades los parámetros `status` o `message`.
+
+### Nodos Talos y Flatcar
+
+Los nodos de Kubernetes inscritos a través de la pestaña **Kubernetes** ya informan mediante el flujo de machine config y los eventos `node.install_started` / `node.install_completed`. No necesitan callback.
+
+### Consultar el historial
+
+```bash
+# History for one client
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/clients/installs?mac=b4:2e:99:01:5f:a3"
+
+# Recent installs across the fleet
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/installs?limit=50"
 ```
 
 ## Notas sobre Windows

@@ -31,6 +31,8 @@ import (
 	"bootimus/internal/bmc"
 	_ "bootimus/internal/bmc/amt"
 	_ "bootimus/internal/bmc/redfish"
+	"bootimus/internal/catalogue"
+	"bootimus/internal/diskimage"
 	"bootimus/internal/housekeeping"
 	"bootimus/internal/imagescan"
 	"bootimus/internal/metrics"
@@ -151,10 +153,12 @@ type Server struct {
 	tftpServer            *tftp.Server
 	proxyDHCPServer       *proxydhcp.Server
 	proxyDHCPRecorder     *proxydhcp.Recorder
+	bsdSelections         *bsdSelections
 	webhookNotifier       *webhook.Notifier
 	scheduler             *scheduler.Scheduler
 	housekeeping          *housekeeping.Runner
 	replica               *replica.Syncer
+	catalogue             *catalogue.Checker
 	bootLogDedup          map[string]time.Time
 	bootLogDedupMu        sync.Mutex
 	installSweepStop      chan struct{}
@@ -164,11 +168,14 @@ type Server struct {
 	activeSessions        *ActiveSessions
 	logBroadcaster        *LogBroadcaster
 	audit                 *auditRecorder
+	consoles              consoleSessions
+	openConsole           func(ctx context.Context, t bmc.Target) (bmc.Console, error)
 	activeBootloaderSet   string // name of active set folder, empty = built-in
 	activeBootloaderSetMu sync.RWMutex
 	toolsManager          *tools.Manager
 	smbManager            *smb.Manager
 	autoInstallLib        *autoinstall.Library
+	diskImages            *diskimage.Manager
 }
 
 type ActiveSession struct {
@@ -364,10 +371,21 @@ func New(cfg *Config) *Server {
 		bootLogDedup:      make(map[string]time.Time),
 		webhookNotifier:   webhook.New(cfg.Storage),
 		proxyDHCPRecorder: proxydhcp.NewRecorder(proxydhcp.DefaultRecorderSize),
+		bsdSelections:     newBSDSelections(),
 	}
 	s.scheduler = scheduler.New(cfg.Storage, s.executeScheduledTask)
 	if cfg.Storage != nil {
 		s.housekeeping = housekeeping.New(cfg.Storage)
+		s.diskImages = diskimage.New(cfg.Storage, diskimage.Config{
+			DataDir:    cfg.DataDir,
+			ServerAddr: cfg.ServerAddr,
+			HTTPPort:   cfg.HTTPPort,
+			NFSPort:    cfg.NFSPort,
+			NFSEnabled: cfg.NFSEnabled,
+		}, tm)
+		s.diskImages.OnEvent = s.fireDiskImagingEvent
+		s.catalogue = catalogue.NewChecker(cfg.Storage, tm.DisableRemoteCheck)
+		s.housekeeping.Register(s.catalogue)
 	}
 	s.loadBootloaderConfig()
 	return s
@@ -758,6 +776,9 @@ func (s *Server) Start() error {
 		go func() {
 			defer s.wg.Done()
 			nfsServer := nfs.NewServer(s.config.ISODir, s.config.NFSPort, s.config.BindInterface)
+			if s.diskImages != nil {
+				nfsServer.DiskImageDir = s.diskImages.Root()
+			}
 			if err := nfsServer.Start(); err != nil {
 				log.Printf("NFS server error: %v", err)
 			}
@@ -995,6 +1016,13 @@ func (s *Server) serveTFTPFile(filename string, rf io.ReaderFrom) error {
 	log.Printf("TFTP DEBUG: handler entry %s file=%s", remote, filename)
 	log.Printf("TFTP: Client requesting file: %s", filename)
 	metrics.TFTPRequests.WithLabelValues(cleanPath).Inc()
+
+	if handled, err := s.serveBSDTFTP(cleanPath, remote, rf); handled {
+		if err != nil {
+			log.Printf("TFTP: %v", err)
+		}
+		return err
+	}
 
 	setName, bootloaderFilename, err := s.resolveBootloaderRequest(cleanPath)
 	if err != nil {
@@ -1327,6 +1355,10 @@ func (s *Server) startHTTPServer() error {
 	mux.Handle("/node-images/", http.StripPrefix("/node-images/", http.FileServer(http.Dir(s.provisionAssetDir()))))
 
 	mux.HandleFunc("/files/", s.handleCustomFile)
+	mux.HandleFunc("/diskimage/job", s.handleDiskImageJob)
+	mux.HandleFunc("/diskimage/callback", s.handleDiskImageCallback)
+
+	mux.HandleFunc("/bsd/", s.handleBSDBoot)
 
 	mux.HandleFunc("/bootenv/", func(w http.ResponseWriter, r *http.Request) {
 		urlPath := strings.TrimPrefix(r.URL.Path, "/bootenv/")
@@ -1506,6 +1538,8 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	}
 	adminHandler.WebhookNotifier = s.webhookNotifier
 	adminHandler.Housekeeping = s.housekeeping
+	adminHandler.DiskImaging = s.diskImages
+	adminHandler.Catalogue = s.catalogue
 
 	staticFS, err := fs.Sub(web.Static, "static")
 	if err != nil {
@@ -1699,6 +1733,21 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/proxydhcp/stream", readWrap(s.handleProxyDHCPStream))
 	mux.HandleFunc("/api/proxydhcp/events/clear", adminWrap(s.handleProxyDHCPEventsClear))
 
+	selfService := func(handler func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if s.config.Auth == nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte(`{"success":false,"error":"Authentication is disabled on this server"}`))
+				return
+			}
+			handler(w, r)
+		}
+	}
+	mux.HandleFunc("/api/me/totp/setup", selfService(func(w http.ResponseWriter, r *http.Request) { s.config.Auth.HandleTOTPSetup(w, r) }))
+	mux.HandleFunc("/api/me/totp/enable", selfService(func(w http.ResponseWriter, r *http.Request) { s.config.Auth.HandleTOTPEnable(w, r) }))
+	mux.HandleFunc("/api/me/totp/disable", selfService(func(w http.ResponseWriter, r *http.Request) { s.config.Auth.HandleTOTPDisable(w, r) }))
+
 	mux.HandleFunc("/api/users", adminWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -1715,8 +1764,10 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	}))
 	mux.HandleFunc("/api/users/reset-password", adminWrap(adminHandler.ResetUserPassword))
 	mux.HandleFunc("/api/tokens", adminWrap(adminHandler.APITokens))
+	mux.HandleFunc("/api/users/totp/reset", adminWrap(adminHandler.ResetUserTOTP))
 
 	mux.HandleFunc("/api/images/download", adminWrap(adminHandler.DownloadISO))
+	mux.HandleFunc("/api/images/verify", adminWrap(adminHandler.VerifyImage))
 	mux.HandleFunc("/api/downloads", readWrap(adminHandler.ListDownloads))
 	mux.HandleFunc("/api/downloads/progress", readWrap(adminHandler.GetDownloadProgress))
 
@@ -1809,6 +1860,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 		}
 	}))
 	mux.HandleFunc("/api/housekeeping/run", adminWrap(adminHandler.RunHousekeeping))
+	mux.HandleFunc("/api/catalogue/check", adminWrap(adminHandler.CheckCatalogue))
 
 	mux.HandleFunc("/api/client-groups", readWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -1845,6 +1897,11 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/clients/power", adminWrap(adminHandler.PowerClient))
 	mux.HandleFunc("/api/clients/power/status", readWrap(adminHandler.PowerStatusClient))
 	mux.HandleFunc("/api/clients/menu-preview", readWrap(s.handleMenuPreview))
+	mux.HandleFunc("/api/disk-images", readWrap(adminHandler.DiskImages))
+	mux.HandleFunc("/api/disk-images/capture", adminWrap(adminHandler.CaptureDisk))
+	mux.HandleFunc("/api/disk-images/deploy", adminWrap(adminHandler.DeployDiskImage))
+	mux.HandleFunc("/api/disk-images/jobs", readWrap(adminHandler.DiskJobs))
+	mux.HandleFunc("/api/clients/console", s.handleClientConsole)
 	mux.HandleFunc("/api/san-targets", readWrap(adminHandler.SANTargets))
 
 	mux.HandleFunc("/api/theme", readWrap(func(w http.ResponseWriter, r *http.Request) {
@@ -2213,6 +2270,7 @@ type bootMenuRender struct {
 	KnownClient   bool   `json:"known_client"`
 	ClientName    string `json:"client_name,omitempty"`
 	NextBootImage string `json:"next_boot_image,omitempty"`
+	DiskJob       string `json:"disk_job,omitempty"`
 	Kind          string `json:"kind"`
 	Script        string `json:"script"`
 }
@@ -2226,6 +2284,15 @@ func normaliseMenuMAC(macAddress string) string {
 
 func (s *Server) renderBootMenu(macAddress, remoteAddr string, commit bool) bootMenuRender {
 	result := bootMenuRender{MAC: macAddress, Kind: "menu"}
+	if s.diskImages != nil {
+		if job := s.diskImages.ActiveJob(macAddress); job != nil && job.DiskImage != nil {
+			result.Kind = "imaging"
+			result.DiskJob = fmt.Sprintf("%s %s (disk %s)", job.Kind, job.DiskImage.Name, job.Disk)
+			if commit {
+				s.logAndBroadcast("Client %s: disk imaging job %d pending - booting Clonezilla to %s %s", macAddress, job.ID, job.Kind, job.DiskImage.Name)
+			}
+		}
+	}
 
 	var nextBootImageID uint
 	var nextBootSANID uint

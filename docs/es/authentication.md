@@ -6,8 +6,10 @@ Bootimus usa autenticación JWT (JSON Web Token) para el panel admin. Opcionalme
 
 - [Autenticación local](#autenticación-local)
 - [Flujo de login](#flujo-de-login)
+  - [Autenticación de dos factores](#autenticación-de-dos-factores)
 - [Roles](#roles)
 - [Autenticación de la API](#autenticación-de-la-api)
+  - [Tokens de API](#tokens-de-api)
 - [LDAP / Active Directory](#ldap--active-directory)
 - [OIDC / inicio de sesión único](#oidc--inicio-de-sesión-único)
 - [Usuarios de LDAP y OIDC](#usuarios-de-ldap-y-oidc)
@@ -84,6 +86,32 @@ datos configurada (SQLite o PostgreSQL):
 6. El token se almacena en el navegador y se envía con todas las peticiones a la API
 7. Al hacer logout o expirar el token, se muestra de nuevo la página de login
 
+### Autenticación de dos factores
+
+Las cuentas locales pueden añadir una contraseña de un solo uso basada en tiempo (TOTP) como segundo factor. A los usuarios de LDAP y OIDC no se les ofrece aquí; el segundo factor lo gestiona su proveedor de identidad.
+
+**Activarla.** Abre **Users** → **Two-Factor Authentication**, pulsa **Set up**, escanea el código QR con una app de autenticación (o introduce el secreto a mano) y confirma con un código de la app. Bootimus muestra entonces diez códigos de recuperación de un solo uso. Guárdalos; no se vuelven a mostrar.
+
+**Iniciar sesión.** Tras una contraseña correcta, la página de login pide el código de seis dígitos. Un código de recuperación sirve en su lugar, una sola vez. Los códigos incorrectos cuentan para el [bloqueo por fuerza bruta](#protección-contra-fuerza-bruta) igual que las contraseñas incorrectas.
+
+**Perder el dispositivo.** Un administrador puede pulsar **Reset 2FA** junto al usuario, o llamar a `POST /api/users/totp/reset?id=<id>`. Si el único administrador se ha quedado fuera, ejecuta esto en el servidor:
+
+```bash
+bootimus user reset-totp admin
+```
+
+**Vía API.** Los scripts deberían usar [tokens de API](#tokens-de-api) en lugar de contraseña y TOTP. Si inicias sesión con una cuenta protegida por TOTP, `POST /api/login` responde primero `401` con `{"error":"totp_required","totp_required":true}`; repite la petición con las mismas credenciales más `"code":"123456"`.
+
+### Protección contra fuerza bruta
+
+Los logins con contraseña (local y LDAP) están limitados en memoria:
+
+- Tras **5 intentos fallidos** para el mismo usuario en 15 minutos, ese usuario queda bloqueado 1 minuto. Cada fallo adicional mientras los fallos recientes sigan dentro de la ventana duplica el bloqueo, hasta 15 minutos.
+- Tras **20 intentos fallidos** desde la misma dirección cliente en 15 minutos, esa dirección queda bloqueada con el mismo esquema. El umbral más alto evita que la dirección compartida de un reverse proxy quede bloqueada por los errores de una sola persona.
+- Un login correcto borra el contador de fallos del usuario.
+
+Mientras dura el bloqueo, la API responde `429 Too Many Requests` con una cabecera `Retry-After` y la página de login muestra cuánto hay que esperar. Las credenciales incorrectas siguen devolviendo el `401` habitual, así que la respuesta no revela si un usuario existe. Los intentos fallidos se escriben en el log del servidor con el usuario y la dirección cliente. Reiniciar Bootimus borra los contadores. Los inicios de sesión OIDC pasan por el proveedor de identidad y no se cuentan.
+
 ## Roles
 
 Bootimus tiene dos roles:
@@ -96,7 +124,7 @@ Bootimus tiene dos roles:
 Los usuarios de solo lectura:
 
 - no pueden cambiar nada — el servidor rechaza cualquier escritura con `403 Your account has read-only access`, y el panel admin oculta los botones
-- no pueden ver los usuarios, los ajustes de webhooks, las copias de seguridad, el log del servidor en vivo, los archivos y scripts de autoinstalación, ni las configuraciones de máquina de los clústeres
+- no pueden ver los usuarios, los ajustes de webhooks, las copias de seguridad, el registro de auditoría, el log del servidor en vivo, los archivos y scripts de autoinstalación, ni las configuraciones de máquina de los clústeres
 - nunca reciben las contraseñas del BMC (IPMI/Redfish) ni los parches de configuración de los clientes — se eliminan de todas las respuestas de la API que se les envían
 
 Un usuario es administrador si:
@@ -140,6 +168,35 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/images
 - **Expiración**: 24 horas desde la emisión
 - **Secret**: Generado aleatoriamente en cada arranque del servidor (todos los tokens se invalidan al reiniciar)
 - **Claims**: Username, estado admin, hora de emisión, expiración
+
+### Tokens de API
+
+Para scripts, trabajos de CI e integraciones, crea un token de larga duración en **Users** → **API Tokens** en lugar de iniciar sesión con contraseña. Los tokens empiezan por `btk_`, se muestran una sola vez al crearlos y se almacenan hasheados. Cada token tiene un ámbito:
+
+| Ámbito | Qué puede hacer |
+|--------|-----------------|
+| `read` | Peticiones `GET` a los mismos endpoints que puede ver un usuario de solo lectura |
+| `admin` | Todo lo que puede hacer un administrador, salvo crear o revocar tokens |
+
+A los tokens se les puede dar una caducidad en días y revocarlos en cualquier momento. El registro de auditoría anota los cambios hechos con un token como `token:<name>`, y `/api/me` devuelve `"principal": "token"`.
+
+```bash
+# Create a token (as an admin user)
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"ansible","scope":"admin","expires_in_days":365}' \
+  http://localhost:8081/api/tokens
+
+# Use it exactly like a JWT
+curl -H "Authorization: Bearer btk_..." http://localhost:8081/api/clients
+
+# List and revoke
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/tokens
+curl -X DELETE -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/tokens?id=3"
+```
+
+A diferencia de los JWT, los tokens de API sobreviven a un reinicio de Bootimus.
+
+Los tokens y las contraseñas con que se obtienen viajan en texto claro salvo que la interfaz admin se sirva por HTTPS. Actívalo con `--admin-tls` o pon un reverse proxy que termine TLS delante del puerto admin; ver [Proteger la interfaz admin](deployment.md#proteger-la-interfaz-admin).
 
 ### Comprobar backends de auth disponibles
 

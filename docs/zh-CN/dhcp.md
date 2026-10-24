@@ -509,6 +509,18 @@ Set-DhcpServerv4OptionValue -PolicyName "BIOS" -OptionId 67 -Value "undionly.kpx
 
 ## 故障排查
 
+### PXE Debug 页面
+
+在抓包之前,先打开管理侧边栏中的 **PXE Debug**。启用内建 proxyDHCP 后,Bootimus 会记录它在 UDP/67 和 UDP/4011 上收到的每一个 DHCP 数据包,并显示对每一个包做了什么:
+
+- **Replied**:它提供的引导文件(BIOS、UEFI 或 ARM64,根据选项 93 或厂商类别选择)、发送的是 OFFER 还是 ACK,以及回复发往了哪里(广播、中继地址,或直接发给客户端)。
+- **Ignored**:厂商类别不是 `PXEClient` 或 `HTTPClient`,也就是说该数据包只是一台已启动机器的普通 DHCP 请求,或者消息类型是 proxyDHCP 从不应答的类型。
+- **Failed**:回复无法构造或发送,并附带错误信息。
+
+每一行还显示来源地址、DHCP 中继转发请求时的中继地址(`giaddr`)、客户端架构、原始厂商类别、是否对该客户端省略了选项 43,以及是否检测到 Raspberry Pi 固件阶段。已发现的客户端会匹配到其名称。**Start Live** 每两秒刷新一次表格;**Clear** 清空历史。同样的数据也可以通过 `GET /api/proxydhcp/events` 获取。
+
+如果某个客户端从未出现在这个页面上,说明它的广播根本没有到达 Bootimus:请检查所绑定的接口(`--bind-interface`)、VLAN 和 DHCP 中继配置。如果它出现了并且有回复却仍然无法引导,说明固件没有接受该 offer;见下一节。
+
 ### 客户端未收到 DHCP Offer
 
 ```bash

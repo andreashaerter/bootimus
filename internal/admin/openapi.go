@@ -52,7 +52,7 @@ func pathParam(n, desc string) APIParam {
 
 var APISections = []APISection{
 	{Tag: "Authentication", Endpoints: []APIEndpoint{
-		{Method: "POST", Path: "/api/login", Summary: "Obtain a JWT token.", Body: "{username, password, auth_method}", Public: true},
+		{Method: "POST", Path: "/api/login", Summary: "Obtain a JWT token. Answers 401 with totp_required when the account needs a second factor; resend with code.", Body: "{username, password, auth_method, code}", Public: true},
 		{Method: "GET", Path: "/api/auth-info", Summary: "Available authentication backends.", Public: true},
 		{Method: "GET", Path: "/api/me", Summary: "The current user's name, admin flag and role.", Public: true},
 		{Method: "GET", Path: "/api/oidc/login", Summary: "Start the OpenID Connect sign-in redirect.", Public: true},
@@ -60,6 +60,9 @@ var APISections = []APISection{
 		{Method: "GET", Path: "/logout", Summary: "Redirect to the login page.", Public: true},
 		{Method: "GET", Path: "/health", Summary: "Liveness probe.", Public: true},
 		{Method: "GET", Path: "/api/openapi.json", Summary: "This OpenAPI document.", Public: true},
+		{Method: "POST", Path: "/api/me/totp/setup", Summary: "Start two-factor enrolment for the signed-in local user; returns the otpauth URL, secret and a QR code.", ReadOnly: true},
+		{Method: "POST", Path: "/api/me/totp/enable", Summary: "Confirm enrolment with a code from the authenticator app; returns recovery codes once.", Body: "{code}", ReadOnly: true},
+		{Method: "POST", Path: "/api/me/totp/disable", Summary: "Turn off two-factor authentication for the signed-in user.", Body: "{password}", ReadOnly: true},
 	}},
 	{Tag: "Server", Description: "Server information and statistics.", Endpoints: []APIEndpoint{
 		{Method: "GET", Path: "/api/server-info", Summary: "Version, uptime, paths and network information.", ReadOnly: true},
@@ -82,6 +85,7 @@ var APISections = []APISection{
 		{Method: "GET", Path: "/api/clients/menu-preview", Summary: "Render the iPXE script a client would receive, without side effects.", Params: []APIParam{{Name: "mac", In: "query", Description: "MAC address of the client; omit or use unknown for the anonymous menu"}}, ReadOnly: true},
 		{Method: "POST", Path: "/api/clients/power", Summary: "BMC (Redfish or Intel AMT) power control.", Params: []APIParam{qMAC("MAC address of the client"), {Name: "action", In: "query", Description: "On, ForceOff, ForceRestart, GracefulShutdown or GracefulRestart", Required: true}}},
 		{Method: "GET", Path: "/api/clients/power/status", Summary: "BMC (Redfish or Intel AMT) power status.", Params: []APIParam{qMAC("MAC address of the client")}, ReadOnly: true},
+		{Method: "GET", Path: "/api/clients/console", Summary: "WebSocket: interactive serial console over Intel AMT Serial-over-LAN or IPMI SOL. Pass the JWT as the token query parameter or as the second Sec-WebSocket-Protocol entry after bearer.", Params: []APIParam{qMAC("MAC address of the client"), {Name: "token", In: "query", Description: "JWT, for clients that cannot set the Sec-WebSocket-Protocol header"}}},
 		{Method: "POST", Path: "/api/clients/import", Summary: "Import clients from a CSV file.", Body: "file", Multipart: true},
 	}},
 	{Tag: "SAN Targets", Description: "iSCSI, AoE and HTTP SAN boot targets that clients can boot from with iPXE sanboot.", Endpoints: []APIEndpoint{
@@ -106,7 +110,9 @@ var APISections = []APISection{
 		{Method: "PUT", Path: "/api/images", Summary: "Partial update of an image.", Params: []APIParam{qFilename("ISO filename")}, Body: "{name, description, enabled, public, group_id, order, boot_method, distro, boot_params, auto_install_file, kernel_override, initrd_override}"},
 		{Method: "DELETE", Path: "/api/images", Summary: "Delete an image.", Params: []APIParam{qFilename("ISO filename"), {Name: "delete_file", In: "query", Description: "true to also remove the ISO from disk"}}},
 		{Method: "POST", Path: "/api/images/upload", Summary: "Upload an ISO or unified kernel image.", Body: "file, public, description", Multipart: true},
-		{Method: "POST", Path: "/api/images/download", Summary: "Download an ISO from a URL asynchronously.", Body: "{url, filename, description}"},
+		{Method: "POST", Path: "/api/images/download", Summary: "Download an ISO from a URL asynchronously, verifying it against a SHA-256 when one is given or published alongside.", Body: "{url, filename, description, sha256, checksum_url, catalogue_id, catalogue_release}"},
+		{Method: "POST", Path: "/api/images/verify", Summary: "Hash an image on disk against a checksum in the background.", Params: []APIParam{qFilename("ISO filename")}, Body: "{sha256, checksum_url}"},
+		{Method: "GET", Path: "/api/images/verify", Summary: "Progress and result of a running verification.", Params: []APIParam{qFilename("ISO filename")}},
 		{Method: "POST", Path: "/api/images/extract", Summary: "Extract the kernel and initrd from an ISO.", Params: []APIParam{qFilename("ISO filename")}},
 		{Method: "GET", Path: "/api/images/extract-progress", Summary: "Extraction progress.", Params: []APIParam{qFilename("ISO filename")}, ReadOnly: true},
 		{Method: "POST", Path: "/api/images/redetect", Summary: "Re-run distribution detection and boot parameter resolution.", Params: []APIParam{qFilename("ISO filename")}},
@@ -125,6 +131,15 @@ var APISections = []APISection{
 		{Method: "GET", Path: "/api/isos", Summary: "List ISO files on disk.", Public: true},
 		{Method: "GET", Path: "/api/downloads", Summary: "List active downloads.", ReadOnly: true},
 		{Method: "GET", Path: "/api/downloads/progress", Summary: "Download progress.", Params: []APIParam{qFilename("ISO filename")}, ReadOnly: true},
+	}},
+	{Tag: "Disk Images", Description: "Clonezilla disk capture and deploy.", Endpoints: []APIEndpoint{
+		{Method: "GET", Path: "/api/disk-images", Summary: "Disk imaging readiness and the list of captured disk images.", ReadOnly: true},
+		{Method: "PUT", Path: "/api/disk-images", Summary: "Update a disk image's description.", Params: []APIParam{qID("Disk image ID")}, Body: "{description}"},
+		{Method: "DELETE", Path: "/api/disk-images", Summary: "Delete a disk image and its files.", Params: []APIParam{qID("Disk image ID")}},
+		{Method: "POST", Path: "/api/disk-images/capture", Summary: "Queue a disk capture from a client on its next PXE boot.", Body: "{mac_address, name, description, disk, wake}"},
+		{Method: "POST", Path: "/api/disk-images/deploy", Summary: "Queue a disk image deploy to a client or every enabled member of a client group.", Body: "{mac_address | client_group_id, image_id, disk, wake}"},
+		{Method: "GET", Path: "/api/disk-images/jobs", Summary: "Recent capture and deploy jobs.", Params: []APIParam{{Name: "mac", In: "query", Description: "Only jobs for this client"}, {Name: "limit", In: "query", Description: "Maximum number of jobs, default 100"}}, ReadOnly: true},
+		{Method: "DELETE", Path: "/api/disk-images/jobs", Summary: "Cancel a pending or running job.", Params: []APIParam{qID("Job ID")}},
 	}},
 	{Tag: "Image Groups", Endpoints: []APIEndpoint{
 		{Method: "GET", Path: "/api/groups", Summary: "List image groups.", ReadOnly: true},
@@ -200,7 +215,7 @@ var APISections = []APISection{
 	}},
 	{Tag: "Webhooks", Endpoints: []APIEndpoint{
 		{Method: "GET", Path: "/api/webhook", Summary: "Get the webhook configuration."},
-		{Method: "PUT", Path: "/api/webhook", Summary: "Update the webhook configuration.", Body: "{url, enabled, on_boot_started, on_client_discovered, on_inventory_updated, on_node_events}"},
+		{Method: "PUT", Path: "/api/webhook", Summary: "Update the webhook configuration.", Body: "{url, enabled, on_boot_started, on_client_discovered, on_inventory_updated, on_enrollment, on_admin_action, on_disk_imaging}"},
 		{Method: "POST", Path: "/api/webhook/test", Summary: "Send a test event."},
 	}},
 	{Tag: "Scheduled Tasks", Endpoints: []APIEndpoint{
@@ -216,6 +231,7 @@ var APISections = []APISection{
 		{Method: "PUT", Path: "/api/users", Summary: "Update a user.", Params: []APIParam{qID("User ID")}, Body: "{enabled, is_admin}"},
 		{Method: "DELETE", Path: "/api/users", Summary: "Delete a user.", Params: []APIParam{qID("User ID")}},
 		{Method: "POST", Path: "/api/users/reset-password", Summary: "Reset a local user's password.", Params: []APIParam{qID("User ID")}, Body: "{new_password}"},
+		{Method: "POST", Path: "/api/users/totp/reset", Summary: "Remove two-factor authentication from a user who has lost their device.", Params: []APIParam{qID("User ID (or username=)")}},
 		{Method: "GET", Path: "/api/tokens", Summary: "List API tokens."},
 		{Method: "POST", Path: "/api/tokens", Summary: "Create a scoped API token; the secret is returned once.", Body: "{name, scope (read|admin), expires_in_days}"},
 		{Method: "DELETE", Path: "/api/tokens", Summary: "Revoke an API token.", Params: []APIParam{qID("Token ID")}},
@@ -228,8 +244,9 @@ var APISections = []APISection{
 		{Method: "GET", Path: "/api/backup/import", Summary: "Whether a restore is staged."},
 		{Method: "DELETE", Path: "/api/backup/import", Summary: "Discard the staged restore."},
 		{Method: "GET", Path: "/api/housekeeping", Summary: "Retention settings, last housekeeping report and data directory usage.", ReadOnly: true},
-		{Method: "PUT", Path: "/api/housekeeping", Summary: "Update retention periods in days; 0 keeps records forever.", Body: "{boot_log_days, inventory_history_days, discovered_client_days, audit_log_days}"},
+		{Method: "PUT", Path: "/api/housekeeping", Summary: "Update retention periods in days; 0 keeps records forever.", Body: "{boot_log_days, inventory_history_days, discovered_client_days, audit_log_days, catalogue_check_off}"},
 		{Method: "POST", Path: "/api/housekeeping/run", Summary: "Run housekeeping now and return the report."},
+		{Method: "POST", Path: "/api/catalogue/check", Summary: "Compare installed images and tools against the catalogue and flag newer releases."},
 	}},
 	{Tag: "Multi-site", Description: "Primary-side sync feed and replica control.", Endpoints: []APIEndpoint{
 		{Method: "GET", Path: "/api/sync/manifest", Summary: "Counts and last-change times per kind, the boot base URL and the active bootloader set, for replicas.", ReadOnly: true},
@@ -259,6 +276,8 @@ var APISections = []APISection{
 		{Method: "GET", Path: "/bootenv/{filename}", Summary: "NBD boot environment kernel and initrd.", Params: []APIParam{pathParam("filename", "File name")}, Public: true},
 		{Method: "GET", Path: "/tools/{path}", Summary: "Downloaded tool files.", Params: []APIParam{pathParam("path", "File path within the tools directory")}, Public: true},
 		{Method: "GET", Path: "/node-images/{path}", Summary: "Kubernetes node image assets.", Params: []APIParam{pathParam("path", "Asset path")}, Public: true},
+		{Method: "GET", Path: "/diskimage/job", Summary: "Shell script a Clonezilla client runs for its queued capture or deploy job.", Params: []APIParam{{Name: "token", In: "query", Description: "Job token", Required: true}}, Public: true},
+		{Method: "GET", Path: "/diskimage/callback", Summary: "Progress report from a Clonezilla client.", Params: []APIParam{{Name: "token", In: "query", Description: "Job token", Required: true}, {Name: "status", In: "query", Description: "running, done or failed", Required: true}, {Name: "disk", In: "query", Description: "Disk device actually used"}, {Name: "message", In: "query", Description: "Short failure reason"}}, Public: true},
 		{Method: "GET", Path: "/machineconfig", Summary: "Kubernetes machine config for an enrolled node.", Params: []APIParam{{Name: "m", In: "query", Description: "MAC address", Required: true}, {Name: "t", In: "query", Description: "Enrolment token", Required: true}, {Name: "u", In: "query", Description: "System UUID"}}, Public: true},
 	}},
 }

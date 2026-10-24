@@ -121,13 +121,16 @@ async function handleLogin(e) {
     const username = document.getElementById('login-username').value;
     const password = document.getElementById('login-password').value;
     const authMethod = document.getElementById('login-auth-method').value || 'local';
+    const totpGroup = document.getElementById('login-totp-group');
+    const codeInput = document.getElementById('login-totp-code');
+    const code = totpGroup.style.display !== 'none' ? codeInput.value.trim() : '';
     const errorDiv = document.getElementById('login-error');
 
     try {
         const res = await fetch(`${API_BASE}/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password, auth_method: authMethod })
+            body: JSON.stringify({ username, password, auth_method: authMethod, code })
         });
         const data = await res.json();
 
@@ -135,11 +138,19 @@ async function handleLogin(e) {
             setToken(data.data.token);
             localStorage.setItem('bootimus_username', data.data.username);
             localStorage.setItem('bootimus_is_admin', data.data.is_admin);
+            totpGroup.style.display = 'none';
+            codeInput.value = '';
             showApp();
             initApp();
+        } else if (data.totp_required) {
+            totpGroup.style.display = 'block';
+            errorDiv.textContent = data.message || 'Enter your two-factor code';
+            errorDiv.style.display = 'block';
+            codeInput.focus();
         } else {
             errorDiv.textContent = data.error || 'Login failed';
             errorDiv.style.display = 'block';
+            if (totpGroup.style.display !== 'none') codeInput.select();
         }
     } catch (err) {
         errorDiv.textContent = 'Connection error';
@@ -151,6 +162,7 @@ function logout() {
     clearToken();
     showLoginScreen();
     document.getElementById('login-form').reset();
+    document.getElementById('login-totp-group').style.display = 'none';
 }
 
 async function checkAuth() {
@@ -235,6 +247,7 @@ function openModal(modalId) {
 function closeModal(modalId) {
     document.getElementById(modalId).classList.remove('active');
     if (modalId === 'get-images-modal' && typeof clearGetISOPolling === 'function') clearGetISOPolling();
+    if (modalId === 'console-modal') disconnectClientConsole();
 }
 
 function injectModalCloseButtons() {
@@ -440,6 +453,7 @@ function initApp() {
     loadPublicFiles();
     loadLogs();
     if (!isReadOnly()) { loadUsers(); loadAPITokens(); }
+    loadTOTPStatus();
     loadActiveSessions();
 
     // Refresh every 30 seconds
@@ -505,6 +519,7 @@ function setupTabs() {
             if (item.dataset.tab === 'api-reference') showAPIReference();
             if (item.dataset.tab === 'audit') loadAuditLog();
             if (item.dataset.tab === 'pxe-debug') loadPXEDebug();
+            if (item.dataset.tab === 'disk-images') loadDiskImages();
         });
     });
 
@@ -526,6 +541,8 @@ async function loadStats() {
             document.getElementById('stat-images').textContent = data.data.total_images;
             document.getElementById('stat-enabled-images').textContent = data.data.enabled_images;
             document.getElementById('stat-boots').textContent = data.data.total_boots;
+            const updates = document.getElementById('stat-updates');
+            if (updates) updates.textContent = data.data.updates_available ?? 0;
         }
     } catch (err) {
         console.error('Failed to load stats:', err);
@@ -644,6 +661,103 @@ async function powerClient(action) {
         result.style.color = 'var(--danger)';
     }
 }
+
+let consoleSocket = null;
+let consoleTerm = null;
+let consoleFit = null;
+
+function consoleSetStatus(text, colour) {
+    const el = document.getElementById('console-status');
+    if (!el) return;
+    el.textContent = text;
+    el.style.color = colour || 'var(--text-secondary)';
+}
+
+function openClientConsole(mac) {
+    if (!mac) {
+        const form = document.getElementById('edit-client-form');
+        mac = form ? form.querySelector('[name="mac_address"]').value : '';
+    }
+    if (!mac) return;
+    disconnectClientConsole();
+    document.getElementById('console-title').textContent = mac;
+    showModal('console-modal');
+
+    const host = document.getElementById('console-terminal');
+    host.innerHTML = '';
+    consoleTerm = new Terminal({
+        cursorBlink: true,
+        fontSize: 13,
+        fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+        theme: { background: '#000000' },
+    });
+    consoleFit = new FitAddon.FitAddon();
+    consoleTerm.loadAddon(consoleFit);
+    consoleTerm.open(host);
+    consoleFit.fit();
+
+    const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const url = `${scheme}://${window.location.host}${API_BASE}/clients/console?mac=${encodeURIComponent(mac)}`;
+    const token = getToken();
+    const socket = token ? new WebSocket(url, ['bearer', token]) : new WebSocket(url);
+    socket.binaryType = 'arraybuffer';
+    consoleSocket = socket;
+    consoleSetStatus('Connecting…');
+
+    const encoder = new TextEncoder();
+    socket.onopen = () => {
+        consoleSetStatus('Opening console…');
+        socket.send(JSON.stringify({ type: 'resize', cols: consoleTerm.cols, rows: consoleTerm.rows }));
+    };
+    socket.onmessage = (ev) => {
+        if (!consoleTerm) return;
+        if (typeof ev.data === 'string') {
+            let msg = null;
+            try { msg = JSON.parse(ev.data); } catch (_) { }
+            if (!msg || !msg.type) {
+                consoleTerm.write(ev.data);
+                return;
+            }
+            const failed = msg.type === 'error' || msg.type === 'closed';
+            consoleSetStatus(msg.message || msg.type, failed ? 'var(--danger)' : 'var(--teal, green)');
+            if (failed) consoleTerm.writeln(`\r\n[${msg.message || msg.type}]`);
+            return;
+        }
+        consoleTerm.write(new Uint8Array(ev.data));
+    };
+    socket.onclose = () => {
+        if (consoleSocket === socket) {
+            consoleSocket = null;
+            const status = document.getElementById('console-status');
+            if (status && !status.textContent.startsWith('Console closed') && !status.textContent.startsWith('Intel') && status.style.color !== 'var(--danger)') {
+                consoleSetStatus('Disconnected');
+            }
+        }
+    };
+    socket.onerror = () => consoleSetStatus('Connection error', 'var(--danger)');
+    consoleTerm.onData((data) => {
+        if (socket.readyState === WebSocket.OPEN) socket.send(encoder.encode(data));
+    });
+    consoleTerm.focus();
+}
+
+function disconnectClientConsole() {
+    if (consoleSocket) {
+        const socket = consoleSocket;
+        consoleSocket = null;
+        socket.close();
+        consoleSetStatus('Disconnected');
+    }
+    if (consoleTerm) {
+        consoleTerm.dispose();
+        consoleTerm = null;
+        consoleFit = null;
+    }
+}
+
+window.addEventListener('resize', () => {
+    if (consoleFit) consoleFit.fit();
+});
 
 function updateBMCPortPlaceholder(select) {
     const port = select.form.querySelector('[name="ipmi_port"]');
@@ -830,6 +944,7 @@ async function loadWebhookConfig() {
         document.getElementById('webhook-on-client-discovered').checked = !!c.on_client_discovered;
         document.getElementById('webhook-on-inventory-updated').checked = !!c.on_inventory_updated;
         document.getElementById('webhook-on-admin-action').checked = !!c.on_admin_action;
+        document.getElementById('webhook-on-disk-imaging').checked = c.on_disk_imaging !== false;
         document.getElementById('webhook-on-install').checked = !!c.on_install;
     } catch (err) {
         console.error('Failed to load webhook config:', err);
@@ -845,6 +960,7 @@ async function saveWebhookConfig(e) {
         on_client_discovered: document.getElementById('webhook-on-client-discovered').checked,
         on_inventory_updated: document.getElementById('webhook-on-inventory-updated').checked,
         on_admin_action: document.getElementById('webhook-on-admin-action').checked,
+        on_disk_imaging: document.getElementById('webhook-on-disk-imaging').checked,
         on_install: document.getElementById('webhook-on-install').checked,
     };
     try {
@@ -881,6 +997,7 @@ const HOUSEKEEPING_TASK_LABELS = {
     inventory_history: 'Inventory history',
     discovered_clients: 'Discovered clients',
     audit_logs: 'Audit log',
+    catalogue_check: 'Catalogue check',
 };
 
 function renderHousekeeping(view) {
@@ -889,6 +1006,7 @@ function renderHousekeeping(view) {
     document.getElementById('housekeeping-inventory-days').value = settings.inventory_history_days ?? 0;
     document.getElementById('housekeeping-discovered-days').value = settings.discovered_client_days ?? 0;
     document.getElementById('housekeeping-audit-days').value = settings.audit_log_days ?? 0;
+    document.getElementById('housekeeping-catalogue-check').checked = !settings.catalogue_check_off;
 
     const lastRun = document.getElementById('housekeeping-last-run');
     if (settings.last_run) {
@@ -908,6 +1026,7 @@ function renderHousekeeping(view) {
             let result;
             if (t.error) result = `<span style="color: var(--danger);">${escapeHtml(t.error)}</span>`;
             else if (t.skipped) result = '<span style="color: var(--text-muted);">Disabled</span>';
+            else if (t.name === 'catalogue_check') result = `${t.affected} update${t.affected === 1 ? '' : 's'} available`;
             else result = `${t.affected} removed`;
             html += `<tr><td>${escapeHtml(label)}</td><td>${result}</td></tr>`;
         }
@@ -932,6 +1051,36 @@ function renderHousekeeping(view) {
     }
 }
 
+async function checkCatalogueNow() {
+    const btn = document.getElementById('catalogue-check-btn');
+    const out = document.getElementById('catalogue-check-result');
+    btn.disabled = true;
+    out.textContent = 'Checking the catalogue…';
+    try {
+        const res = await authFetch(`${API_BASE}/catalogue/check`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.success) {
+            out.innerHTML = `<span style="color: var(--danger);">${escapeHtml(data.error || 'Check failed')}</span>`;
+            return;
+        }
+        const r = data.data;
+        const parts = [];
+        for (const i of (r.images || [])) parts.push(`${escapeHtml(i.name)} → ${escapeHtml(i.version || i.filename)}`);
+        for (const t of (r.tools || [])) parts.push(`${escapeHtml(t.display_name || t.name)} (tool)`);
+        const source = r.remote ? 'online catalogue' : 'built-in catalogue';
+        out.innerHTML = parts.length
+            ? `${parts.length} update${parts.length === 1 ? '' : 's'} available (${source}): ${parts.join(', ')}`
+            : `Everything is current against the ${source}.`;
+        loadImages();
+        loadTools();
+        loadStats();
+    } catch (err) {
+        out.innerHTML = `<span style="color: var(--danger);">Check failed: ${escapeHtml(err.message)}</span>`;
+    } finally {
+        btn.disabled = false;
+    }
+}
+
 async function loadHousekeeping() {
     if (!document.getElementById('housekeeping-form')) return;
     try {
@@ -950,6 +1099,7 @@ async function saveHousekeeping(e) {
         inventory_history_days: parseInt(document.getElementById('housekeeping-inventory-days').value, 10) || 0,
         discovered_client_days: parseInt(document.getElementById('housekeeping-discovered-days').value, 10) || 0,
         audit_log_days: parseInt(document.getElementById('housekeeping-audit-days').value, 10) || 0,
+        catalogue_check_off: !document.getElementById('housekeeping-catalogue-check').checked,
     };
     try {
         const res = await authFetch(`${API_BASE}/housekeeping`, {
@@ -1481,7 +1631,10 @@ function clientRowHTML(client, includeGroupCell) {
                             ${!client.static ? '<button class="btn btn-success btn-sm" onclick="promoteClient(\'' + client.mac_address + '\')">Make Static</button>' : ''}
                             <button class="btn btn-success btn-sm" onclick="wakeClient('${client.mac_address}')">Wake</button>
                             <button class="btn btn-primary btn-sm" onclick="showNextBoot('${client.mac_address}')">Next Boot</button>
+                            ${client.ipmi_host ? '<button class="btn btn-sm" onclick="openClientConsole(\'' + client.mac_address + '\')">Console</button>' : ''}
                             <button class="btn btn-sm" onclick="previewBootMenu('${client.mac_address}')">Preview Menu</button>
+                            <button class="btn btn-sm" onclick="showCaptureDiskModal('${client.mac_address}')">Capture Disk</button>
+                            <button class="btn btn-sm" onclick="showDeployDiskModal({ mac: '${client.mac_address}' })">Deploy Image</button>
                         </td>
                     </tr>`;
 }
@@ -1637,6 +1790,8 @@ async function editClient(mac) {
             form.querySelector('[name="boot_from_san"]').checked = !!currentClient.boot_from_san;
             const powerResult = document.getElementById('power-client-result');
             if (powerResult) powerResult.textContent = '';
+            const consoleBtn = document.getElementById('open-console-btn');
+            if (consoleBtn) consoleBtn.style.display = currentClient.ipmi_host ? '' : 'none';
             loadClientInstallHistory(currentClient.mac_address || mac);
 
             // Populate bootloader set dropdown
@@ -2432,6 +2587,8 @@ function imageRowHTML(img, includeGroupCell, depth = 0) {
                                 (img.extraction_error ? '<span class="badge badge-danger" title="'+img.extraction_error+'">Error</span>' : '')
                             }
                             ${img.smb_install_enabled ? ' <span class="badge badge-warning" title="boot.wim patched to auto-mount SMB share and launch setup.exe">SMB</span>' : ''}
+                            ${img.update_available ? ' <span class="badge badge-warning" title="' + escapeHtml(img.update_filename || img.update_url || '') + '">Update available: ' + escapeHtml(img.update_version || 'newer release') + '</span>' : ''}
+                            ${img.checksum_verified ? ' <span class="badge badge-success" title="SHA-256 ' + escapeHtml(img.checksum || '') + '">✓ Verified</span>' : ''}
                         </td>${groupCell}
                         <td class="col-dot">
                             <span class="status-dot ${img.enabled ? 'on' : 'off'}" title="${img.enabled ? 'Enabled' : 'Disabled'}"></span>
@@ -3442,6 +3599,7 @@ async function loadTools() {
             if (tool.custom) html += `<span class="badge badge-warning">Custom</span>`;
             if (tool.enabled) html += `<span class="badge badge-success">Enabled</span>`;
             if (tool.downloaded) html += `<span class="badge badge-info">Downloaded</span>`;
+            if (tool.update_available) html += `<span class="badge badge-warning" title="${escapeHtml(tool.update_url || '')}">Update available</span>`;
             html += `</div>`;
             html += `<p style="color: var(--text-secondary); font-size: 14px; margin: 0;">${escapeHtml(tool.description)}</p>`;
             html += `</div>`;
@@ -3462,6 +3620,9 @@ async function loadTools() {
                     html += `<button class="btn btn-success" onclick="toggleTool('${tool.name}', true)">Enable</button>`;
                 }
                 html += `<button class="btn btn-danger" onclick="deleteTool('${tool.name}')">Delete Files</button>`;
+                if (tool.update_available && tool.update_url) {
+                    html += `<button class="btn btn-primary" onclick="downloadNewerTool('${tool.name}', '${escapeHtml(tool.update_url)}')">Download newer</button>`;
+                }
             }
             if (tool.custom) {
                 html += `<button class="btn btn-danger" onclick="deleteCustomTool('${tool.name}')">Remove</button>`;
@@ -3490,6 +3651,25 @@ async function loadTools() {
 }
 
 const toolProgressIntervals = new Map();
+
+async function downloadNewerTool(name, url) {
+    try {
+        const res = await authFetch(`${API_BASE}/tools/url?name=${encodeURIComponent(name)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showNotification(data.error || 'Could not switch to the newer URL', 'error');
+            return;
+        }
+        await loadTools();
+        await downloadTool(name);
+    } catch (err) {
+        showNotification('Could not start the update: ' + err.message, 'error');
+    }
+}
 
 async function downloadTool(name) {
     try {
@@ -4358,6 +4538,7 @@ function renderUsersTable(users) {
                     <th>Role</th>
                     <th>Source</th>
                     <th>Status</th>
+                    <th>2FA</th>
                     <th>Last Login</th>
                     <th>Created</th>
                     <th>Actions</th>
@@ -4367,6 +4548,7 @@ function renderUsersTable(users) {
     `;
 
     users.forEach(user => {
+        const twoFactor = user.totp_enabled ? '<span class="badge badge-success">On</span>' : '<span style="color: var(--text-secondary);">Off</span>';
         const role = user.is_admin ? '<span class="badge badge-info">Admin</span>' : '<span class="badge badge-success">Read-only</span>';
         const source = { local: 'Local', ldap: 'LDAP', oidc: 'OIDC' }[user.source || 'local'] || user.source;
         const isLocal = !user.source || user.source === 'local';
@@ -4380,11 +4562,13 @@ function renderUsersTable(users) {
                 <td>${role}</td>
                 <td>${escapeHtml(source)}</td>
                 <td>${status}</td>
+                <td>${twoFactor}</td>
                 <td>${lastLogin}</td>
                 <td>${created}</td>
                 <td>
                     <button class="btn btn-info btn-sm" onclick='editUser(${JSON.stringify(user)})'>Edit</button>
                     ${isLocal ? `<button class="btn btn-sm" onclick='showResetPasswordModal(${JSON.stringify(user)})'>Reset Password</button>` : ''}
+                    ${isLocal && user.totp_enabled ? `<button class="btn btn-sm" onclick="resetUserTOTP(${user.id}, '${escapeHtml(user.username).replace(/'/g, "\\'")}')">Reset 2FA</button>` : ''}
                     ${user.username !== 'admin' ? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${user.username}')">Delete</button>` : ''}
                 </td>
             </tr>
@@ -4671,7 +4855,7 @@ function renderGetImagesList(filter) {
                 <select class="get-iso-mirror-sel" data-row="${escapeHtml(rowKey)}" data-path="${escapeHtml(r.path)}" onchange="updateGetISORowURL(this)">${mirrorOpts}</select>
                 <input type="text" id="get-iso-url-${escapeHtml(rowKey)}" class="get-iso-url" value="${escapeHtml(defaultURL)}">
                 <div id="get-iso-actions-${escapeHtml(rowKey)}" class="get-iso-actions">
-                    <button type="button" class="btn btn-sm" onclick="downloadFromGetISO('${escapeHtml(rowKey)}', '${escapeHtml(distro.name)}', '${escapeHtml(r.label)}')">
+                    <button type="button" class="btn btn-sm" onclick="downloadFromGetISO('${escapeHtml(rowKey)}', '${escapeHtml(distro.name)}', '${escapeHtml(r.label)}', '${escapeHtml(distro.id)}', '${escapeHtml(r.sha256 || '')}', '${escapeHtml(r.checksum_path || '')}')">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         Download
                     </button>
@@ -4698,7 +4882,7 @@ function jsAttrEscape(s) {
     return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
-async function downloadFromGetISO(rowKey, distroName, releaseLabel) {
+async function downloadFromGetISO(rowKey, distroName, releaseLabel, catalogueId, sha256, checksumPath) {
     const input = document.getElementById('get-iso-url-' + rowKey);
     if (!input) return;
     const url = input.value.trim();
@@ -4708,10 +4892,16 @@ async function downloadFromGetISO(rowKey, distroName, releaseLabel) {
     }
     renderGetISOProgress(rowKey, 'Starting…');
     try {
+        const body = { url, description: `${distroName} ${releaseLabel}` };
+        if (!catalogueId) catalogueId = (rowKey || '').replace(/-\d+$/, '');
+        body.catalogue_id = catalogueId;
+        body.catalogue_release = releaseLabel;
+        if (sha256) body.sha256 = sha256;
+        if (checksumPath) body.checksum_url = checksumPath;
         const res = await authFetch(`${API_BASE}/images/download`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url, description: `${distroName} ${releaseLabel}` }),
+            body: JSON.stringify(body),
         });
         const data = await res.json();
         if (res.status === 409 && data.data && data.data.filename) {
@@ -4766,11 +4956,11 @@ function startGetISOProgressPolling(rowKey, filename, distroName, releaseLabel) 
                 const fill = document.getElementById('get-iso-bar-fill-' + rowKey);
                 const status = document.getElementById('get-iso-status-' + rowKey);
                 if (fill) fill.style.width = pct + '%';
-                if (status) status.textContent = `${pct}% · ${p.speed || ''}`;
+                if (status) status.textContent = `${pct}% · ${p.speed || ''}${p.verification === 'pending' ? ' · verifying SHA-256' : ''}`;
 
                 if (p.status === 'completed') {
                     stop();
-                    renderGetISOComplete(rowKey, distroName, releaseLabel);
+                    renderGetISOComplete(rowKey, distroName, releaseLabel, p.verification === 'verified');
                     loadImages();
                 } else if (p.status === 'error') {
                     stop();
@@ -4798,12 +4988,12 @@ function renderGetISOError(rowKey, errorMsg, distroName, releaseLabel) {
         </div>`;
 }
 
-function renderGetISOComplete(rowKey, distroName, releaseLabel) {
+function renderGetISOComplete(rowKey, distroName, releaseLabel, verified) {
     const el = document.getElementById('get-iso-actions-' + rowKey);
     if (!el) return;
     el.innerHTML = `
         <div class="get-iso-progress">
-            <span class="get-iso-status-text" style="color: var(--success);">✓ Downloaded</span>
+            <span class="get-iso-status-text" style="color: var(--success);" title="${verified ? 'SHA-256 matched the published checksum' : 'No published checksum was found, so the file was not verified'}">✓ Downloaded${verified ? ' and verified' : ' (unverified)'}</span>
             <button type="button" class="btn btn-sm" onclick="downloadFromGetISO('${jsAttrEscape(rowKey)}', '${jsAttrEscape(distroName)}', '${jsAttrEscape(releaseLabel)}')">Again</button>
         </div>`;
 }
@@ -5505,12 +5695,113 @@ function getDefaultBootParams(img) {
             return 'initrd=initrd ip=dhcp url={{BASE_URL}}/isos/{{FILENAME}}';
         case 'freebsd':
             return 'vfs.root.mountfrom=cd9660:/dev/md0 kernelname=/boot/kernel/kernel';
+        case 'openbsd':
+        case 'netbsd':
+            return '';
         case 'windows':
         case 'windows7':
         case 'winpe':
             return '';
         default:
             return 'iso-url={{BASE_URL}}/isos/{{FILENAME}} ip=dhcp';
+    }
+}
+
+function renderImageIntegrity(img) {
+    const status = document.getElementById('image-props-checksum-status');
+    const input = document.getElementById('image-props-checksum-input');
+    const update = document.getElementById('image-props-update');
+    const updateText = document.getElementById('image-props-update-text');
+    if (!status) return;
+    input.value = '';
+    if (img.checksum_verified && img.checksum) {
+        status.innerHTML = `<span class="badge badge-success">✓ Verified</span> <code title="${escapeHtml(img.checksum)}">sha256 ${escapeHtml(img.checksum.slice(0, 16))}…</code>${img.checksum_checked_at ? ' · ' + new Date(img.checksum_checked_at).toLocaleString() : ''}`;
+        input.placeholder = 'Re-verify against the recorded checksum, or paste another';
+    } else if (img.checksum) {
+        status.innerHTML = `<span class="badge badge-warning">Unverified</span> <code title="${escapeHtml(img.checksum)}">sha256 ${escapeHtml(img.checksum.slice(0, 16))}…</code>`;
+        input.placeholder = 'SHA-256 or URL of a SHA256SUMS file to verify against';
+    } else {
+        status.innerHTML = '<span class="badge badge-warning">Unverified</span> No checksum recorded';
+        input.placeholder = 'SHA-256 or URL of a SHA256SUMS file to verify against';
+    }
+    if (img.update_available) {
+        update.style.display = 'flex';
+        updateText.textContent = `A newer release is in the catalogue: ${img.update_version || ''} (${img.update_filename || img.update_url}).`;
+    } else {
+        update.style.display = 'none';
+    }
+}
+
+async function verifyImageFromProperties() {
+    const filename = document.getElementById('image-props-filename').value;
+    const value = document.getElementById('image-props-checksum-input').value.trim();
+    const body = {};
+    if (/^https?:\/\//i.test(value)) body.checksum_url = value;
+    else if (value) body.sha256 = value;
+    const status = document.getElementById('image-props-checksum-status');
+    const btn = document.getElementById('image-props-verify-btn');
+    try {
+        const res = await authFetch(`${API_BASE}/images/verify?filename=${encodeURIComponent(filename)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Verification could not start', 'error');
+            return;
+        }
+        btn.disabled = true;
+        const poll = setInterval(async () => {
+            try {
+                const pr = await authFetch(`${API_BASE}/images/verify?filename=${encodeURIComponent(filename)}`);
+                const pd = await pr.json();
+                if (!pd.success) { clearInterval(poll); btn.disabled = false; return; }
+                const p = pd.data;
+                if (p.status === 'running') {
+                    status.textContent = `Hashing… ${(p.percent || 0).toFixed(0)}%`;
+                    return;
+                }
+                clearInterval(poll);
+                btn.disabled = false;
+                if (p.status === 'completed' && p.verified) {
+                    showAlert('Checksum verified', 'success');
+                } else {
+                    showAlert(p.error || 'Checksum mismatch', 'error');
+                }
+                await loadImages();
+                const img = images.find(i => i.filename === filename);
+                if (img && document.getElementById('image-props-filename').value === filename) renderImageIntegrity(img);
+            } catch (_) {
+                clearInterval(poll);
+                btn.disabled = false;
+            }
+        }, 1000);
+    } catch (err) {
+        showAlert('Verification could not start: ' + err.message, 'error');
+    }
+}
+
+async function downloadNewerImage() {
+    const filename = document.getElementById('image-props-filename').value;
+    const img = images.find(i => i.filename === filename);
+    if (!img || !img.update_url) return;
+    try {
+        const res = await authFetch(`${API_BASE}/images/download`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: img.update_url, description: img.description || '', catalogue_id: img.catalogue_id || '', catalogue_release: img.catalogue_release || '' }),
+        });
+        const data = await res.json();
+        if (data.success || res.status === 409) {
+            showAlert(`Downloading ${data.data && data.data.filename ? data.data.filename : 'newer release'} – progress is shown in the downloads list`, 'success');
+            closeModal('image-properties-modal');
+            if (typeof loadDownloads === 'function') loadDownloads();
+        } else {
+            showAlert(data.error || 'Download failed to start', 'error');
+        }
+    } catch (err) {
+        showAlert('Download failed to start: ' + err.message, 'error');
     }
 }
 
@@ -5556,6 +5847,7 @@ async function showImagePropertiesModal(filename, opts) {
     document.getElementById('image-props-redetect-btn').style.display = img.extracted ? '' : 'none';
     document.getElementById('image-props-enabled').checked = img.enabled;
     document.getElementById('image-props-public').checked = img.public;
+    renderImageIntegrity(img);
 
     await populateBootFileOverrides(img);
     populateWIMSelector(img);
@@ -8154,6 +8446,414 @@ async function revokeAPIToken(id, name) {
         loadAPITokens();
     } catch (err) {
         showAlert('Failed to revoke token: ' + err.message, 'error');
+    }
+}
+
+async function loadTOTPStatus() {
+    const card = document.getElementById('totp-card');
+    const status = document.getElementById('totp-status');
+    if (!card || !status) return;
+    try {
+        const res = await authFetch(`${API_BASE}/me`);
+        const data = await res.json();
+        if (!data.success) return;
+        const me = data.data;
+        if (me.principal === 'token' || (me.source && me.source !== 'local')) {
+            card.style.display = 'none';
+            return;
+        }
+        card.style.display = '';
+        if (me.totp_enabled) {
+            status.innerHTML = `<span class="badge badge-success">Enabled</span> Two-factor authentication is on for <strong>${escapeHtml(me.username)}</strong>.
+                <button type="button" class="btn btn-sm" style="margin-left: 10px;" onclick="disableTOTP()">Disable</button>`;
+        } else {
+            status.innerHTML = `<span class="badge badge-warning">Off</span> Two-factor authentication is not enabled for <strong>${escapeHtml(me.username)}</strong>.
+                <button type="button" class="btn btn-sm btn-primary" style="margin-left: 10px;" onclick="startTOTPSetup()">Set up</button>`;
+        }
+    } catch (err) {
+        status.textContent = 'Could not load two-factor status';
+    }
+}
+
+async function startTOTPSetup() {
+    try {
+        const res = await authFetch(`${API_BASE}/me/totp/setup`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Could not start two-factor setup', 'error');
+            return;
+        }
+        document.getElementById('totp-qr').src = data.data.qr_code;
+        document.getElementById('totp-secret').textContent = data.data.secret;
+        document.getElementById('totp-confirm-code').value = '';
+        document.getElementById('totp-setup').style.display = '';
+        document.getElementById('totp-recovery').style.display = 'none';
+        document.getElementById('totp-confirm-code').focus();
+    } catch (err) {
+        showAlert('Could not start two-factor setup: ' + err.message, 'error');
+    }
+}
+
+function cancelTOTPSetup() {
+    document.getElementById('totp-setup').style.display = 'none';
+}
+
+async function enableTOTP() {
+    const code = document.getElementById('totp-confirm-code').value.trim();
+    if (!code) {
+        showAlert('Enter the code shown in your authenticator app', 'error');
+        return;
+    }
+    try {
+        const res = await authFetch(`${API_BASE}/me/totp/enable`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Could not enable two-factor authentication', 'error');
+            return;
+        }
+        document.getElementById('totp-setup').style.display = 'none';
+        document.getElementById('totp-recovery-codes').textContent = (data.data.recovery_codes || []).join('\n');
+        document.getElementById('totp-recovery').style.display = '';
+        showAlert('Two-factor authentication enabled', 'success');
+        loadTOTPStatus();
+        if (!isReadOnly()) loadUsers();
+    } catch (err) {
+        showAlert('Could not enable two-factor authentication: ' + err.message, 'error');
+    }
+}
+
+async function copyTOTPRecoveryCodes() {
+    try {
+        await navigator.clipboard.writeText(document.getElementById('totp-recovery-codes').textContent);
+        showAlert('Recovery codes copied', 'success');
+    } catch (err) {
+        showAlert('Copy failed: ' + err.message, 'error');
+    }
+}
+
+async function disableTOTP() {
+    const password = prompt('Enter your password to turn off two-factor authentication:');
+    if (password === null) return;
+    try {
+        const res = await authFetch(`${API_BASE}/me/totp/disable`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Could not disable two-factor authentication', 'error');
+            return;
+        }
+        showAlert('Two-factor authentication disabled', 'success');
+        loadTOTPStatus();
+        if (!isReadOnly()) loadUsers();
+    } catch (err) {
+        showAlert('Could not disable two-factor authentication: ' + err.message, 'error');
+    }
+}
+
+async function resetUserTOTP(id, username) {
+    if (!confirm(`Remove two-factor authentication from "${username}"? They will be able to sign in with just their password until they set it up again.`)) return;
+    try {
+        const res = await authFetch(`${API_BASE}/users/totp/reset?id=${id}`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Could not reset two-factor authentication', 'error');
+            return;
+        }
+        showAlert(data.message || 'Two-factor authentication removed', 'success');
+        loadUsers();
+        loadTOTPStatus();
+    } catch (err) {
+        showAlert('Could not reset two-factor authentication: ' + err.message, 'error');
+    }
+}
+
+let diskImages = [];
+let diskJobs = [];
+let diskImagingStatus = null;
+
+async function loadDiskImages() {
+    try {
+        const [imgRes, jobRes] = await Promise.all([
+            authFetch(`${API_BASE}/disk-images`),
+            authFetch(`${API_BASE}/disk-images/jobs?limit=100`),
+        ]);
+        const imgData = await imgRes.json();
+        const jobData = await jobRes.json();
+        if (!imgData.success) {
+            document.getElementById('disk-images-table').innerHTML = `<p class="alert alert-error">${escapeHtml(imgData.error || 'Failed to load disk images')}</p>`;
+            return;
+        }
+        diskImagingStatus = imgData.data.status || null;
+        diskImages = imgData.data.images || [];
+        diskJobs = jobData.success ? (jobData.data || []) : [];
+        renderDiskImagingProblems();
+        renderDiskImages();
+        renderDiskJobs();
+    } catch (err) {
+        document.getElementById('disk-images-table').innerHTML = '<p class="alert alert-error">Failed to load disk images</p>';
+    }
+}
+
+function renderDiskImagingProblems() {
+    const banner = document.getElementById('disk-images-problems');
+    if (!banner) return;
+    const problems = (diskImagingStatus && diskImagingStatus.problems) || [];
+    if (problems.length === 0) {
+        banner.style.display = 'none';
+        return;
+    }
+    banner.innerHTML = '<strong>Disk imaging is not ready.</strong> ' + problems.map(escapeHtml).join(' ') +
+        ' Enable the Clonezilla tool under <strong>Tools</strong> and start Bootimus with <code>--nfs-enabled</code>.';
+    banner.style.display = 'block';
+}
+
+function diskImageStateBadge(state) {
+    const cls = state === 'ready' ? 'badge-success' : (state === 'capturing' ? 'badge-info' : 'badge-danger');
+    return `<span class="badge ${cls}">${escapeHtml(state)}</span>`;
+}
+
+function diskJobStateBadge(state) {
+    const cls = { completed: 'badge-success', running: 'badge-info', pending: 'badge-warning', failed: 'badge-danger', cancelled: 'badge-info' }[state] || 'badge-info';
+    return `<span class="badge ${cls}">${escapeHtml(state)}</span>`;
+}
+
+function renderDiskImages() {
+    const container = document.getElementById('disk-images-table');
+    if (!container) return;
+    const filterInput = document.getElementById('disk-images-filter');
+    const q = filterInput ? filterInput.value.trim().toLowerCase() : '';
+    const rows = diskImages.filter(img => !q || [img.name, img.description, img.source_mac, img.source_client_name, img.state].some(v => (v || '').toLowerCase().includes(q)));
+    if (rows.length === 0) {
+        container.innerHTML = `<p style="color: var(--text-secondary); padding: 20px;">${diskImages.length === 0 ? 'No disk images yet. Use Capture Disk to create one from a client.' : 'No images match the filter.'}</p>`;
+        return;
+    }
+    container.innerHTML = `
+        <div class="table-scroll">
+        <table>
+            <thead><tr>
+                <th>Name</th><th>Description</th><th>Source</th><th>Disk</th><th>Size</th><th>State</th><th>Created</th><th>Actions</th>
+            </tr></thead>
+            <tbody>
+                ${rows.map(img => `
+                    <tr>
+                        <td><strong>${escapeHtml(img.name)}</strong></td>
+                        <td>${escapeHtml(img.description || '-')}</td>
+                        <td>${img.source_mac ? `<code>${escapeHtml(img.source_mac)}</code>${img.source_client_name ? ' ' + escapeHtml(img.source_client_name) : ''}` : '-'}</td>
+                        <td>${escapeHtml(img.disk || '-')}</td>
+                        <td>${img.size_bytes ? formatBytes(img.size_bytes) : '-'}</td>
+                        <td>${diskImageStateBadge(img.state)}</td>
+                        <td style="white-space: nowrap;">${new Date(img.created_at).toLocaleString()}</td>
+                        <td style="white-space: nowrap;">
+                            ${img.state === 'ready' ? `<button class="btn btn-sm btn-primary" onclick="showDeployDiskModal({ imageId: ${img.id} })">Deploy</button>` : ''}
+                            <button class="btn btn-sm admin-only" onclick="editDiskImageDescription(${img.id})">Edit</button>
+                            <button class="btn btn-sm btn-danger admin-only" onclick="deleteDiskImage(${img.id}, '${jsAttrEscape(img.name)}')">Delete</button>
+                        </td>
+                    </tr>`).join('')}
+            </tbody>
+        </table>
+        </div>`;
+}
+
+function diskJobDuration(job) {
+    if (!job.started_at) return '-';
+    const end = job.finished_at ? new Date(job.finished_at) : new Date();
+    const secs = Math.max(0, Math.round((end - new Date(job.started_at)) / 1000));
+    if (secs < 60) return `${secs}s`;
+    return `${Math.floor(secs / 60)}m ${secs % 60}s`;
+}
+
+function renderDiskJobs() {
+    const container = document.getElementById('disk-jobs-table');
+    if (!container) return;
+    if (diskJobs.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-secondary); padding: 20px;">No capture or deploy jobs yet.</p>';
+        return;
+    }
+    container.innerHTML = `
+        <div class="table-scroll">
+        <table>
+            <thead><tr>
+                <th>Queued</th><th>Client</th><th>Job</th><th>Image</th><th>Disk</th><th>State</th><th>Duration</th><th>Message</th><th></th>
+            </tr></thead>
+            <tbody>
+                ${diskJobs.map(job => `
+                    <tr>
+                        <td style="white-space: nowrap;">${new Date(job.created_at).toLocaleString()}</td>
+                        <td><code>${escapeHtml(job.client_mac)}</code>${job.client_name ? ' ' + escapeHtml(job.client_name) : ''}</td>
+                        <td>${escapeHtml(job.kind)}</td>
+                        <td>${escapeHtml(job.disk_image ? job.disk_image.name : String(job.disk_image_id))}</td>
+                        <td>${escapeHtml(job.disk || '-')}</td>
+                        <td>${diskJobStateBadge(job.state)}</td>
+                        <td>${diskJobDuration(job)}</td>
+                        <td style="font-size: 12px; color: var(--text-secondary);">${escapeHtml(job.message || '')}</td>
+                        <td>${(job.state === 'pending' || job.state === 'running') ? `<button class="btn btn-sm btn-danger admin-only" onclick="cancelDiskJob(${job.id})">Cancel</button>` : ''}</td>
+                    </tr>`).join('')}
+            </tbody>
+        </table>
+        </div>`;
+}
+
+function clientOptionLabel(c) {
+    return `${c.mac_address}${c.name ? ' (' + c.name + ')' : ''}`;
+}
+
+async function ensureClientsLoaded() {
+    if (!clients || clients.length === 0) {
+        try { await loadClients(); } catch (_) {}
+    }
+}
+
+async function showCaptureDiskModal(mac) {
+    await ensureClientsLoaded();
+    const select = document.getElementById('capture-disk-mac');
+    select.innerHTML = (clients || []).map(c => `<option value="${escapeHtml(c.mac_address)}"${c.mac_address === mac ? ' selected' : ''}>${escapeHtml(clientOptionLabel(c))}</option>`).join('');
+    document.getElementById('capture-disk-name').value = '';
+    document.getElementById('capture-disk-description').value = '';
+    document.getElementById('capture-disk-device').value = 'sda';
+    document.getElementById('capture-disk-wake').checked = false;
+    showModal('capture-disk-modal');
+}
+
+async function submitCaptureDisk(e) {
+    if (e) e.preventDefault();
+    const body = {
+        mac_address: document.getElementById('capture-disk-mac').value,
+        name: document.getElementById('capture-disk-name').value.trim(),
+        description: document.getElementById('capture-disk-description').value.trim(),
+        disk: document.getElementById('capture-disk-device').value.trim(),
+        wake: document.getElementById('capture-disk-wake').checked,
+    };
+    try {
+        const res = await authFetch(`${API_BASE}/disk-images/capture`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Failed to queue capture', 'error');
+            return;
+        }
+        showAlert(data.message || 'Capture queued', 'success');
+        closeModal('capture-disk-modal');
+        loadDiskImages();
+    } catch (err) {
+        showAlert('Failed to queue capture: ' + err.message, 'error');
+    }
+}
+
+async function showDeployDiskModal(opts) {
+    opts = opts || {};
+    await ensureClientsLoaded();
+    if (diskImages.length === 0) {
+        try { await loadDiskImages(); } catch (_) {}
+    }
+    const ready = diskImages.filter(img => img.state === 'ready');
+    if (ready.length === 0) {
+        showAlert('No disk images are ready to deploy. Capture one first.', 'error');
+        return;
+    }
+    const imageSelect = document.getElementById('deploy-disk-image');
+    imageSelect.innerHTML = ready.map(img => `<option value="${img.id}"${img.id === opts.imageId ? ' selected' : ''}>${escapeHtml(img.name)}${img.size_bytes ? ' (' + formatBytes(img.size_bytes) + ')' : ''}</option>`).join('');
+    const targetSelect = document.getElementById('deploy-disk-target');
+    const groups = (typeof clientGroups !== 'undefined' && clientGroups) ? clientGroups : [];
+    let html = '<optgroup label="Clients">' + (clients || []).map(c => `<option value="mac:${escapeHtml(c.mac_address)}"${c.mac_address === opts.mac ? ' selected' : ''}>${escapeHtml(clientOptionLabel(c))}</option>`).join('') + '</optgroup>';
+    if (groups.length) {
+        html += '<optgroup label="Client groups (all enabled members)">' + groups.map(g => `<option value="group:${g.id}"${g.id === opts.groupId ? ' selected' : ''}>${escapeHtml(g.name)} (${g.member_count} members)</option>`).join('') + '</optgroup>';
+    }
+    targetSelect.innerHTML = html;
+    document.getElementById('deploy-disk-device').value = 'sda';
+    document.getElementById('deploy-disk-wake').checked = false;
+    showModal('deploy-disk-modal');
+}
+
+async function submitDeployDisk(e) {
+    if (e) e.preventDefault();
+    const target = document.getElementById('deploy-disk-target').value;
+    const body = {
+        image_id: parseInt(document.getElementById('deploy-disk-image').value, 10),
+        disk: document.getElementById('deploy-disk-device').value.trim(),
+        wake: document.getElementById('deploy-disk-wake').checked,
+    };
+    if (target.startsWith('group:')) {
+        body.client_group_id = parseInt(target.slice(6), 10);
+    } else {
+        body.mac_address = target.slice(4);
+    }
+    const imageName = document.getElementById('deploy-disk-image').selectedOptions[0].textContent;
+    if (!confirm(`Deploy ${imageName} and overwrite disk ${body.disk || 'sda'} on the selected target on its next PXE boot?`)) return;
+    try {
+        const res = await authFetch(`${API_BASE}/disk-images/deploy`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Failed to queue deploy', 'error');
+            return;
+        }
+        showAlert(data.message + (data.error ? ' (' + data.error + ')' : ''), data.error ? 'warning' : 'success');
+        closeModal('deploy-disk-modal');
+        loadDiskImages();
+    } catch (err) {
+        showAlert('Failed to queue deploy: ' + err.message, 'error');
+    }
+}
+
+function bulkDeployDiskImageClientGroup() {
+    const id = parseInt(document.getElementById('edit-client-group-form').elements.id.value, 10);
+    if (!id) return;
+    showDeployDiskModal({ groupId: id });
+}
+
+async function cancelDiskJob(id) {
+    if (!confirm('Cancel this job? A capture in progress will be discarded.')) return;
+    try {
+        const res = await authFetch(`${API_BASE}/disk-images/jobs?id=${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        showAlert(data.message || data.error || 'Done', data.success ? 'success' : 'error');
+        loadDiskImages();
+    } catch (err) {
+        showAlert('Failed to cancel job', 'error');
+    }
+}
+
+async function deleteDiskImage(id, name) {
+    if (!confirm(`Delete disk image ${name} and all of its files? This cannot be undone.`)) return;
+    try {
+        const res = await authFetch(`${API_BASE}/disk-images?id=${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        showAlert(data.message || data.error || 'Done', data.success ? 'success' : 'error');
+        loadDiskImages();
+    } catch (err) {
+        showAlert('Failed to delete disk image', 'error');
+    }
+}
+
+async function editDiskImageDescription(id) {
+    const img = diskImages.find(i => i.id === id);
+    if (!img) return;
+    const description = prompt(`Description for ${img.name}`, img.description || '');
+    if (description === null) return;
+    try {
+        const res = await authFetch(`${API_BASE}/disk-images?id=${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ description }),
+        });
+        const data = await res.json();
+        showAlert(data.message || data.error || 'Done', data.success ? 'success' : 'error');
+        loadDiskImages();
+    } catch (err) {
+        showAlert('Failed to update disk image', 'error');
     }
 }
 

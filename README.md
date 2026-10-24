@@ -28,6 +28,7 @@ I've used Claude CLI to help with some parts of this project - mostly making the
 - **Per-client access control**: Assign specific images per MAC address, toggle public image visibility per client
 - **Client auto-discovery**: Clients are automatically detected when they PXE boot, like DHCP leases - promote to static when ready
 - **Next boot action**: Set a one-time boot image for a client with optional Wake-on-LAN - auto-clears after use
+- **Disk capture and deploy**: Image a client's disk with the bundled Clonezilla and restore it to one client or a whole client group on their next PXE boot
 - **BMC power control**: Power clients on, off or restart them over Redfish or Intel AMT, per client or in bulk across a client group
 - **Hardware inventory**: Automatic collection of CPU, memory, manufacturer, serial number, and NIC info from PXE clients
 - **JWT authentication**: Secure token-based auth with a dedicated login page
@@ -130,6 +131,7 @@ $ systemctl start bootimus
 - **[Auto-Install](docs/en/auto-install.md)** - autounattend.xml, cloud-init, kickstart, preseed
 - **[Client Management](docs/en/clients.md)** - MAC-based access control, auto-discovery, next boot
 - **[Multi-Site](docs/en/multi-site.md)** - Read-only branch replicas that mirror a primary
+- **[Disk Imaging](docs/en/disk-imaging.md)** - Capture a client's disk with Clonezilla and deploy it to one client or a whole group
 - **[Authentication](docs/en/authentication.md)** - JWT auth, LDAP/Active Directory and OIDC single sign-on setup
 - **[Distro Profiles](docs/en/distro-profiles.md)** - Data-driven distro detection and boot params
 
@@ -189,6 +191,7 @@ globally active set.
 
 ### Other
 - FreeBSD
+- **OpenBSD and NetBSD** (new, feedback welcome) — booted through their own PXE loaders served over TFTP, see the [Image Management Guide](docs/en/images.md#openbsd-and-netbsd)
 - **Windows 10/11** (via wimboot) — optional unattended install via SMB (see the [Windows Unattended Install](#windows-unattended-install---windows-smb) section). Needs `samba` on the host if enabled.
 
 For distributions not in this list, the **generic boot scanner** automatically walks the ISO filesystem to find kernel and initrd files and attempts to extract boot parameters from syslinux/grub configuration files.
@@ -278,7 +281,6 @@ services:
 ## Roadmap
 
 - iPXE colour theming (blocked on iPXE firmware compatibility)
-- NetBSD/OpenBSD support
 
 ## Why Bootimus Over iVentoy?
 

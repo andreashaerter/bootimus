@@ -11,6 +11,7 @@
 - [解析顺序](#解析顺序)
 - [占位符](#占位符)
 - [示例](#示例)
+- [报告安装完成](#报告安装完成)
 - [Windows 注意事项](#windows-注意事项)
 - [REST API](#rest-api)
 - [故障排查](#故障排查)
@@ -121,6 +122,8 @@ Served auto-install script for ubuntu-24.04-live-server-amd64.iso \
 | `{{SERVER_ADDR}}` | Bootimus 服务器地址 |
 | `{{IMAGE_NAME}}` | 正在引导的镜像的显示名 |
 | `{{IMAGE_FILENAME}}` | 正在引导的镜像的 ISO 文件名 |
+| `{{CALLBACK_URL}}` | 安装程序用来报告完成的完整 URL,包含一次性令牌(见[报告安装完成](#报告安装完成)) |
+| `{{INSTALL_TOKEN}}` | `{{CALLBACK_URL}}` 背后的裸令牌,用于构造你自己的请求 |
 
 占位符是纯字符串替换 — 不做转义。请按目标格式(XML、YAML 等)适当地引用它们。
 
@@ -204,6 +207,93 @@ openssh-server
 
 ```xml
 <ComputerName>{{HOSTNAME}}</ComputerName>
+```
+
+## 报告安装完成
+
+Bootimus 从客户端加载镜像内核的那一刻起就跟踪每一次无人值守安装。记录会经历四种状态:
+
+| 状态 | 设置时机 |
+|------|----------|
+| `booted` | 客户端已获取镜像的引导文件,且该镜像带有自动安装文件或内联脚本 |
+| `installing` | 安装程序已获取自动安装文件 |
+| `completed` | 已安装的系统调用了 `{{CALLBACK_URL}}` |
+| `failed` | 回调报告了 `status=failed`,或在超时内没有任何回报 |
+
+当前状态显示在 Clients 表的 **Install** 列,完整历史位于客户端编辑器的 **Install History** 下。从未回报的安装会在六小时后标记为失败;可用 `--install-timeout-hours` 或 `bootimus.yaml` 中的 `install_timeout_hours` 更改。只要在 **Settings → Webhook** 下启用了相应事件,每次转为 `completed` 或 `failed` 都会触发 `install.completed` 或 `install.failed` webhook 事件。
+
+回调是一个发往引导端口的普通 HTTP 请求,`GET` 或 `POST` 均可:
+
+```
+http://<server>:8080/install/callback?token=<token>&status=completed|failed&message=<optional text>
+```
+
+`{{CALLBACK_URL}}` 已经包含了令牌,所以脚本只需追加 `&status=failed&message=...`。每个令牌只有第一次报告算数;之后的调用会返回 `already recorded`。
+
+### Kickstart(`%post`)
+
+```
+%post --log=/root/ks-post.log
+curl -fsS "{{CALLBACK_URL}}" || curl -fsS "{{CALLBACK_URL}}&status=failed&message=post-script"
+%end
+```
+
+### Preseed(`late_command`)
+
+```
+d-i preseed/late_command string in-target sh -c 'wget -qO- "{{CALLBACK_URL}}" || curl -fsS "{{CALLBACK_URL}}"'
+```
+
+### Ubuntu autoinstall / cloud-init
+
+`phone_home` 模块会在首次启动后发送请求,这是最可靠的信号:
+
+```yaml
+#cloud-config
+autoinstall:
+  version: 1
+  user-data:
+    phone_home:
+      url: "{{CALLBACK_URL}}"
+      post: [instance_id, hostname]
+      tries: 10
+```
+
+或者用 `late-commands` 从安装程序环境中报告:
+
+```yaml
+  late-commands:
+    - curtin in-target --target=/target -- curl -fsS "{{CALLBACK_URL}}"
+```
+
+### Windows(`autounattend.xml`)
+
+在 `Microsoft-Windows-Shell-Setup` 下添加一条首次登录命令:
+
+```xml
+<FirstLogonCommands>
+  <SynchronousCommand wcm:action="add">
+    <Order>1</Order>
+    <CommandLine>powershell -NoProfile -Command "Invoke-WebRequest -UseBasicParsing '{{CALLBACK_URL}}'"</CommandLine>
+    <Description>Report install to Bootimus</Description>
+  </SynchronousCommand>
+</FirstLogonCommands>
+```
+
+请记住,如果追加 `status` 或 `message` 参数,XML 属性或文本中的 `&` 必须写成 `&amp;`。
+
+### Talos 和 Flatcar 节点
+
+通过 **Kubernetes** 标签页注册的 Kubernetes 节点已经通过机器配置流程以及 `node.install_started` / `node.install_completed` 事件进行报告。它们不需要回调。
+
+### 查询历史
+
+```bash
+# History for one client
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/clients/installs?mac=b4:2e:99:01:5f:a3"
+
+# Recent installs across the fleet
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/installs?limit=50"
 ```
 
 ## Windows 注意事项
