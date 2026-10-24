@@ -322,6 +322,20 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/logs?limit=500
 
 All admin functions available via REST API for automation.
 
+### OpenAPI Document
+
+The server describes its own API as an OpenAPI 3.0 document at `GET /api/openapi.json` (no authentication needed). The same document is committed as [docs/openapi.json](../openapi.json) and can be regenerated with `bootimus openapi` or `make openapi`. Each operation carries two extensions: `x-bootimus-public` marks endpoints that need no token, and `x-bootimus-readonly` marks endpoints that read-only users may call. The **API Reference** tab in the admin UI is rendered from this document, and so is kept in step with the server automatically.
+
+```bash
+# Save the document from a running server
+curl -s http://localhost:8081/api/openapi.json > bootimus-openapi.json
+
+# Or print it from the binary without a server
+bootimus openapi > bootimus-openapi.json
+```
+
+Import it into Postman, Insomnia, Swagger UI or an OpenAPI client generator to work with the API from your own tooling.
+
 ### Authentication
 
 All endpoints except `/api/login` and `/api/auth-info` need a token from `POST /api/login`, sent as `Authorization: Bearer <token>` (see [Authentication](authentication.md#obtain-a-token)). Log in with:

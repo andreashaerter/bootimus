@@ -1,0 +1,4915 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Bootimus API",
+    "version": "0.1.77",
+    "description": "REST API of the Bootimus PXE and HTTP boot server. Responses are JSON of the form {success, message, error, data}. Endpoints marked x-bootimus-readonly are available to read-only users; all others need an admin token."
+  },
+  "tags": [
+    {
+      "name": "Authentication"
+    },
+    {
+      "name": "Server",
+      "description": "Server information and statistics."
+    },
+    {
+      "name": "Clients"
+    },
+    {
+      "name": "Client Groups"
+    },
+    {
+      "name": "Images"
+    },
+    {
+      "name": "Image Groups"
+    },
+    {
+      "name": "Bootloaders"
+    },
+    {
+      "name": "Tools"
+    },
+    {
+      "name": "Distro Profiles"
+    },
+    {
+      "name": "Auto-Install Files"
+    },
+    {
+      "name": "Custom Files"
+    },
+    {
+      "name": "Driver Packs",
+      "description": "Windows driver packs injected into boot.wim."
+    },
+    {
+      "name": "Kubernetes",
+      "description": "Clusters, node images and node enrolment."
+    },
+    {
+      "name": "Webhooks"
+    },
+    {
+      "name": "Scheduled Tasks"
+    },
+    {
+      "name": "Users"
+    },
+    {
+      "name": "Settings"
+    },
+    {
+      "name": "Logs"
+    },
+    {
+      "name": "Boot",
+      "description": "Endpoints served to PXE clients on the boot port; no authentication."
+    }
+  ],
+  "paths": {
+    "/api/active-sessions": {
+      "get": {
+        "tags": [
+          "Server"
+        ],
+        "summary": "Currently active boot sessions.",
+        "operationId": "getApiActiveSessions",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 11
+      }
+    },
+    "/api/assign-images": {
+      "post": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Assign images to a client.",
+        "operationId": "postApiAssignImages",
+        "requestBody": {
+          "description": "{mac_address, image_filenames[]}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 51
+      }
+    },
+    "/api/auth-info": {
+      "get": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Available authentication backends.",
+        "operationId": "getApiAuthInfo",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 2
+      }
+    },
+    "/api/autoinstall-files": {
+      "get": {
+        "tags": [
+          "Auto-Install Files"
+        ],
+        "summary": "List auto-install files.",
+        "operationId": "getApiAutoinstallFiles",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 81
+      }
+    },
+    "/api/autoinstall-files/delete": {
+      "delete": {
+        "tags": [
+          "Auto-Install Files"
+        ],
+        "summary": "Delete a file.",
+        "operationId": "deleteApiAutoinstallFilesDelete",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "query",
+            "description": "File name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 86
+      }
+    },
+    "/api/autoinstall-files/download": {
+      "get": {
+        "tags": [
+          "Auto-Install Files"
+        ],
+        "summary": "Download a file.",
+        "operationId": "getApiAutoinstallFilesDownload",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "query",
+            "description": "File name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 85
+      }
+    },
+    "/api/autoinstall-files/get": {
+      "get": {
+        "tags": [
+          "Auto-Install Files"
+        ],
+        "summary": "Get the content of a file.",
+        "operationId": "getApiAutoinstallFilesGet",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "query",
+            "description": "File name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 82
+      }
+    },
+    "/api/autoinstall-files/save": {
+      "post": {
+        "tags": [
+          "Auto-Install Files"
+        ],
+        "summary": "Save a file.",
+        "operationId": "postApiAutoinstallFilesSave",
+        "requestBody": {
+          "description": "{filename, content}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 83
+      }
+    },
+    "/api/autoinstall-files/upload": {
+      "post": {
+        "tags": [
+          "Auto-Install Files"
+        ],
+        "summary": "Upload a file.",
+        "operationId": "postApiAutoinstallFilesUpload",
+        "requestBody": {
+          "description": "file",
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "file": {
+                    "format": "binary",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 84
+      }
+    },
+    "/api/backup/export": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Download a tar.gz backup of the database and data directory.",
+        "operationId": "getApiBackupExport",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 127
+      }
+    },
+    "/api/bootloaders": {
+      "get": {
+        "tags": [
+          "Bootloaders"
+        ],
+        "summary": "List bootloader sets with their built_in flag.",
+        "operationId": "getApiBootloaders",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 60
+      }
+    },
+    "/api/bootloaders/create": {
+      "post": {
+        "tags": [
+          "Bootloaders"
+        ],
+        "summary": "Create an empty user bootloader set.",
+        "operationId": "postApiBootloadersCreate",
+        "requestBody": {
+          "description": "{name}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 61
+      }
+    },
+    "/api/bootloaders/delete": {
+      "delete": {
+        "tags": [
+          "Bootloaders"
+        ],
+        "summary": "Delete a whole set, or one file when name is given.",
+        "operationId": "deleteApiBootloadersDelete",
+        "parameters": [
+          {
+            "name": "set",
+            "in": "query",
+            "description": "Bootloader set name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "description": "A single file within the set",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 63
+      }
+    },
+    "/api/bootloaders/select": {
+      "post": {
+        "tags": [
+          "Bootloaders"
+        ],
+        "summary": "Set the active bootloader set.",
+        "operationId": "postApiBootloadersSelect",
+        "requestBody": {
+          "description": "{set}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 64
+      }
+    },
+    "/api/bootloaders/upload": {
+      "post": {
+        "tags": [
+          "Bootloaders"
+        ],
+        "summary": "Upload files into a bootloader set.",
+        "operationId": "postApiBootloadersUpload",
+        "requestBody": {
+          "description": "set, files[]",
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "files": {
+                    "items": {
+                      "format": "binary",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "set": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 62
+      }
+    },
+    "/api/client-groups": {
+      "get": {
+        "tags": [
+          "Client Groups"
+        ],
+        "summary": "List all client groups.",
+        "operationId": "getApiClientGroups",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 25
+      },
+      "post": {
+        "tags": [
+          "Client Groups"
+        ],
+        "summary": "Create a client group.",
+        "operationId": "postApiClientGroups",
+        "requestBody": {
+          "description": "{name, description, ...}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 26
+      }
+    },
+    "/api/client-groups/delete": {
+      "delete": {
+        "tags": [
+          "Client Groups"
+        ],
+        "summary": "Delete a client group.",
+        "operationId": "deleteApiClientGroupsDelete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Group ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 29
+      }
+    },
+    "/api/client-groups/get": {
+      "get": {
+        "tags": [
+          "Client Groups"
+        ],
+        "summary": "Get one client group.",
+        "operationId": "getApiClientGroupsGet",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Group ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 27
+      }
+    },
+    "/api/client-groups/membership": {
+      "post": {
+        "tags": [
+          "Client Groups"
+        ],
+        "summary": "Set the members of a client group.",
+        "operationId": "postApiClientGroupsMembership",
+        "requestBody": {
+          "description": "{group_id, client_macs[]}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 30
+      }
+    },
+    "/api/client-groups/next-boot": {
+      "post": {
+        "tags": [
+          "Client Groups"
+        ],
+        "summary": "Set a next-boot image on all members.",
+        "operationId": "postApiClientGroupsNextBoot",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Group ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "{filename}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 32
+      }
+    },
+    "/api/client-groups/power": {
+      "post": {
+        "tags": [
+          "Client Groups"
+        ],
+        "summary": "Power control for all members.",
+        "operationId": "postApiClientGroupsPower",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Group ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "{action}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 33
+      }
+    },
+    "/api/client-groups/update": {
+      "put": {
+        "tags": [
+          "Client Groups"
+        ],
+        "summary": "Update a client group.",
+        "operationId": "putApiClientGroupsUpdate",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Group ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "{name, description, ...}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 28
+      }
+    },
+    "/api/client-groups/wake": {
+      "post": {
+        "tags": [
+          "Client Groups"
+        ],
+        "summary": "Wake all members of a group.",
+        "operationId": "postApiClientGroupsWake",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Group ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 31
+      }
+    },
+    "/api/clients": {
+      "delete": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Delete a client.",
+        "operationId": "deleteApiClients",
+        "parameters": [
+          {
+            "name": "mac",
+            "in": "query",
+            "description": "MAC address of the client",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 16
+      },
+      "get": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "List all clients, or one when mac is given.",
+        "operationId": "getApiClients",
+        "parameters": [
+          {
+            "name": "mac",
+            "in": "query",
+            "description": "MAC address of a single client",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 13
+      },
+      "post": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Create a static client.",
+        "operationId": "postApiClients",
+        "requestBody": {
+          "description": "{mac_address, name, description, enabled, ...}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 14
+      },
+      "put": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Partial update; any client field is accepted.",
+        "operationId": "putApiClients",
+        "parameters": [
+          {
+            "name": "mac",
+            "in": "query",
+            "description": "MAC address of the client",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "{name, description, enabled, ...}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 15
+      }
+    },
+    "/api/clients/import": {
+      "post": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Import clients from a CSV file.",
+        "operationId": "postApiClientsImport",
+        "requestBody": {
+          "description": "file",
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "file": {
+                    "format": "binary",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 24
+      }
+    },
+    "/api/clients/inventory": {
+      "get": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Latest hardware inventory.",
+        "operationId": "getApiClientsInventory",
+        "parameters": [
+          {
+            "name": "mac",
+            "in": "query",
+            "description": "MAC address of the client",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 20
+      }
+    },
+    "/api/clients/inventory/history": {
+      "get": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Historical inventory submissions.",
+        "operationId": "getApiClientsInventoryHistory",
+        "parameters": [
+          {
+            "name": "mac",
+            "in": "query",
+            "description": "MAC address of the client",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 21
+      }
+    },
+    "/api/clients/next-boot": {
+      "post": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Set a one-shot next-boot image.",
+        "operationId": "postApiClientsNextBoot",
+        "parameters": [
+          {
+            "name": "mac",
+            "in": "query",
+            "description": "MAC address of the client",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "{filename}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 18
+      }
+    },
+    "/api/clients/power": {
+      "post": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "BMC (Redfish or Intel AMT) power control.",
+        "operationId": "postApiClientsPower",
+        "parameters": [
+          {
+            "name": "mac",
+            "in": "query",
+            "description": "MAC address of the client",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "description": "On, ForceOff, ForceRestart, GracefulShutdown or GracefulRestart",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 22
+      }
+    },
+    "/api/clients/power/status": {
+      "get": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "BMC (Redfish or Intel AMT) power status.",
+        "operationId": "getApiClientsPowerStatus",
+        "parameters": [
+          {
+            "name": "mac",
+            "in": "query",
+            "description": "MAC address of the client",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 23
+      }
+    },
+    "/api/clients/promote": {
+      "post": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Promote a discovered client to static.",
+        "operationId": "postApiClientsPromote",
+        "parameters": [
+          {
+            "name": "mac",
+            "in": "query",
+            "description": "MAC address of the client",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 19
+      }
+    },
+    "/api/clients/wake": {
+      "post": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Send a Wake-on-LAN packet.",
+        "operationId": "postApiClientsWake",
+        "parameters": [
+          {
+            "name": "mac",
+            "in": "query",
+            "description": "MAC address of the client",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 17
+      }
+    },
+    "/api/clusters": {
+      "get": {
+        "tags": [
+          "Kubernetes"
+        ],
+        "summary": "List clusters.",
+        "operationId": "getApiClusters",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 95
+      },
+      "post": {
+        "tags": [
+          "Kubernetes"
+        ],
+        "summary": "Create a cluster.",
+        "operationId": "postApiClusters",
+        "requestBody": {
+          "description": "{name, description, node_image_id, kernel_params, default_install_disk}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 96
+      }
+    },
+    "/api/clusters/config": {
+      "get": {
+        "tags": [
+          "Kubernetes"
+        ],
+        "summary": "Which machine configs a cluster holds.",
+        "operationId": "getApiClustersConfig",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Cluster ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 99
+      },
+      "post": {
+        "tags": [
+          "Kubernetes"
+        ],
+        "summary": "Upload a machine config for a role.",
+        "operationId": "postApiClustersConfig",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Cluster ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "{role, config}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 100
+      }
+    },
+    "/api/clusters/config/template": {
+      "get": {
+        "tags": [
+          "Kubernetes"
+        ],
+        "summary": "Machine config template for a provider and role.",
+        "operationId": "getApiClustersConfigTemplate",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "query",
+            "description": "Provider name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "role",
+            "in": "query",
+            "description": "controlplane or worker",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 101
+      }
+    },
+    "/api/clusters/delete": {
+      "delete": {
+        "tags": [
+          "Kubernetes"
+        ],
+        "summary": "Delete a cluster.",
+        "operationId": "deleteApiClustersDelete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Cluster ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 98
+      }
+    },
+    "/api/clusters/nodes": {
+      "get": {
+        "tags": [
+          "Kubernetes"
+        ],
+        "summary": "List the nodes of a cluster.",
+        "operationId": "getApiClustersNodes",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Cluster ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 102
+      }
+    },
+    "/api/clusters/nodes/assign": {
+      "post": {
+        "tags": [
+          "Kubernetes"
+        ],
+        "summary": "Assign a client to a cluster as a node.",
+        "operationId": "postApiClustersNodesAssign",
+        "requestBody": {
+          "description": "{mac, cluster_id, role, install_disk, config_patch, reboot}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 103
+      }
+    },
+    "/api/clusters/nodes/mark-installed": {
+      "post": {
+        "tags": [
+          "Kubernetes"
+        ],
+        "summary": "Mark a node as installed.",
+        "operationId": "postApiClustersNodesMarkInstalled",
+        "requestBody": {
+          "description": "{mac}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 106
+      }
+    },
+    "/api/clusters/nodes/reinstall": {
+      "post": {
+        "tags": [
+          "Kubernetes"
+        ],
+        "summary": "Reprovision a node on its next PXE boot.",
+        "operationId": "postApiClustersNodesReinstall",
+        "requestBody": {
+          "description": "{mac}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 105
+      }
+    },
+    "/api/clusters/nodes/unassign": {
+      "post": {
+        "tags": [
+          "Kubernetes"
+        ],
+        "summary": "Remove a node from its cluster.",
+        "operationId": "postApiClustersNodesUnassign",
+        "requestBody": {
+          "description": "{mac}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 104
+      }
+    },
+    "/api/clusters/update": {
+      "put": {
+        "tags": [
+          "Kubernetes"
+        ],
+        "summary": "Update a cluster.",
+        "operationId": "putApiClustersUpdate",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Cluster ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "{name, description, node_image_id, kernel_params, default_install_disk}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 97
+      }
+    },
+    "/api/downloads": {
+      "get": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "List active downloads.",
+        "operationId": "getApiDownloads",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 54
+      }
+    },
+    "/api/downloads/progress": {
+      "get": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Download progress.",
+        "operationId": "getApiDownloadsProgress",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "query",
+            "description": "ISO filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 55
+      }
+    },
+    "/api/drivers": {
+      "get": {
+        "tags": [
+          "Driver Packs"
+        ],
+        "summary": "List driver packs for an image.",
+        "operationId": "getApiDrivers",
+        "parameters": [
+          {
+            "name": "imageId",
+            "in": "query",
+            "description": "Image ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 91
+      }
+    },
+    "/api/drivers/delete": {
+      "delete": {
+        "tags": [
+          "Driver Packs"
+        ],
+        "summary": "Delete a driver pack.",
+        "operationId": "deleteApiDriversDelete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Driver pack ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 93
+      }
+    },
+    "/api/drivers/rebuild": {
+      "post": {
+        "tags": [
+          "Driver Packs"
+        ],
+        "summary": "Rebuild boot.wim with the driver packs.",
+        "operationId": "postApiDriversRebuild",
+        "parameters": [
+          {
+            "name": "imageId",
+            "in": "query",
+            "description": "Image ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 94
+      }
+    },
+    "/api/drivers/upload": {
+      "post": {
+        "tags": [
+          "Driver Packs"
+        ],
+        "summary": "Upload a driver pack.",
+        "operationId": "postApiDriversUpload",
+        "requestBody": {
+          "description": "file, imageId",
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "file": {
+                    "format": "binary",
+                    "type": "string"
+                  },
+                  "imageId": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 92
+      }
+    },
+    "/api/files": {
+      "get": {
+        "tags": [
+          "Custom Files"
+        ],
+        "summary": "List custom files.",
+        "operationId": "getApiFiles",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 87
+      }
+    },
+    "/api/files/delete": {
+      "delete": {
+        "tags": [
+          "Custom Files"
+        ],
+        "summary": "Delete a custom file.",
+        "operationId": "deleteApiFilesDelete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "File ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 90
+      }
+    },
+    "/api/files/update": {
+      "put": {
+        "tags": [
+          "Custom Files"
+        ],
+        "summary": "Update file metadata.",
+        "operationId": "putApiFilesUpdate",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "File ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "{description, destination_path, public}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 89
+      }
+    },
+    "/api/files/upload": {
+      "post": {
+        "tags": [
+          "Custom Files"
+        ],
+        "summary": "Upload a custom file.",
+        "operationId": "postApiFilesUpload",
+        "requestBody": {
+          "description": "file, imageId, description, destinationPath, public",
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "description": {
+                    "type": "string"
+                  },
+                  "destinationPath": {
+                    "type": "string"
+                  },
+                  "file": {
+                    "format": "binary",
+                    "type": "string"
+                  },
+                  "imageId": {
+                    "type": "string"
+                  },
+                  "public": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 88
+      }
+    },
+    "/api/groups": {
+      "get": {
+        "tags": [
+          "Image Groups"
+        ],
+        "summary": "List image groups.",
+        "operationId": "getApiGroups",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 56
+      },
+      "post": {
+        "tags": [
+          "Image Groups"
+        ],
+        "summary": "Create an image group.",
+        "operationId": "postApiGroups",
+        "requestBody": {
+          "description": "{name, parent_id, description, order}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 57
+      }
+    },
+    "/api/groups/delete": {
+      "delete": {
+        "tags": [
+          "Image Groups"
+        ],
+        "summary": "Delete an image group.",
+        "operationId": "deleteApiGroupsDelete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Group ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 59
+      }
+    },
+    "/api/groups/update": {
+      "put": {
+        "tags": [
+          "Image Groups"
+        ],
+        "summary": "Update an image group.",
+        "operationId": "putApiGroupsUpdate",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Group ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "{name, parent_id, description, order}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 58
+      }
+    },
+    "/api/images": {
+      "delete": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Delete an image.",
+        "operationId": "deleteApiImages",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "query",
+            "description": "ISO filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "delete_file",
+            "in": "query",
+            "description": "true to also remove the ISO from disk",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 36
+      },
+      "get": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "List all images, or one when filename is given.",
+        "operationId": "getApiImages",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "query",
+            "description": "ISO filename of a single image",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 34
+      },
+      "put": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Partial update of an image.",
+        "operationId": "putApiImages",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "query",
+            "description": "ISO filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "{name, description, enabled, public, group_id, order, boot_method, distro, boot_params, auto_install_file, kernel_override, initrd_override}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 35
+      }
+    },
+    "/api/images/autoinstall": {
+      "get": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Get the auto-install script for an image.",
+        "operationId": "getApiImagesAutoinstall",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "query",
+            "description": "ISO filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 49
+      },
+      "post": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Set the auto-install script for an image.",
+        "operationId": "postApiImagesAutoinstall",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "query",
+            "description": "ISO filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "{script, type, enabled}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 50
+      }
+    },
+    "/api/images/boot-candidates": {
+      "get": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Kernel and initrd files found in the extracted ISO.",
+        "operationId": "getApiImagesBootCandidates",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "query",
+            "description": "ISO filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 42
+      }
+    },
+    "/api/images/boot-method": {
+      "post": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Set the boot method.",
+        "operationId": "postApiImagesBootMethod",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "query",
+            "description": "ISO filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "{method} (sanboot, kernel, nbd or nfs)",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 47
+      }
+    },
+    "/api/images/download": {
+      "post": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Download an ISO from a URL asynchronously.",
+        "operationId": "postApiImagesDownload",
+        "requestBody": {
+          "description": "{url, filename, description}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 38
+      }
+    },
+    "/api/images/extract": {
+      "post": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Extract the kernel and initrd from an ISO.",
+        "operationId": "postApiImagesExtract",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "query",
+            "description": "ISO filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 39
+      }
+    },
+    "/api/images/extract-progress": {
+      "get": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Extraction progress.",
+        "operationId": "getApiImagesExtractProgress",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "query",
+            "description": "ISO filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 40
+      }
+    },
+    "/api/images/files": {
+      "get": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "List the extracted files of an image.",
+        "operationId": "getApiImagesFiles",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "query",
+            "description": "ISO filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 43
+      }
+    },
+    "/api/images/files/delete": {
+      "post": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Delete the extracted files of an image.",
+        "operationId": "postApiImagesFilesDelete",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "query",
+            "description": "ISO filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 44
+      }
+    },
+    "/api/images/netboot/download": {
+      "post": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Fetch the netboot kernel and initrd from the distribution mirror.",
+        "operationId": "postApiImagesNetbootDownload",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "query",
+            "description": "ISO filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 48
+      }
+    },
+    "/api/images/patch-smb": {
+      "post": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Patch boot.wim for a Windows SMB install.",
+        "operationId": "postApiImagesPatchSmb",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "query",
+            "description": "ISO filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 45
+      }
+    },
+    "/api/images/redetect": {
+      "post": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Re-run distribution detection and boot parameter resolution.",
+        "operationId": "postApiImagesRedetect",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "query",
+            "description": "ISO filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 41
+      }
+    },
+    "/api/images/unpatch-smb": {
+      "post": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Restore the original boot.wim, removing the SMB patch.",
+        "operationId": "postApiImagesUnpatchSmb",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "query",
+            "description": "ISO filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 46
+      }
+    },
+    "/api/images/upload": {
+      "post": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Upload an ISO or unified kernel image.",
+        "operationId": "postApiImagesUpload",
+        "requestBody": {
+          "description": "file, public, description",
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "description": {
+                    "type": "string"
+                  },
+                  "file": {
+                    "format": "binary",
+                    "type": "string"
+                  },
+                  "public": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 37
+      }
+    },
+    "/api/iso-catalog": {
+      "get": {
+        "tags": [
+          "Distro Profiles"
+        ],
+        "summary": "Curated catalogue of popular distributions and mirror URLs.",
+        "operationId": "getApiIsoCatalog",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 80
+      }
+    },
+    "/api/isos": {
+      "get": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "List ISO files on disk.",
+        "operationId": "getApiIsos",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 53
+      }
+    },
+    "/api/kubernetes/providers": {
+      "get": {
+        "tags": [
+          "Kubernetes"
+        ],
+        "summary": "Available Kubernetes providers.",
+        "operationId": "getApiKubernetesProviders",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 111
+      }
+    },
+    "/api/login": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Obtain a JWT token.",
+        "operationId": "postApiLogin",
+        "requestBody": {
+          "description": "{username, password, auth_method}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 1
+      }
+    },
+    "/api/logs": {
+      "get": {
+        "tags": [
+          "Logs"
+        ],
+        "summary": "Boot log entries.",
+        "operationId": "getApiLogs",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Number of entries, 1 to 1000 (default 100)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mac",
+            "in": "query",
+            "description": "Only entries for this client",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 128
+      }
+    },
+    "/api/logs/buffer": {
+      "get": {
+        "tags": [
+          "Logs"
+        ],
+        "summary": "Recent in-memory server log buffer.",
+        "operationId": "getApiLogsBuffer",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 130
+      }
+    },
+    "/api/logs/stream": {
+      "get": {
+        "tags": [
+          "Logs"
+        ],
+        "summary": "Server log as a server-sent event stream.",
+        "operationId": "getApiLogsStream",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 129
+      }
+    },
+    "/api/me": {
+      "get": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "The current user's name, admin flag and role.",
+        "operationId": "getApiMe",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 3
+      }
+    },
+    "/api/node-images": {
+      "get": {
+        "tags": [
+          "Kubernetes"
+        ],
+        "summary": "List node images.",
+        "operationId": "getApiNodeImages",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 107
+      },
+      "post": {
+        "tags": [
+          "Kubernetes"
+        ],
+        "summary": "Create a node image.",
+        "operationId": "postApiNodeImages",
+        "requestBody": {
+          "description": "{name, provider, os_version, image_ref, ...}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 108
+      }
+    },
+    "/api/node-images/delete": {
+      "delete": {
+        "tags": [
+          "Kubernetes"
+        ],
+        "summary": "Delete a node image.",
+        "operationId": "deleteApiNodeImagesDelete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Node image ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 110
+      }
+    },
+    "/api/node-images/download": {
+      "post": {
+        "tags": [
+          "Kubernetes"
+        ],
+        "summary": "Download the assets of a node image.",
+        "operationId": "postApiNodeImagesDownload",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Node image ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 109
+      }
+    },
+    "/api/oidc/callback": {
+      "get": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "OpenID Connect provider callback.",
+        "operationId": "getApiOidcCallback",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 5
+      }
+    },
+    "/api/oidc/login": {
+      "get": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Start the OpenID Connect sign-in redirect.",
+        "operationId": "getApiOidcLogin",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 4
+      }
+    },
+    "/api/openapi.json": {
+      "get": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "This OpenAPI document.",
+        "operationId": "getApiOpenapiJson",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 8
+      }
+    },
+    "/api/profiles": {
+      "get": {
+        "tags": [
+          "Distro Profiles"
+        ],
+        "summary": "List distribution profiles.",
+        "operationId": "getApiProfiles",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 76
+      }
+    },
+    "/api/profiles/delete": {
+      "delete": {
+        "tags": [
+          "Distro Profiles"
+        ],
+        "summary": "Delete a custom profile.",
+        "operationId": "deleteApiProfilesDelete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Profile ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 78
+      }
+    },
+    "/api/profiles/save": {
+      "post": {
+        "tags": [
+          "Distro Profiles"
+        ],
+        "summary": "Create or update a custom profile.",
+        "operationId": "postApiProfilesSave",
+        "requestBody": {
+          "description": "{name, family, filename_patterns[], default_boot_params, ...}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 77
+      }
+    },
+    "/api/profiles/update": {
+      "post": {
+        "tags": [
+          "Distro Profiles"
+        ],
+        "summary": "Refresh the built-in profiles from the remote source.",
+        "operationId": "postApiProfilesUpdate",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 79
+      }
+    },
+    "/api/scan": {
+      "post": {
+        "tags": [
+          "Images"
+        ],
+        "summary": "Scan the filesystem for new ISOs.",
+        "operationId": "postApiScan",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 52
+      }
+    },
+    "/api/scheduled-tasks": {
+      "get": {
+        "tags": [
+          "Scheduled Tasks"
+        ],
+        "summary": "List scheduled tasks.",
+        "operationId": "getApiScheduledTasks",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 115
+      },
+      "post": {
+        "tags": [
+          "Scheduled Tasks"
+        ],
+        "summary": "Create a scheduled task.",
+        "operationId": "postApiScheduledTasks",
+        "requestBody": {
+          "description": "{name, cron_expr, action_type, action_param, client_group_id, enabled}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 116
+      }
+    },
+    "/api/scheduled-tasks/delete": {
+      "delete": {
+        "tags": [
+          "Scheduled Tasks"
+        ],
+        "summary": "Delete a scheduled task.",
+        "operationId": "deleteApiScheduledTasksDelete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Task ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 118
+      }
+    },
+    "/api/scheduled-tasks/run": {
+      "post": {
+        "tags": [
+          "Scheduled Tasks"
+        ],
+        "summary": "Run a task now.",
+        "operationId": "postApiScheduledTasksRun",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Task ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 119
+      }
+    },
+    "/api/scheduled-tasks/update": {
+      "put": {
+        "tags": [
+          "Scheduled Tasks"
+        ],
+        "summary": "Update a scheduled task.",
+        "operationId": "putApiScheduledTasksUpdate",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "Task ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "{name, cron_expr, action_type, action_param, client_group_id, enabled}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 117
+      }
+    },
+    "/api/server-info": {
+      "get": {
+        "tags": [
+          "Server"
+        ],
+        "summary": "Version, uptime, paths and network information.",
+        "operationId": "getApiServerInfo",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 9
+      }
+    },
+    "/api/stats": {
+      "get": {
+        "tags": [
+          "Server"
+        ],
+        "summary": "Counts of clients, images and boots.",
+        "operationId": "getApiStats",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 10
+      }
+    },
+    "/api/theme": {
+      "get": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Boot menu theme and defaults.",
+        "operationId": "getApiTheme",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 125
+      },
+      "put": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Update the boot menu theme.",
+        "operationId": "putApiTheme",
+        "requestBody": {
+          "description": "{title, menu_timeout, default_menu_item}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 126
+      }
+    },
+    "/api/tools": {
+      "get": {
+        "tags": [
+          "Tools"
+        ],
+        "summary": "List tools.",
+        "operationId": "getApiTools",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 67
+      }
+    },
+    "/api/tools/custom": {
+      "post": {
+        "tags": [
+          "Tools"
+        ],
+        "summary": "Create a custom tool.",
+        "operationId": "postApiToolsCustom",
+        "requestBody": {
+          "description": "{name, display_name, ...}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 73
+      }
+    },
+    "/api/tools/custom/delete": {
+      "delete": {
+        "tags": [
+          "Tools"
+        ],
+        "summary": "Delete a custom tool.",
+        "operationId": "deleteApiToolsCustomDelete",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "description": "Tool name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 74
+      }
+    },
+    "/api/tools/delete": {
+      "delete": {
+        "tags": [
+          "Tools"
+        ],
+        "summary": "Delete the files of a tool.",
+        "operationId": "deleteApiToolsDelete",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "description": "Tool name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 70
+      }
+    },
+    "/api/tools/download": {
+      "post": {
+        "tags": [
+          "Tools"
+        ],
+        "summary": "Download a tool to disk.",
+        "operationId": "postApiToolsDownload",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "description": "Tool name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 69
+      }
+    },
+    "/api/tools/progress": {
+      "get": {
+        "tags": [
+          "Tools"
+        ],
+        "summary": "Tool download progress.",
+        "operationId": "getApiToolsProgress",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "description": "Tool name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 71
+      }
+    },
+    "/api/tools/toggle": {
+      "post": {
+        "tags": [
+          "Tools"
+        ],
+        "summary": "Enable or disable a tool.",
+        "operationId": "postApiToolsToggle",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "description": "Tool name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "{enabled}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 68
+      }
+    },
+    "/api/tools/update": {
+      "post": {
+        "tags": [
+          "Tools"
+        ],
+        "summary": "Refresh the tools catalogue from the remote source.",
+        "operationId": "postApiToolsUpdate",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 75
+      }
+    },
+    "/api/tools/url": {
+      "post": {
+        "tags": [
+          "Tools"
+        ],
+        "summary": "Override the download URL of a tool.",
+        "operationId": "postApiToolsUrl",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "description": "Tool name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "{url}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 72
+      }
+    },
+    "/api/usb": {
+      "get": {
+        "tags": [
+          "Bootloaders"
+        ],
+        "summary": "List bundled USB boot images.",
+        "operationId": "getApiUsb",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 65
+      }
+    },
+    "/api/usb/download": {
+      "get": {
+        "tags": [
+          "Bootloaders"
+        ],
+        "summary": "Download a USB boot image.",
+        "operationId": "getApiUsbDownload",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "description": "USB image name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 66
+      }
+    },
+    "/api/users": {
+      "delete": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Delete a user.",
+        "operationId": "deleteApiUsers",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "User ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 123
+      },
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "List users.",
+        "operationId": "getApiUsers",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 120
+      },
+      "post": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Create a local user.",
+        "operationId": "postApiUsers",
+        "requestBody": {
+          "description": "{username, password, is_admin}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 121
+      },
+      "put": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Update a user.",
+        "operationId": "putApiUsers",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "User ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "{enabled, is_admin}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 122
+      }
+    },
+    "/api/users/reset-password": {
+      "post": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Reset a local user's password.",
+        "operationId": "postApiUsersResetPassword",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "User ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "{new_password}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 124
+      }
+    },
+    "/api/webhook": {
+      "get": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Get the webhook configuration.",
+        "operationId": "getApiWebhook",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 112
+      },
+      "put": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Update the webhook configuration.",
+        "operationId": "putApiWebhook",
+        "requestBody": {
+          "description": "{url, enabled, on_boot_started, on_client_discovered, on_inventory_updated, on_node_events}",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 113
+      }
+    },
+    "/api/webhook/test": {
+      "post": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Send a test event.",
+        "operationId": "postApiWebhookTest",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": false,
+        "x-bootimus-readonly": false,
+        "x-bootimus-order": 114
+      }
+    },
+    "/autoexec.ipxe": {
+      "get": {
+        "tags": [
+          "Boot"
+        ],
+        "summary": "iPXE autoexec for the chainloaded bootloader.",
+        "operationId": "getAutoexecIpxe",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 132
+      }
+    },
+    "/autoinstall/{filename}": {
+      "get": {
+        "tags": [
+          "Boot"
+        ],
+        "summary": "Auto-install script (preseed, kickstart, cloud-init or autounattend).",
+        "operationId": "getAutoinstallFilename",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "path",
+            "description": "Script filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 136
+      }
+    },
+    "/boot/{cache_dir}/{path}": {
+      "get": {
+        "tags": [
+          "Boot"
+        ],
+        "summary": "Extracted boot files (kernel, initrd, squashfs).",
+        "operationId": "getBootCacheDirPath",
+        "parameters": [
+          {
+            "name": "cache_dir",
+            "in": "path",
+            "description": "Image cache directory",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "description": "File path within the cache directory",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 135
+      }
+    },
+    "/bootenv/{filename}": {
+      "get": {
+        "tags": [
+          "Boot"
+        ],
+        "summary": "NBD boot environment kernel and initrd.",
+        "operationId": "getBootenvFilename",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "path",
+            "description": "File name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 138
+      }
+    },
+    "/files/{filename}": {
+      "get": {
+        "tags": [
+          "Boot"
+        ],
+        "summary": "Custom file download.",
+        "operationId": "getFilesFilename",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "path",
+            "description": "File name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 137
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Liveness probe.",
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 7
+      }
+    },
+    "/inventory": {
+      "get": {
+        "tags": [
+          "Boot"
+        ],
+        "summary": "iPXE-submitted hardware inventory.",
+        "operationId": "getInventory",
+        "parameters": [
+          {
+            "name": "mac",
+            "in": "query",
+            "description": "MAC address of the booting client",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 133
+      }
+    },
+    "/isos/{filename}": {
+      "get": {
+        "tags": [
+          "Boot"
+        ],
+        "summary": "Direct ISO download.",
+        "operationId": "getIsosFilename",
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "path",
+            "description": "ISO filename",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 134
+      }
+    },
+    "/logout": {
+      "get": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Redirect to the login page.",
+        "operationId": "getLogout",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 6
+      }
+    },
+    "/machineconfig": {
+      "get": {
+        "tags": [
+          "Boot"
+        ],
+        "summary": "Kubernetes machine config for an enrolled node.",
+        "operationId": "getMachineconfig",
+        "parameters": [
+          {
+            "name": "m",
+            "in": "query",
+            "description": "MAC address",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "t",
+            "in": "query",
+            "description": "Enrolment token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "u",
+            "in": "query",
+            "description": "System UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 141
+      }
+    },
+    "/menu.ipxe": {
+      "get": {
+        "tags": [
+          "Boot"
+        ],
+        "summary": "Generated iPXE menu script.",
+        "operationId": "getMenuIpxe",
+        "parameters": [
+          {
+            "name": "mac",
+            "in": "query",
+            "description": "MAC address of the booting client",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 131
+      }
+    },
+    "/metrics": {
+      "get": {
+        "tags": [
+          "Server"
+        ],
+        "summary": "Prometheus metrics.",
+        "operationId": "getMetrics",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 12
+      }
+    },
+    "/node-images/{path}": {
+      "get": {
+        "tags": [
+          "Boot"
+        ],
+        "summary": "Kubernetes node image assets.",
+        "operationId": "getNodeImagesPath",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "description": "Asset path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 140
+      }
+    },
+    "/tools/{path}": {
+      "get": {
+        "tags": [
+          "Boot"
+        ],
+        "summary": "Downloaded tool files.",
+        "operationId": "getToolsPath",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "description": "File path within the tools directory",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 139
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Response": {
+        "properties": {
+          "data": {},
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "bearerFormat": "JWT",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ]
+}

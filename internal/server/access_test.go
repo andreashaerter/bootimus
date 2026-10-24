@@ -56,6 +56,7 @@ var publicRoutes = map[string]bool{
 	"/api/me":            true,
 	"/api/oidc/login":    true,
 	"/api/oidc/callback": true,
+	"/api/openapi.json":  true,
 }
 
 func registeredAPIRoutes(t *testing.T) []string {

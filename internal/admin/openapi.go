@@ -1,0 +1,436 @@
+package admin
+
+import (
+	"encoding/json"
+	"net/http"
+	"strings"
+)
+
+type APIParam struct {
+	Name        string
+	In          string
+	Description string
+	Required    bool
+}
+
+type APIEndpoint struct {
+	Method    string
+	Path      string
+	Summary   string
+	Params    []APIParam
+	Body      string
+	Multipart bool
+	Public    bool
+	ReadOnly  bool
+}
+
+type APISection struct {
+	Tag         string
+	Description string
+	Endpoints   []APIEndpoint
+}
+
+func qMAC(desc string) APIParam {
+	return APIParam{Name: "mac", In: "query", Description: desc, Required: true}
+}
+
+func qFilename(desc string) APIParam {
+	return APIParam{Name: "filename", In: "query", Description: desc, Required: true}
+}
+
+func qID(desc string) APIParam {
+	return APIParam{Name: "id", In: "query", Description: desc, Required: true}
+}
+
+func qName(desc string) APIParam {
+	return APIParam{Name: "name", In: "query", Description: desc, Required: true}
+}
+
+func pathParam(n, desc string) APIParam {
+	return APIParam{Name: n, In: "path", Description: desc, Required: true}
+}
+
+var APISections = []APISection{
+	{Tag: "Authentication", Endpoints: []APIEndpoint{
+		{Method: "POST", Path: "/api/login", Summary: "Obtain a JWT token.", Body: "{username, password, auth_method}", Public: true},
+		{Method: "GET", Path: "/api/auth-info", Summary: "Available authentication backends.", Public: true},
+		{Method: "GET", Path: "/api/me", Summary: "The current user's name, admin flag and role.", Public: true},
+		{Method: "GET", Path: "/api/oidc/login", Summary: "Start the OpenID Connect sign-in redirect.", Public: true},
+		{Method: "GET", Path: "/api/oidc/callback", Summary: "OpenID Connect provider callback.", Public: true},
+		{Method: "GET", Path: "/logout", Summary: "Redirect to the login page.", Public: true},
+		{Method: "GET", Path: "/health", Summary: "Liveness probe.", Public: true},
+		{Method: "GET", Path: "/api/openapi.json", Summary: "This OpenAPI document.", Public: true},
+	}},
+	{Tag: "Server", Description: "Server information and statistics.", Endpoints: []APIEndpoint{
+		{Method: "GET", Path: "/api/server-info", Summary: "Version, uptime, paths and network information.", ReadOnly: true},
+		{Method: "GET", Path: "/api/stats", Summary: "Counts of clients, images and boots.", ReadOnly: true},
+		{Method: "GET", Path: "/api/active-sessions", Summary: "Currently active boot sessions.", ReadOnly: true},
+		{Method: "GET", Path: "/metrics", Summary: "Prometheus metrics.", Public: true},
+	}},
+	{Tag: "Clients", Endpoints: []APIEndpoint{
+		{Method: "GET", Path: "/api/clients", Summary: "List all clients, or one when mac is given.", Params: []APIParam{{Name: "mac", In: "query", Description: "MAC address of a single client"}}, ReadOnly: true},
+		{Method: "POST", Path: "/api/clients", Summary: "Create a static client.", Body: "{mac_address, name, description, enabled, ...}"},
+		{Method: "PUT", Path: "/api/clients", Summary: "Partial update; any client field is accepted.", Params: []APIParam{qMAC("MAC address of the client")}, Body: "{name, description, enabled, ...}"},
+		{Method: "DELETE", Path: "/api/clients", Summary: "Delete a client.", Params: []APIParam{qMAC("MAC address of the client")}},
+		{Method: "POST", Path: "/api/clients/wake", Summary: "Send a Wake-on-LAN packet.", Params: []APIParam{qMAC("MAC address of the client")}},
+		{Method: "POST", Path: "/api/clients/next-boot", Summary: "Set a one-shot next-boot image.", Params: []APIParam{qMAC("MAC address of the client")}, Body: "{filename}"},
+		{Method: "POST", Path: "/api/clients/promote", Summary: "Promote a discovered client to static.", Params: []APIParam{qMAC("MAC address of the client")}},
+		{Method: "GET", Path: "/api/clients/inventory", Summary: "Latest hardware inventory.", Params: []APIParam{qMAC("MAC address of the client")}, ReadOnly: true},
+		{Method: "GET", Path: "/api/clients/inventory/history", Summary: "Historical inventory submissions.", Params: []APIParam{qMAC("MAC address of the client")}, ReadOnly: true},
+		{Method: "POST", Path: "/api/clients/power", Summary: "BMC (Redfish or Intel AMT) power control.", Params: []APIParam{qMAC("MAC address of the client"), {Name: "action", In: "query", Description: "On, ForceOff, ForceRestart, GracefulShutdown or GracefulRestart", Required: true}}},
+		{Method: "GET", Path: "/api/clients/power/status", Summary: "BMC (Redfish or Intel AMT) power status.", Params: []APIParam{qMAC("MAC address of the client")}, ReadOnly: true},
+		{Method: "POST", Path: "/api/clients/import", Summary: "Import clients from a CSV file.", Body: "file", Multipart: true},
+	}},
+	{Tag: "Client Groups", Endpoints: []APIEndpoint{
+		{Method: "GET", Path: "/api/client-groups", Summary: "List all client groups.", ReadOnly: true},
+		{Method: "POST", Path: "/api/client-groups", Summary: "Create a client group.", Body: "{name, description, ...}"},
+		{Method: "GET", Path: "/api/client-groups/get", Summary: "Get one client group.", Params: []APIParam{qID("Group ID")}, ReadOnly: true},
+		{Method: "PUT", Path: "/api/client-groups/update", Summary: "Update a client group.", Params: []APIParam{qID("Group ID")}, Body: "{name, description, ...}"},
+		{Method: "DELETE", Path: "/api/client-groups/delete", Summary: "Delete a client group.", Params: []APIParam{qID("Group ID")}},
+		{Method: "POST", Path: "/api/client-groups/membership", Summary: "Set the members of a client group.", Body: "{group_id, client_macs[]}"},
+		{Method: "POST", Path: "/api/client-groups/wake", Summary: "Wake all members of a group.", Params: []APIParam{qID("Group ID")}},
+		{Method: "POST", Path: "/api/client-groups/next-boot", Summary: "Set a next-boot image on all members.", Params: []APIParam{qID("Group ID")}, Body: "{filename}"},
+		{Method: "POST", Path: "/api/client-groups/power", Summary: "Power control for all members.", Params: []APIParam{qID("Group ID")}, Body: "{action}"},
+	}},
+	{Tag: "Images", Endpoints: []APIEndpoint{
+		{Method: "GET", Path: "/api/images", Summary: "List all images, or one when filename is given.", Params: []APIParam{{Name: "filename", In: "query", Description: "ISO filename of a single image"}}, ReadOnly: true},
+		{Method: "PUT", Path: "/api/images", Summary: "Partial update of an image.", Params: []APIParam{qFilename("ISO filename")}, Body: "{name, description, enabled, public, group_id, order, boot_method, distro, boot_params, auto_install_file, kernel_override, initrd_override}"},
+		{Method: "DELETE", Path: "/api/images", Summary: "Delete an image.", Params: []APIParam{qFilename("ISO filename"), {Name: "delete_file", In: "query", Description: "true to also remove the ISO from disk"}}},
+		{Method: "POST", Path: "/api/images/upload", Summary: "Upload an ISO or unified kernel image.", Body: "file, public, description", Multipart: true},
+		{Method: "POST", Path: "/api/images/download", Summary: "Download an ISO from a URL asynchronously.", Body: "{url, filename, description}"},
+		{Method: "POST", Path: "/api/images/extract", Summary: "Extract the kernel and initrd from an ISO.", Params: []APIParam{qFilename("ISO filename")}},
+		{Method: "GET", Path: "/api/images/extract-progress", Summary: "Extraction progress.", Params: []APIParam{qFilename("ISO filename")}, ReadOnly: true},
+		{Method: "POST", Path: "/api/images/redetect", Summary: "Re-run distribution detection and boot parameter resolution.", Params: []APIParam{qFilename("ISO filename")}},
+		{Method: "GET", Path: "/api/images/boot-candidates", Summary: "Kernel and initrd files found in the extracted ISO.", Params: []APIParam{qFilename("ISO filename")}, ReadOnly: true},
+		{Method: "GET", Path: "/api/images/files", Summary: "List the extracted files of an image.", Params: []APIParam{qFilename("ISO filename")}, ReadOnly: true},
+		{Method: "POST", Path: "/api/images/files/delete", Summary: "Delete the extracted files of an image.", Params: []APIParam{qFilename("ISO filename")}},
+		{Method: "POST", Path: "/api/images/patch-smb", Summary: "Patch boot.wim for a Windows SMB install.", Params: []APIParam{qFilename("ISO filename")}},
+		{Method: "POST", Path: "/api/images/unpatch-smb", Summary: "Restore the original boot.wim, removing the SMB patch.", Params: []APIParam{qFilename("ISO filename")}},
+		{Method: "POST", Path: "/api/images/boot-method", Summary: "Set the boot method.", Params: []APIParam{qFilename("ISO filename")}, Body: "{method} (sanboot, kernel, nbd or nfs)"},
+		{Method: "POST", Path: "/api/images/netboot/download", Summary: "Fetch the netboot kernel and initrd from the distribution mirror.", Params: []APIParam{qFilename("ISO filename")}},
+		{Method: "GET", Path: "/api/images/autoinstall", Summary: "Get the auto-install script for an image.", Params: []APIParam{qFilename("ISO filename")}},
+		{Method: "POST", Path: "/api/images/autoinstall", Summary: "Set the auto-install script for an image.", Params: []APIParam{qFilename("ISO filename")}, Body: "{script, type, enabled}"},
+		{Method: "POST", Path: "/api/assign-images", Summary: "Assign images to a client.", Body: "{mac_address, image_filenames[]}"},
+		{Method: "POST", Path: "/api/scan", Summary: "Scan the filesystem for new ISOs."},
+		{Method: "GET", Path: "/api/isos", Summary: "List ISO files on disk.", Public: true},
+		{Method: "GET", Path: "/api/downloads", Summary: "List active downloads.", ReadOnly: true},
+		{Method: "GET", Path: "/api/downloads/progress", Summary: "Download progress.", Params: []APIParam{qFilename("ISO filename")}, ReadOnly: true},
+	}},
+	{Tag: "Image Groups", Endpoints: []APIEndpoint{
+		{Method: "GET", Path: "/api/groups", Summary: "List image groups.", ReadOnly: true},
+		{Method: "POST", Path: "/api/groups", Summary: "Create an image group.", Body: "{name, parent_id, description, order}"},
+		{Method: "PUT", Path: "/api/groups/update", Summary: "Update an image group.", Params: []APIParam{qID("Group ID")}, Body: "{name, parent_id, description, order}"},
+		{Method: "DELETE", Path: "/api/groups/delete", Summary: "Delete an image group.", Params: []APIParam{qID("Group ID")}},
+	}},
+	{Tag: "Bootloaders", Endpoints: []APIEndpoint{
+		{Method: "GET", Path: "/api/bootloaders", Summary: "List bootloader sets with their built_in flag.", ReadOnly: true},
+		{Method: "POST", Path: "/api/bootloaders/create", Summary: "Create an empty user bootloader set.", Body: "{name}"},
+		{Method: "POST", Path: "/api/bootloaders/upload", Summary: "Upload files into a bootloader set.", Body: "set, files[]", Multipart: true},
+		{Method: "DELETE", Path: "/api/bootloaders/delete", Summary: "Delete a whole set, or one file when name is given.", Params: []APIParam{{Name: "set", In: "query", Description: "Bootloader set name", Required: true}, {Name: "name", In: "query", Description: "A single file within the set"}}},
+		{Method: "POST", Path: "/api/bootloaders/select", Summary: "Set the active bootloader set.", Body: "{set}"},
+		{Method: "GET", Path: "/api/usb", Summary: "List bundled USB boot images.", ReadOnly: true},
+		{Method: "GET", Path: "/api/usb/download", Summary: "Download a USB boot image.", Params: []APIParam{qName("USB image name")}, ReadOnly: true},
+	}},
+	{Tag: "Tools", Endpoints: []APIEndpoint{
+		{Method: "GET", Path: "/api/tools", Summary: "List tools.", ReadOnly: true},
+		{Method: "POST", Path: "/api/tools/toggle", Summary: "Enable or disable a tool.", Params: []APIParam{qName("Tool name")}, Body: "{enabled}"},
+		{Method: "POST", Path: "/api/tools/download", Summary: "Download a tool to disk.", Params: []APIParam{qName("Tool name")}},
+		{Method: "DELETE", Path: "/api/tools/delete", Summary: "Delete the files of a tool.", Params: []APIParam{qName("Tool name")}},
+		{Method: "GET", Path: "/api/tools/progress", Summary: "Tool download progress.", Params: []APIParam{qName("Tool name")}, ReadOnly: true},
+		{Method: "POST", Path: "/api/tools/url", Summary: "Override the download URL of a tool.", Params: []APIParam{qName("Tool name")}, Body: "{url}"},
+		{Method: "POST", Path: "/api/tools/custom", Summary: "Create a custom tool.", Body: "{name, display_name, ...}"},
+		{Method: "DELETE", Path: "/api/tools/custom/delete", Summary: "Delete a custom tool.", Params: []APIParam{qName("Tool name")}},
+		{Method: "POST", Path: "/api/tools/update", Summary: "Refresh the tools catalogue from the remote source."},
+	}},
+	{Tag: "Distro Profiles", Endpoints: []APIEndpoint{
+		{Method: "GET", Path: "/api/profiles", Summary: "List distribution profiles.", ReadOnly: true},
+		{Method: "POST", Path: "/api/profiles/save", Summary: "Create or update a custom profile.", Body: "{name, family, filename_patterns[], default_boot_params, ...}"},
+		{Method: "DELETE", Path: "/api/profiles/delete", Summary: "Delete a custom profile.", Params: []APIParam{qID("Profile ID")}},
+		{Method: "POST", Path: "/api/profiles/update", Summary: "Refresh the built-in profiles from the remote source."},
+		{Method: "GET", Path: "/api/iso-catalog", Summary: "Curated catalogue of popular distributions and mirror URLs.", ReadOnly: true},
+	}},
+	{Tag: "Auto-Install Files", Endpoints: []APIEndpoint{
+		{Method: "GET", Path: "/api/autoinstall-files", Summary: "List auto-install files."},
+		{Method: "GET", Path: "/api/autoinstall-files/get", Summary: "Get the content of a file.", Params: []APIParam{qFilename("File name")}},
+		{Method: "POST", Path: "/api/autoinstall-files/save", Summary: "Save a file.", Body: "{filename, content}"},
+		{Method: "POST", Path: "/api/autoinstall-files/upload", Summary: "Upload a file.", Body: "file", Multipart: true},
+		{Method: "GET", Path: "/api/autoinstall-files/download", Summary: "Download a file.", Params: []APIParam{qFilename("File name")}},
+		{Method: "DELETE", Path: "/api/autoinstall-files/delete", Summary: "Delete a file.", Params: []APIParam{qFilename("File name")}},
+	}},
+	{Tag: "Custom Files", Endpoints: []APIEndpoint{
+		{Method: "GET", Path: "/api/files", Summary: "List custom files.", ReadOnly: true},
+		{Method: "POST", Path: "/api/files/upload", Summary: "Upload a custom file.", Body: "file, imageId, description, destinationPath, public", Multipart: true},
+		{Method: "PUT", Path: "/api/files/update", Summary: "Update file metadata.", Params: []APIParam{qID("File ID")}, Body: "{description, destination_path, public}"},
+		{Method: "DELETE", Path: "/api/files/delete", Summary: "Delete a custom file.", Params: []APIParam{qID("File ID")}},
+	}},
+	{Tag: "Driver Packs", Description: "Windows driver packs injected into boot.wim.", Endpoints: []APIEndpoint{
+		{Method: "GET", Path: "/api/drivers", Summary: "List driver packs for an image.", Params: []APIParam{{Name: "imageId", In: "query", Description: "Image ID", Required: true}}, ReadOnly: true},
+		{Method: "POST", Path: "/api/drivers/upload", Summary: "Upload a driver pack.", Body: "file, imageId", Multipart: true},
+		{Method: "DELETE", Path: "/api/drivers/delete", Summary: "Delete a driver pack.", Params: []APIParam{qID("Driver pack ID")}},
+		{Method: "POST", Path: "/api/drivers/rebuild", Summary: "Rebuild boot.wim with the driver packs.", Params: []APIParam{{Name: "imageId", In: "query", Description: "Image ID", Required: true}}},
+	}},
+	{Tag: "Kubernetes", Description: "Clusters, node images and node enrolment.", Endpoints: []APIEndpoint{
+		{Method: "GET", Path: "/api/clusters", Summary: "List clusters.", ReadOnly: true},
+		{Method: "POST", Path: "/api/clusters", Summary: "Create a cluster.", Body: "{name, description, node_image_id, kernel_params, default_install_disk}"},
+		{Method: "PUT", Path: "/api/clusters/update", Summary: "Update a cluster.", Params: []APIParam{qID("Cluster ID")}, Body: "{name, description, node_image_id, kernel_params, default_install_disk}"},
+		{Method: "DELETE", Path: "/api/clusters/delete", Summary: "Delete a cluster.", Params: []APIParam{qID("Cluster ID")}},
+		{Method: "GET", Path: "/api/clusters/config", Summary: "Which machine configs a cluster holds.", Params: []APIParam{qID("Cluster ID")}},
+		{Method: "POST", Path: "/api/clusters/config", Summary: "Upload a machine config for a role.", Params: []APIParam{qID("Cluster ID")}, Body: "{role, config}"},
+		{Method: "GET", Path: "/api/clusters/config/template", Summary: "Machine config template for a provider and role.", Params: []APIParam{{Name: "provider", In: "query", Description: "Provider name", Required: true}, {Name: "role", In: "query", Description: "controlplane or worker", Required: true}}},
+		{Method: "GET", Path: "/api/clusters/nodes", Summary: "List the nodes of a cluster.", Params: []APIParam{qID("Cluster ID")}, ReadOnly: true},
+		{Method: "POST", Path: "/api/clusters/nodes/assign", Summary: "Assign a client to a cluster as a node.", Body: "{mac, cluster_id, role, install_disk, config_patch, reboot}"},
+		{Method: "POST", Path: "/api/clusters/nodes/unassign", Summary: "Remove a node from its cluster.", Body: "{mac}"},
+		{Method: "POST", Path: "/api/clusters/nodes/reinstall", Summary: "Reprovision a node on its next PXE boot.", Body: "{mac}"},
+		{Method: "POST", Path: "/api/clusters/nodes/mark-installed", Summary: "Mark a node as installed.", Body: "{mac}"},
+		{Method: "GET", Path: "/api/node-images", Summary: "List node images.", ReadOnly: true},
+		{Method: "POST", Path: "/api/node-images", Summary: "Create a node image.", Body: "{name, provider, os_version, image_ref, ...}"},
+		{Method: "POST", Path: "/api/node-images/download", Summary: "Download the assets of a node image.", Params: []APIParam{qID("Node image ID")}},
+		{Method: "DELETE", Path: "/api/node-images/delete", Summary: "Delete a node image.", Params: []APIParam{qID("Node image ID")}},
+		{Method: "GET", Path: "/api/kubernetes/providers", Summary: "Available Kubernetes providers.", ReadOnly: true},
+	}},
+	{Tag: "Webhooks", Endpoints: []APIEndpoint{
+		{Method: "GET", Path: "/api/webhook", Summary: "Get the webhook configuration."},
+		{Method: "PUT", Path: "/api/webhook", Summary: "Update the webhook configuration.", Body: "{url, enabled, on_boot_started, on_client_discovered, on_inventory_updated, on_node_events}"},
+		{Method: "POST", Path: "/api/webhook/test", Summary: "Send a test event."},
+	}},
+	{Tag: "Scheduled Tasks", Endpoints: []APIEndpoint{
+		{Method: "GET", Path: "/api/scheduled-tasks", Summary: "List scheduled tasks.", ReadOnly: true},
+		{Method: "POST", Path: "/api/scheduled-tasks", Summary: "Create a scheduled task.", Body: "{name, cron_expr, action_type, action_param, client_group_id, enabled}"},
+		{Method: "PUT", Path: "/api/scheduled-tasks/update", Summary: "Update a scheduled task.", Params: []APIParam{qID("Task ID")}, Body: "{name, cron_expr, action_type, action_param, client_group_id, enabled}"},
+		{Method: "DELETE", Path: "/api/scheduled-tasks/delete", Summary: "Delete a scheduled task.", Params: []APIParam{qID("Task ID")}},
+		{Method: "POST", Path: "/api/scheduled-tasks/run", Summary: "Run a task now.", Params: []APIParam{qID("Task ID")}},
+	}},
+	{Tag: "Users", Endpoints: []APIEndpoint{
+		{Method: "GET", Path: "/api/users", Summary: "List users."},
+		{Method: "POST", Path: "/api/users", Summary: "Create a local user.", Body: "{username, password, is_admin}"},
+		{Method: "PUT", Path: "/api/users", Summary: "Update a user.", Params: []APIParam{qID("User ID")}, Body: "{enabled, is_admin}"},
+		{Method: "DELETE", Path: "/api/users", Summary: "Delete a user.", Params: []APIParam{qID("User ID")}},
+		{Method: "POST", Path: "/api/users/reset-password", Summary: "Reset a local user's password.", Params: []APIParam{qID("User ID")}, Body: "{new_password}"},
+	}},
+	{Tag: "Settings", Endpoints: []APIEndpoint{
+		{Method: "GET", Path: "/api/theme", Summary: "Boot menu theme and defaults.", ReadOnly: true},
+		{Method: "PUT", Path: "/api/theme", Summary: "Update the boot menu theme.", Body: "{title, menu_timeout, default_menu_item}"},
+		{Method: "GET", Path: "/api/backup/export", Summary: "Download a tar.gz backup of the database and data directory."},
+	}},
+	{Tag: "Logs", Endpoints: []APIEndpoint{
+		{Method: "GET", Path: "/api/logs", Summary: "Boot log entries.", Params: []APIParam{{Name: "limit", In: "query", Description: "Number of entries, 1 to 1000 (default 100)"}, {Name: "mac", In: "query", Description: "Only entries for this client"}}, ReadOnly: true},
+		{Method: "GET", Path: "/api/logs/stream", Summary: "Server log as a server-sent event stream."},
+		{Method: "GET", Path: "/api/logs/buffer", Summary: "Recent in-memory server log buffer."},
+	}},
+	{Tag: "Boot", Description: "Endpoints served to PXE clients on the boot port; no authentication.", Endpoints: []APIEndpoint{
+		{Method: "GET", Path: "/menu.ipxe", Summary: "Generated iPXE menu script.", Params: []APIParam{{Name: "mac", In: "query", Description: "MAC address of the booting client"}}, Public: true},
+		{Method: "GET", Path: "/autoexec.ipxe", Summary: "iPXE autoexec for the chainloaded bootloader.", Public: true},
+		{Method: "GET", Path: "/inventory", Summary: "iPXE-submitted hardware inventory.", Params: []APIParam{qMAC("MAC address of the booting client")}, Public: true},
+		{Method: "GET", Path: "/isos/{filename}", Summary: "Direct ISO download.", Params: []APIParam{pathParam("filename", "ISO filename")}, Public: true},
+		{Method: "GET", Path: "/boot/{cache_dir}/{path}", Summary: "Extracted boot files (kernel, initrd, squashfs).", Params: []APIParam{pathParam("cache_dir", "Image cache directory"), pathParam("path", "File path within the cache directory")}, Public: true},
+		{Method: "GET", Path: "/autoinstall/{filename}", Summary: "Auto-install script (preseed, kickstart, cloud-init or autounattend).", Params: []APIParam{pathParam("filename", "Script filename")}, Public: true},
+		{Method: "GET", Path: "/files/{filename}", Summary: "Custom file download.", Params: []APIParam{pathParam("filename", "File name")}, Public: true},
+		{Method: "GET", Path: "/bootenv/{filename}", Summary: "NBD boot environment kernel and initrd.", Params: []APIParam{pathParam("filename", "File name")}, Public: true},
+		{Method: "GET", Path: "/tools/{path}", Summary: "Downloaded tool files.", Params: []APIParam{pathParam("path", "File path within the tools directory")}, Public: true},
+		{Method: "GET", Path: "/node-images/{path}", Summary: "Kubernetes node image assets.", Params: []APIParam{pathParam("path", "Asset path")}, Public: true},
+		{Method: "GET", Path: "/machineconfig", Summary: "Kubernetes machine config for an enrolled node.", Params: []APIParam{{Name: "m", In: "query", Description: "MAC address", Required: true}, {Name: "t", In: "query", Description: "Enrolment token", Required: true}, {Name: "u", In: "query", Description: "System UUID"}}, Public: true},
+	}},
+}
+
+type OpenAPIDocument struct {
+	OpenAPI    string                                 `json:"openapi"`
+	Info       OpenAPIInfo                            `json:"info"`
+	Servers    []OpenAPIServer                        `json:"servers,omitempty"`
+	Tags       []OpenAPITag                           `json:"tags"`
+	Paths      map[string]map[string]OpenAPIOperation `json:"paths"`
+	Components OpenAPIComponents                      `json:"components"`
+	Security   []map[string][]string                  `json:"security"`
+}
+
+type OpenAPIInfo struct {
+	Title       string `json:"title"`
+	Version     string `json:"version"`
+	Description string `json:"description"`
+}
+
+type OpenAPIServer struct {
+	URL         string `json:"url"`
+	Description string `json:"description,omitempty"`
+}
+
+type OpenAPITag struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+type OpenAPIParameter struct {
+	Name        string                 `json:"name"`
+	In          string                 `json:"in"`
+	Description string                 `json:"description,omitempty"`
+	Required    bool                   `json:"required,omitempty"`
+	Schema      map[string]interface{} `json:"schema"`
+}
+
+type OpenAPIRequestBody struct {
+	Description string                 `json:"description,omitempty"`
+	Required    bool                   `json:"required,omitempty"`
+	Content     map[string]interface{} `json:"content"`
+}
+
+type OpenAPIOperation struct {
+	Tags        []string                          `json:"tags"`
+	Summary     string                            `json:"summary"`
+	OperationID string                            `json:"operationId"`
+	Parameters  []OpenAPIParameter                `json:"parameters,omitempty"`
+	RequestBody *OpenAPIRequestBody               `json:"requestBody,omitempty"`
+	Responses   map[string]map[string]interface{} `json:"responses"`
+	Security    []map[string][]string             `json:"security,omitempty"`
+	Public      bool                              `json:"x-bootimus-public"`
+	ReadOnly    bool                              `json:"x-bootimus-readonly"`
+	Order       int                               `json:"x-bootimus-order"`
+}
+
+type OpenAPIComponents struct {
+	Schemas         map[string]interface{} `json:"schemas"`
+	SecuritySchemes map[string]interface{} `json:"securitySchemes"`
+}
+
+func BuildOpenAPI(version, serverURL string) *OpenAPIDocument {
+	doc := &OpenAPIDocument{
+		OpenAPI: "3.0.3",
+		Info: OpenAPIInfo{
+			Title:       "Bootimus API",
+			Version:     version,
+			Description: "REST API of the Bootimus PXE and HTTP boot server. Responses are JSON of the form {success, message, error, data}. Endpoints marked x-bootimus-readonly are available to read-only users; all others need an admin token.",
+		},
+		Paths: map[string]map[string]OpenAPIOperation{},
+		Components: OpenAPIComponents{
+			Schemas: map[string]interface{}{
+				"Response": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"success": map[string]interface{}{"type": "boolean"},
+						"message": map[string]interface{}{"type": "string"},
+						"error":   map[string]interface{}{"type": "string"},
+						"data":    map[string]interface{}{},
+					},
+					"required": []string{"success"},
+				},
+			},
+			SecuritySchemes: map[string]interface{}{
+				"bearerAuth": map[string]interface{}{
+					"type":         "http",
+					"scheme":       "bearer",
+					"bearerFormat": "JWT",
+				},
+			},
+		},
+		Security: []map[string][]string{{"bearerAuth": {}}},
+	}
+	if serverURL != "" {
+		doc.Servers = []OpenAPIServer{{URL: serverURL}}
+	}
+	order := 0
+	for _, section := range APISections {
+		doc.Tags = append(doc.Tags, OpenAPITag{Name: section.Tag, Description: section.Description})
+		for _, ep := range section.Endpoints {
+			order++
+			ops := doc.Paths[ep.Path]
+			if ops == nil {
+				ops = map[string]OpenAPIOperation{}
+				doc.Paths[ep.Path] = ops
+			}
+			ops[strings.ToLower(ep.Method)] = buildOperation(section.Tag, ep, order)
+		}
+	}
+	return doc
+}
+
+func buildOperation(tag string, ep APIEndpoint, order int) OpenAPIOperation {
+	op := OpenAPIOperation{
+		Tags:        []string{tag},
+		Summary:     ep.Summary,
+		OperationID: operationID(ep.Method, ep.Path),
+		Responses: map[string]map[string]interface{}{
+			"200": {
+				"description": "Successful response",
+				"content": map[string]interface{}{
+					"application/json": map[string]interface{}{
+						"schema": map[string]interface{}{"$ref": "#/components/schemas/Response"},
+					},
+				},
+			},
+		},
+		Public:   ep.Public,
+		ReadOnly: ep.ReadOnly || ep.Public,
+		Order:    order,
+	}
+	for _, p := range ep.Params {
+		op.Parameters = append(op.Parameters, OpenAPIParameter{
+			Name:        p.Name,
+			In:          p.In,
+			Description: p.Description,
+			Required:    p.Required || p.In == "path",
+			Schema:      map[string]interface{}{"type": "string"},
+		})
+	}
+	if ep.Body != "" {
+		contentType := "application/json"
+		schema := map[string]interface{}{"type": "object"}
+		if ep.Multipart {
+			contentType = "multipart/form-data"
+			props := map[string]interface{}{}
+			for _, field := range strings.Split(ep.Body, ",") {
+				field = strings.TrimSpace(field)
+				if strings.HasSuffix(field, "[]") {
+					props[strings.TrimSuffix(field, "[]")] = map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string", "format": "binary"}}
+				} else if field == "file" {
+					props[field] = map[string]interface{}{"type": "string", "format": "binary"}
+				} else {
+					props[field] = map[string]interface{}{"type": "string"}
+				}
+			}
+			schema["properties"] = props
+		}
+		op.RequestBody = &OpenAPIRequestBody{
+			Description: ep.Body,
+			Required:    true,
+			Content:     map[string]interface{}{contentType: map[string]interface{}{"schema": schema}},
+		}
+	}
+	if ep.Public {
+		op.Security = []map[string][]string{}
+	}
+	return op
+}
+
+func operationID(method, path string) string {
+	var b strings.Builder
+	b.WriteString(strings.ToLower(method))
+	upper := true
+	for _, r := range path {
+		switch {
+		case r == '/' || r == '-' || r == '.' || r == '_' || r == '{' || r == '}':
+			upper = true
+		case upper:
+			b.WriteString(strings.ToUpper(string(r)))
+			upper = false
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func (h *Handler) OpenAPI(version string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			h.sendJSON(w, http.StatusMethodNotAllowed, Response{Success: false, Error: "Method not allowed"})
+			return
+		}
+		scheme := "http"
+		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+			scheme = "https"
+		}
+		doc := BuildOpenAPI(version, scheme+"://"+r.Host)
+		w.Header().Set("Content-Type", "application/json")
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		enc.Encode(doc)
+	}
+}
