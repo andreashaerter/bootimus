@@ -2538,7 +2538,17 @@ func (s *Server) handleAutoInstallScript(w http.ResponseWriter, r *http.Request)
 	if mac == "" {
 		mac = r.URL.Query().Get("mac")
 	}
-	mac = strings.ToLower(strings.ReplaceAll(mac, "-", ":"))
+	mac = autoinstall.NormaliseMAC(mac)
+
+	var postedMACs []string
+	if r.Method == http.MethodPost && mac == "" {
+		macs, err := autoinstall.ProxmoxInterfaceMACs(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		postedMACs = macs
+	}
 
 	image, err := s.config.Storage.GetImage(path)
 	if err != nil || image == nil {
@@ -2548,7 +2558,10 @@ func (s *Server) handleAutoInstallScript(w http.ResponseWriter, r *http.Request)
 
 	var client *models.Client
 	var group *models.ClientGroup
-	if mac != "" {
+	if len(postedMACs) > 0 {
+		mac, client = s.matchClientByMACs(postedMACs)
+		group = s.clientGroupOf(client)
+	} else if mac != "" {
 		if c, err := s.config.Storage.GetClient(mac); err == nil {
 			client = c
 			group = s.clientGroupOf(client)
@@ -2611,15 +2624,7 @@ func (s *Server) handleAutoInstallScript(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	contentType := "text/plain; charset=utf-8"
-	switch scriptType {
-	case "autounattend":
-		contentType = "application/xml; charset=utf-8"
-	case "autoinstall":
-		contentType = "text/yaml; charset=utf-8"
-	}
-
-	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Type", autoinstall.ContentType(scriptType))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(script)))
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(script))
@@ -2650,7 +2655,7 @@ func resolveAutoInstallSource(lib *autoinstall.Library, image *models.Image, cli
 			if err != nil {
 				return "", "", "", err
 			}
-			return content, scriptTypeForPath(rel), src, nil
+			return content, autoinstall.PathType(rel), src, nil
 		}
 
 		if client != nil && client.AutoInstallFile != "" {
@@ -2673,7 +2678,7 @@ func resolveAutoInstallSource(lib *autoinstall.Library, image *models.Image, cli
 	if image.AutoInstallEnabled && image.AutoInstallScript != "" {
 		t := image.AutoInstallScriptType
 		if t == "" {
-			t = "generic"
+			t = autoinstall.TypeGeneric
 		}
 		return image.AutoInstallScript, t, "inline:" + image.Filename, nil
 	}
@@ -2689,19 +2694,13 @@ func (s *Server) resolveAutoInstallType(image *models.Image, client *models.Clie
 	return scriptType
 }
 
-func scriptTypeForPath(rel string) string {
-	switch strings.ToLower(filepath.Ext(rel)) {
-	case ".xml":
-		return "autounattend"
-	case ".cfg":
-		return "preseed"
-	case ".ks":
-		return "kickstart"
-	case ".yaml", ".yml":
-		return "autoinstall"
-	default:
-		return "generic"
+func (s *Server) matchClientByMACs(macs []string) (string, *models.Client) {
+	for _, mac := range macs {
+		if c, err := s.config.Storage.GetClient(mac); err == nil && c != nil {
+			return mac, c
+		}
 	}
+	return macs[0], nil
 }
 
 func (s *Server) injectArchFileDownloads(script string, files []*models.CustomFile) string {
