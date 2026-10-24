@@ -710,7 +710,7 @@
             <div class="card">
                 <h2 data-i18n="page.autoinstall.title">Auto-Install Files</h2>
                 <p data-i18n="page.autoinstall.intro" style="color: var(--text-secondary); margin: 0 12px 8px; font-size: 13px;">
-                    Install operating systems without manual prompts. Windows uses autounattend.xml; Ubuntu uses cloud-init; Red Hat and its family use kickstart; Debian uses preseed. Attach a file to an image for a default config, or override it per client for machine-specific setups.
+                    Install operating systems without manual prompts. Windows uses autounattend.xml; Ubuntu uses cloud-init; Red Hat and its family use kickstart; Debian uses preseed; openSUSE uses AutoYaST or Agama; Fedora CoreOS and Flatcar use Ignition; Proxmox VE uses an answer file. Attach a file to an image for a default config, or override it per client for machine-specific setups.
                 </p>
                 <div class="toolbar">
                     <button class="btn" type="button" onclick="showAutoInstallFileEditor(null)">
@@ -1630,7 +1630,7 @@
                 </div>
                 <div class="form-group">
                     <label>Download URL</label>
-                    <input type="url" name="download_url" required placeholder="https://example.com/tool.zip">
+                    <input type="text" name="download_url" required placeholder="https://example.com/tool.zip or {{HTTP_URL}}/isos/tool.ipxe">
                 </div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                     <div class="form-group">
@@ -1731,6 +1731,10 @@
                         <option value="kickstart">Kickstart (RHEL)</option>
                         <option value="autoinstall">Autoinstall (Ubuntu)</option>
                         <option value="autounattend">Autounattend (Windows)</option>
+                        <option value="autoyast">AutoYaST (openSUSE Leap 15 / SLES 15)</option>
+                        <option value="agama">Agama (openSUSE Leap 16 / Tumbleweed)</option>
+                        <option value="ignition">Ignition (Fedora CoreOS / Flatcar)</option>
+                        <option value="proxmox">Answer file (Proxmox VE)</option>
                     </select>
                 </div>
                 <button type="submit" class="btn btn-primary">Create Profile</button>
@@ -1930,6 +1934,10 @@
                         <option value="kickstart">Kickstart (RHEL/CentOS/Fedora/Rocky)</option>
                         <option value="autoinstall">Autoinstall (Ubuntu cloud-init)</option>
                         <option value="autounattend">Autounattend (Windows)</option>
+                        <option value="autoyast">AutoYaST (openSUSE Leap 15 / SLES 15)</option>
+                        <option value="agama">Agama (openSUSE Leap 16 / Tumbleweed)</option>
+                        <option value="ignition">Ignition (Fedora CoreOS / Flatcar)</option>
+                        <option value="proxmox">Answer file (Proxmox VE)</option>
                     </select>
                     <small style="color: var(--text-secondary);">Select the installation script format</small>
                 </div>

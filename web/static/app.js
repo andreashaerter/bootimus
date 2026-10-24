@@ -3811,6 +3811,10 @@ async function createCustomTool(e) {
         showNotification('Name, display name, and download URL are required', 'error');
         return;
     }
+    if (!isToolDownloadURL(data.download_url)) {
+        showNotification(t('tools.notify.invalid_download_url'), 'error');
+        return;
+    }
 
     try {
         const res = await authFetch(`${API_BASE}/tools/custom`, {
@@ -3830,6 +3834,10 @@ async function createCustomTool(e) {
     } catch (err) {
         showNotification('Failed to create tool', 'error');
     }
+}
+
+function isToolDownloadURL(value) {
+    return /^(https?:\/\/|\{\{HTTP_URL\}\})/i.test(value);
 }
 
 async function deleteCustomTool(name) {

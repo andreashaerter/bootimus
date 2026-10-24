@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bootimus/internal/autoinstall"
 	"bootimus/internal/bsdboot"
 	"bootimus/internal/diskimage"
 	"bootimus/internal/imagescan"
@@ -509,6 +510,9 @@ func (mb *MenuBuilder) buildKernelBootSection(img *models.Image, encodedFilename
 		}
 		sb.WriteString(fmt.Sprintf("kernel %s/boot/%s/%s%s%s\n", baseURL, cacheDir, kernelPath, autoInstallParam, bootParams))
 		sb.WriteString(fmt.Sprintf("initrd %s%s/boot/%s/%s\n", initrdName, baseURL, cacheDir, initrdPath))
+		if img.Distro == autoinstall.DistroProxmox {
+			sb.WriteString(fmt.Sprintf("initrd %s/isos/%s?mac=%s proxmox.iso\n", baseURL, encodedFilename, mb.macAddress))
+		}
 		if img.ShimPath != "" {
 			sb.WriteString(fmt.Sprintf("iseq ${platform} efi && shim %s/boot/%s/%s ||\n", baseURL, cacheDir, encodePathSegments(img.ShimPath)))
 		}
@@ -527,16 +531,23 @@ func (mb *MenuBuilder) buildAutoInstallParam(img *models.Image, baseURL, encoded
 	installURL := fmt.Sprintf("%s/autoinstall/%s?mac=%s", baseURL, encodedFilename, mb.macAddress)
 
 	switch scriptType {
-	case "preseed":
+	case autoinstall.TypePreseed:
 		return fmt.Sprintf(" auto=true priority=critical url=%s", installURL)
-	case "kickstart":
+	case autoinstall.TypeKickstart:
 		return fmt.Sprintf(" inst.ks=%s", installURL)
-	case "autoinstall":
+	case autoinstall.TypeAutoinstall:
 		return fmt.Sprintf(" autoinstall ds=nocloud-net;s=%s/autoinstall/%s/mac/%s/", baseURL, encodedFilename, mb.macAddress)
-	case "autounattend":
-		return ""
+	case autoinstall.TypeAutoYaST:
+		return fmt.Sprintf(" autoyast=%s", installURL)
+	case autoinstall.TypeAgama:
+		return fmt.Sprintf(" inst.auto=%s", installURL)
+	case autoinstall.TypeIgnition:
+		if img.Distro == autoinstall.DistroFlatcar {
+			return fmt.Sprintf(" flatcar.first_boot=1 ignition.config.url=%s", installURL)
+		}
+		return fmt.Sprintf(" ignition.config.url=%s ignition.firstboot ignition.platform.id=metal", installURL)
 	default:
-		return fmt.Sprintf(" autoinstall=%s", installURL)
+		return ""
 	}
 }
 

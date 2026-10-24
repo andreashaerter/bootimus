@@ -73,7 +73,9 @@ func TestBuildKernelBootSectionAutoInstallParams(t *testing.T) {
 		{"kickstart", "inst.ks=http://10.0.0.1:8080/autoinstall/test.iso?mac=aa:bb:cc:dd:ee:ff"},
 		{"preseed", "auto=true priority=critical url=http://10.0.0.1:8080/autoinstall/test.iso?mac=aa:bb:cc:dd:ee:ff"},
 		{"autoinstall", "autoinstall ds=nocloud-net;s=http://10.0.0.1:8080/autoinstall/test.iso/mac/aa:bb:cc:dd:ee:ff/"},
-		{"generic", "autoinstall=http://10.0.0.1:8080/autoinstall/test.iso?mac=aa:bb:cc:dd:ee:ff"},
+		{"autoyast", "autoyast=http://10.0.0.1:8080/autoinstall/test.iso?mac=aa:bb:cc:dd:ee:ff"},
+		{"agama", "inst.auto=http://10.0.0.1:8080/autoinstall/test.iso?mac=aa:bb:cc:dd:ee:ff"},
+		{"ignition", "ignition.config.url=http://10.0.0.1:8080/autoinstall/test.iso?mac=aa:bb:cc:dd:ee:ff ignition.firstboot ignition.platform.id=metal"},
 	}
 
 	for _, c := range cases {
@@ -85,15 +87,41 @@ func TestBuildKernelBootSectionAutoInstallParams(t *testing.T) {
 	}
 }
 
+func TestBuildKernelBootSectionFlatcarIgnitionParams(t *testing.T) {
+	img := &models.Image{ID: 7, Filename: "flatcar.iso", Enabled: true, BootMethod: "kernel", Distro: "flatcar", BootParams: "initrd=initrd"}
+	mb := testMenuBuilder(map[uint]string{7: "ignition"})
+
+	out := mb.buildKernelBootSection(img, "flatcar.iso", "flatcar")
+	if !strings.Contains(out, "flatcar.first_boot=1 ignition.config.url=http://10.0.0.1:8080/autoinstall/flatcar.iso?mac=aa:bb:cc:dd:ee:ff") {
+		t.Errorf("expected flatcar ignition params, got:\n%s", out)
+	}
+	if strings.Contains(out, "ignition.platform.id") {
+		t.Errorf("flatcar must not receive the fedora coreos platform id, got:\n%s", out)
+	}
+}
+
 func TestBuildKernelBootSectionNoAutoInstall(t *testing.T) {
 	img := &models.Image{ID: 7, Filename: "test.iso", Enabled: true, BootMethod: "kernel", BootParams: "ip=dhcp"}
 
-	for _, types := range []map[uint]string{nil, {7: "autounattend"}} {
+	for _, types := range []map[uint]string{nil, {7: "autounattend"}, {7: "generic"}, {7: "proxmox"}} {
 		mb := testMenuBuilder(types)
 		out := mb.buildKernelBootSection(img, "test.iso", "test")
 		if strings.Contains(out, "autoinstall") || strings.Contains(out, "inst.ks") {
 			t.Errorf("expected no auto-install params for types=%v, got:\n%s", types, out)
 		}
+	}
+}
+
+func TestBuildKernelBootSectionProxmoxLoadsISOAsSecondInitrd(t *testing.T) {
+	img := &models.Image{ID: 7, Filename: "proxmox-ve_9.1-1.iso", Enabled: true, BootMethod: "kernel", Distro: "proxmox", BootParams: "initrd=initrd ramdisk_size=16777216 rw quiet"}
+	mb := testMenuBuilder(map[uint]string{7: "proxmox"})
+
+	out := mb.buildKernelBootSection(img, "proxmox-ve_9.1-1.iso", "proxmox-ve_9.1-1")
+	if !strings.Contains(out, "initrd http://10.0.0.1:8080/boot/proxmox-ve_9.1-1/initrd\n") {
+		t.Errorf("expected the installer initrd line, got:\n%s", out)
+	}
+	if !strings.Contains(out, "initrd http://10.0.0.1:8080/isos/proxmox-ve_9.1-1.iso?mac=aa:bb:cc:dd:ee:ff proxmox.iso\n") {
+		t.Errorf("expected the ISO to be loaded as proxmox.iso, got:\n%s", out)
 	}
 }
 
