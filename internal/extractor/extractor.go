@@ -43,6 +43,7 @@ type BootFiles struct {
 	NetbootURL      string
 	NetbootArch     string
 	InstallWim      string
+	WIMFiles        []WIMFile
 }
 
 type Extractor struct {
@@ -110,7 +111,7 @@ func (e *Extractor) extract(isoPath string) (*BootFiles, error) {
 }
 
 func (e *Extractor) detectShim(isoPath string, files *BootFiles) {
-	if files == nil || strings.HasPrefix(files.Distro, "windows") {
+	if files == nil || isWindowsDistro(files.Distro) {
 		return
 	}
 	bootFilesDir := filepath.Join(e.dataDir, relativeISOBase(e.dataDir, isoPath))
@@ -322,7 +323,7 @@ func (e *Extractor) detectAndExtract(img *iso9660.Image, isoPath string) (*BootF
 	var errors []string
 	for _, d := range detectors {
 		if files, err := d.detector(img); err == nil && files != nil {
-			if distroName != "" {
+			if distroName != "" && !isWindowsDistro(files.Distro) {
 				files.Distro = distroName
 			}
 			if err := e.cacheBootFiles(files, img, isoPath); err != nil {
@@ -783,65 +784,7 @@ func (e *Extractor) detectNixOS(img *iso9660.Image) (*BootFiles, error) {
 }
 
 func (e *Extractor) detectWindows(img *iso9660.Image) (*BootFiles, error) {
-	bcdPaths := []string{
-		"/boot/bcd",
-		"/BOOT/BCD",
-		"/efi/microsoft/boot/bcd",
-		"/EFI/MICROSOFT/BOOT/BCD",
-		"/efi/boot/bootx64.efi",
-	}
-
-	bootSdiPaths := []string{
-		"/boot/boot.sdi",
-		"/BOOT/BOOT.SDI",
-	}
-
-	bootWimPaths := []string{
-		"/sources/boot.wim",
-		"/SOURCES/BOOT.WIM",
-	}
-
-	var bcdPath string
-	for _, path := range bcdPaths {
-		log.Printf("Checking for BCD at: %s", path)
-		if fileExists(img, path) {
-			bcdPath = path
-			log.Printf("Found BCD at: %s", path)
-			break
-		}
-	}
-
-	var bootSdiPath string
-	for _, path := range bootSdiPaths {
-		log.Printf("Checking for boot.sdi at: %s", path)
-		if fileExists(img, path) {
-			bootSdiPath = path
-			log.Printf("Found boot.sdi at: %s", path)
-			break
-		}
-	}
-
-	var bootWimPath string
-	for _, path := range bootWimPaths {
-		log.Printf("Checking for boot.wim at: %s", path)
-		if fileExists(img, path) {
-			bootWimPath = path
-			log.Printf("Found boot.wim at: %s", path)
-			break
-		}
-	}
-
-	if bcdPath != "" && bootSdiPath != "" && bootWimPath != "" {
-		log.Printf("Detected Windows ISO - BCD: %s, boot.sdi: %s, boot.wim: %s", bcdPath, bootSdiPath, bootWimPath)
-		return &BootFiles{
-			Kernel:  bcdPath,
-			Initrd:  bootSdiPath,
-			Distro:  "windows",
-			BootWim: bootWimPath,
-		}, nil
-	}
-
-	return nil, fmt.Errorf("not Windows ISO (found: BCD=%v, boot.sdi=%v, boot.wim=%v)", bcdPath != "", bootSdiPath != "", bootWimPath != "")
+	return e.detectWindowsUnified(&ISO9660Reader{img: img, extract: e})
 }
 
 func (e *Extractor) cacheBootFiles(files *BootFiles, img *iso9660.Image, isoPath string) error {
@@ -852,27 +795,8 @@ func (e *Extractor) cacheBootFiles(files *BootFiles, img *iso9660.Image, isoPath
 		return fmt.Errorf("failed to create boot files subdirectory: %w", err)
 	}
 
-	if files.Distro == "windows" {
-		bcdDest := filepath.Join(bootFilesDir, "bcd")
-		if err := e.extractNamedFile(img, files.Kernel, bcdDest); err != nil {
-			return fmt.Errorf("failed to extract BCD: %w", err)
-		}
-		files.Kernel = bcdDest
-
-		bootSdiDest := filepath.Join(bootFilesDir, "boot.sdi")
-		if err := e.extractNamedFile(img, files.Initrd, bootSdiDest); err != nil {
-			return fmt.Errorf("failed to extract boot.sdi: %w", err)
-		}
-		files.Initrd = bootSdiDest
-
-		bootWimDest := filepath.Join(bootFilesDir, "boot.wim")
-		if err := e.extractNamedFile(img, files.BootWim, bootWimDest); err != nil {
-			return fmt.Errorf("failed to extract boot.wim: %w", err)
-		}
-		files.BootWim = bootWimDest
-
-		log.Printf("Extracted Windows boot files: BCD, boot.sdi, boot.wim to %s", bootFilesDir)
-		return nil
+	if isWindowsDistro(files.Distro) {
+		return e.cacheWindowsFiles(files, &ISO9660Reader{img: img, isoPath: isoPath, extract: e}, bootFilesDir)
 	}
 
 	kernelDest := filepath.Join(bootFilesDir, "vmlinuz")

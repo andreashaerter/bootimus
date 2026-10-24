@@ -27,6 +27,7 @@ type Manager struct {
 	oidc        *oidcClient
 	loginLimit  *loginLimiter
 	limiterOnce sync.Once
+	touches     tokenTouches
 }
 
 func (m *Manager) limiter() *loginLimiter {
@@ -48,6 +49,7 @@ type LoginRequest struct {
 	Username   string `json:"username"`
 	Password   string `json:"password"`
 	AuthMethod string `json:"auth_method"`
+	Code       string `json:"code"`
 }
 
 type LoginResponse struct {
@@ -209,6 +211,7 @@ func (m *Manager) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	var authenticated bool
 	var isAdmin bool
+	failureMessage := "Invalid username or password"
 
 	method := req.AuthMethod
 	if method == "" {
@@ -255,6 +258,24 @@ func (m *Manager) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	default:
 		if m.ValidateCredentials(req.Username, req.Password) {
+			user, err := m.userStore.GetUser(req.Username)
+			if err == nil && user.TOTPEnabled {
+				if strings.TrimSpace(req.Code) == "" {
+					totpRequiredResponse(w)
+					return
+				}
+				ok, usedRecovery := VerifyTOTP(user, req.Code)
+				if !ok {
+					failureMessage = "Invalid two-factor code"
+					break
+				}
+				if usedRecovery {
+					if err := m.userStore.UpdateUser(user.Username, user); err != nil {
+						log.Printf("Auth: failed to consume recovery code for %s: %v", user.Username, err)
+					}
+					log.Printf("Auth: User '%s' signed in with a recovery code (%d left)", user.Username, RemainingRecoveryCodes(user))
+				}
+			}
 			authenticated = true
 			isAdmin = m.GetUserAdmin(req.Username)
 		}
@@ -265,7 +286,7 @@ func (m *Manager) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Auth: Failed login for '%s' from %s", req.Username, addr)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid username or password"})
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": failureMessage})
 		return
 	}
 
@@ -293,15 +314,15 @@ func (m *Manager) HandleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (m *Manager) authenticate(w http.ResponseWriter, r *http.Request) (*Claims, bool) {
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+	tokenString, ok := bearerToken(r)
+	if !ok {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Authentication required"})
 		return nil, false
 	}
 
-	claims, err := m.AuthenticateToken(strings.TrimPrefix(authHeader, "Bearer "))
+	claims, err := m.AuthenticateToken(tokenString)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -317,6 +338,9 @@ var (
 )
 
 func (m *Manager) AuthenticateToken(tokenString string) (*Claims, error) {
+	if IsAPISecret(tokenString) {
+		return m.authenticateAPIToken(tokenString)
+	}
 	claims, err := m.ValidateToken(tokenString)
 	if err != nil {
 		return nil, ErrInvalidToken
