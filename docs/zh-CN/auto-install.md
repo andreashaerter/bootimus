@@ -216,6 +216,8 @@ Windows 安装由 SMB 驱动。当某个镜像挂载了 autounattend 文件时,B
 
 如果镜像没有挂载 autounattend 文件,Setup 会和以前一样以交互模式运行。
 
+**数据目录要求。** Bootimus 运行自己的 `smbd`,其状态保存在 `data/smb` 下。如果该目录位于无法保存 Unix 权限的文件系统上(exFAT、NTFS 或 CIFS 挂载),Samba 会拒绝启动,因为其锁目录会被读成 `0777` 而不是 `0755`。请把数据目录放在 ext4 或 XFS 等原生 Linux 文件系统上,并确保主机上没有其他 SMB 服务监听 445 端口。Bootimus 会在启动时检查这两个条件,并在 **Server Info** → **Windows SMB** 中报告。
+
 **重启韧性。** WinPE 在安装中途会重启并从同一个客户端 IP 重新连接。内置的 Samba 配置设置了 `reset on zero vc = yes` 并禁用了 oplocks,这样第二次 `net use` 不会被陈旧的会话状态卡住。如果你用自己的 `data/smb/smb.conf` 替换了默认配置,请同步这些设置。
 
 **撤销补丁。** 第一次打 SMB 补丁时,会在旁边保留一份原始的 `boot.wim`,命名为 `boot.wim.orig`。**Images** → **移除 SMB 补丁** 会恢复原始文件并删除该镜像的 SMB 共享——之后 ISO 的引导行为与刚上传时完全一致。由旧版 Bootimus 打补丁的镜像没有备份:请先重新提取镜像(会生成一份新的原始副本),再移除补丁。
@@ -304,6 +306,10 @@ Served auto-install script for ... (source: client:..., type: ..., size: ...)
 ### "AutoUnattend.xml not on share, running interactive setup"
 
 由 `startnet.cmd` 在文件不在它预期位置时记录。要么暂存步骤失败了(检查打补丁时段附近的 Bootimus 服务器日志),要么 SMB 共享丢了该文件。从镜像属性重新执行 SMB 补丁。
+
+### `Z:\setup.exe not found on the share`
+
+`startnet.cmd` 已映射 `Z:`,但它打印的目录列表显示的是镜像文件夹(`iso\`、`metadata.txt`)而不是安装文件。Bootimus 始终共享镜像的 `iso` 子文件夹,所以客户端连接到了同一地址上的另一个 SMB 服务。检查 Bootimus 日志中是否有 `SMB: smbd exited`,并查看 **Server Info** 下的 **Windows SMB** 一行。常见原因是数据目录位于没有 Unix 权限的文件系统上,这会让 `smbd` 以 `invalid permissions on directory '.../smb/locks/msg.lock': has 0777 should be 0755` 退出,转而由系统的 Samba 在 445 端口应答。把数据目录移到 ext4 或 XFS,停止另一个 Samba,然后重启 Bootimus。
 
 ### `net use fails after VM reboot`
 
