@@ -767,25 +767,68 @@
                     </div>
                     <div class="form-group">
                         <label>Content</label>
-                        <textarea id="autoinstall-editor-content" rows="22" style="font-family: monospace; width: 100%; padding: 8px; border: 1px solid var(--text-muted); border-radius: 4px; background: var(--bg-secondary); color: var(--text-primary);"></textarea>
+                        <textarea id="autoinstall-editor-content" rows="22" style="font-family: monospace; width: 100%; padding: 8px; border: 1px solid var(--text-muted); border-radius: 4px; background: var(--bg-secondary); color: var(--text-primary);" oninput="hideAutoInstallEditorError()"></textarea>
+                        <div id="autoinstall-editor-error" class="alert alert-error" style="display: none; margin: 8px 0 0; padding: 10px 14px; font-size: 13px; align-items: center; gap: 12px;">
+                            <span id="autoinstall-editor-error-text" style="flex: 1; white-space: pre-wrap;"></span>
+                            <button type="button" class="btn btn-sm" onclick="saveAutoInstallFile(true)" data-i18n="autoinstall.save_anyway">Save anyway</button>
+                        </div>
                         <small style="color: var(--text-secondary); display: block; margin-top: 6px;">
-                            Placeholders substituted per-client at serve time:
+                            <span data-i18n="autoinstall.placeholders_hint">Placeholders substituted per client at serve time:</span>
                             <code>{{MAC}}</code>
                             <code>{{CLIENT_NAME}}</code>
                             <code>{{HOSTNAME}}</code>
+                            <code>{{CLIENT_GROUP}}</code>
                             <code>{{IP}}</code>
                             <code>{{SERVER_ADDR}}</code>
+                            <code>{{SERVER_PORT}}</code>
+                            <code>{{SERVER_URL}}</code>
                             <code>{{IMAGE_NAME}}</code>
                             <code>{{IMAGE_FILENAME}}</code>
+                            <code>{{IMAGE_URL}}</code>
+                            <code>{{CALLBACK_URL}}</code>
+                            <code>{{INSTALL_TOKEN}}</code>
+                            <code>{{VAR.name}}</code>
+                            <span data-i18n="autoinstall.placeholders_var_hint">— a client or group variable called name.</span>
                         </small>
                     </div>
                 </div>
                 <div style="margin: 0 20px 20px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center;">
                     <button id="autoinstall-editor-delete-btn" class="btn btn-danger" onclick="deleteAutoInstallFileFromEditor()" style="display: none;">Delete</button>
                     <button id="autoinstall-editor-download-btn" class="btn" onclick="downloadAutoInstallFileFromEditor()" style="display: none;">Download</button>
+                    <button id="autoinstall-editor-preview-btn" class="btn" onclick="showAutoInstallPreview()" style="display: none;" data-i18n="autoinstall.preview">Preview</button>
                     <div style="flex: 1;"></div>
                     <button class="btn" onclick="closeModal('autoinstall-editor-modal')">Cancel</button>
                     <button class="btn btn-primary" onclick="saveAutoInstallFile()">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Auto-Install Preview Modal -->
+        <div id="autoinstall-preview-modal" class="modal slide-panel">
+            <div class="modal-content slide-panel-content" style="max-width: 900px;">
+                <div class="modal-header">
+                    <h2 id="autoinstall-preview-title">Preview</h2>
+                </div>
+                <div class="modal-body">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label data-i18n="autoinstall.preview_client">Client</label>
+                            <select id="autoinstall-preview-client" class="form-control" onchange="renderAutoInstallPreview()"></select>
+                        </div>
+                        <div class="form-group">
+                            <label data-i18n="autoinstall.preview_image">Image</label>
+                            <select id="autoinstall-preview-image" class="form-control" onchange="renderAutoInstallPreview()"></select>
+                        </div>
+                    </div>
+                    <div id="autoinstall-preview-unresolved" class="guide-warning" style="display: none; margin-bottom: 12px;"></div>
+                    <div id="autoinstall-preview-resolved" class="alert alert-success" style="display: none; padding: 10px 14px; font-size: 13px;" data-i18n="autoinstall.preview_all_resolved">All placeholders resolved.</div>
+                    <div class="form-group">
+                        <label data-i18n="autoinstall.preview_output">Rendered output</label>
+                        <pre id="autoinstall-preview-output" style="font-family: monospace; font-size: 12px; max-height: 60vh; overflow: auto; margin: 0; padding: 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-secondary); color: var(--text-primary); white-space: pre-wrap;"></pre>
+                    </div>
+                </div>
+                <div style="margin: 0 20px 20px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; justify-content: flex-end;">
+                    <button class="btn" onclick="closeModal('autoinstall-preview-modal')">Close</button>
                 </div>
             </div>
         </div>
@@ -1273,6 +1316,12 @@
                         <option value="">(inherit from group or image)</option>
                     </select>
                     <small style="color: var(--text-secondary);">Override the installation config for this machine specifically. Leave blank to inherit from the client group, or fall back to the image's default.</small>
+                </div>
+                <div class="form-group">
+                    <label data-i18n="variables.label">Auto-install variables</label>
+                    <div id="edit-client-variables" class="kv-editor"></div>
+                    <button type="button" class="btn btn-sm" onclick="addVariableRow('edit-client-variables')" data-i18n="variables.add">Add variable</button>
+                    <small style="color: var(--text-secondary); display: block; margin-top: 6px;" data-i18n="variables.hint_client">Available in auto-install files as {{VAR.name}}. Values set here override the client group's.</small>
                 </div>
                 <div class="form-group">
                     <label>SAN Target</label>
@@ -2413,6 +2462,12 @@
                         <option value="">(inherit from image)</option>
                     </select>
                     <small style="color: var(--text-secondary);">Default installation config for every machine in this group. Individual clients can still override.</small>
+                </div>
+                <div class="form-group">
+                    <label data-i18n="variables.label">Auto-install variables</label>
+                    <div id="cg-variables" class="kv-editor"></div>
+                    <button type="button" class="btn btn-sm" onclick="addVariableRow('cg-variables')" data-i18n="variables.add">Add variable</button>
+                    <small style="color: var(--text-secondary); display: block; margin-top: 6px;" data-i18n="variables.hint_group">Defaults for every member, available in auto-install files as {{VAR.name}}. Clients can override individual values.</small>
                 </div>
                 <div class="form-group">
                     <label>SAN Target</label>
