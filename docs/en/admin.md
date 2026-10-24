@@ -48,7 +48,7 @@ Navigate to `http://your-server:8081` and you'll see a dedicated login page. Ent
 - **Username**: `admin`
 - **Password**: Check server startup logs
 
-If LDAP is configured, a dropdown will appear on the login page allowing you to choose between local and LDAP authentication. If OIDC is configured, a **Sign in with …** button appears for single sign-on. See [Authentication Guide](authentication.md) for details.
+If LDAP is configured, a dropdown will appear on the login page allowing you to choose between local and LDAP authentication. If OIDC is configured, a **Sign in with …** button appears for single sign-on. Users who aren't administrators get read-only access: they can browse the panel but can't change anything. See [Authentication Guide](authentication.md) for details.
 
 ### Quick Start
 

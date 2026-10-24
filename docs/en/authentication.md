@@ -6,6 +6,7 @@ Bootimus uses JWT (JSON Web Token) authentication for the admin panel. Optionall
 
 - [Local Authentication](#local-authentication)
 - [Login Flow](#login-flow)
+- [Roles](#roles)
 - [API Authentication](#api-authentication)
 - [LDAP / Active Directory](#ldap--active-directory)
 - [OIDC / Single Sign-On](#oidc--single-sign-on)
@@ -57,7 +58,7 @@ ports (ideal for emergency recovery):
 Additional users can be created from the **Users** tab in the admin panel. Each user has:
 - **Username**: Unique login name
 - **Password**: Stored as bcrypt hash
-- **Admin**: Whether the user has admin privileges
+- **Admin**: Whether the user is an administrator; other users are read-only (see [Roles](#roles))
 - **Enabled**: Can be disabled without deletion
 - **Source**: `Local`, `LDAP` or `OIDC` — where the account comes from (see [Users from LDAP and OIDC](#users-from-ldap-and-oidc))
 
@@ -83,9 +84,34 @@ recovery). These commands operate directly on the configured database
 6. The token is stored in the browser and sent with all API requests
 7. On logout or token expiry, the login page is shown again
 
+## Roles
+
+Bootimus has two roles:
+
+| Role | Access |
+|------|--------|
+| **Admin** | Everything. |
+| **Read-only** | Can view the dashboard, clients (including hardware inventory, boot history and BMC power status), client groups, images, public files, distro profiles, the boot menu, bootloaders, tools, Kubernetes clusters and nodes, scheduled tasks and the boot attempt history. |
+
+Read-only users:
+
+- cannot change anything — the server refuses every write with `403 Your account has read-only access`, and the admin panel hides the buttons
+- cannot see users, webhook settings, backups, the live server log, auto-install files and scripts, or cluster machine configs
+- never receive BMC (IPMI/Redfish) passwords or client config patches — these are removed from every API response sent to them
+
+A user is an administrator if:
+
+- **Local**: the **Administrator** box is ticked on their account
+- **LDAP**: they match `BOOTIMUS_LDAP_GROUP_FILTER` (or no group filter is set)
+- **OIDC**: they are in one of `BOOTIMUS_OIDC_ADMIN_GROUPS` or listed in `BOOTIMUS_OIDC_ADMIN_USERS`
+
+Everyone else who can sign in is read-only. `GET /api/me` returns the signed-in user's role.
+
+> **Upgrading:** before read-only access was added, local users without the **Administrator** box ticked could sign in but see nothing. They now have read-only access. Disable any such accounts you don't want to have it.
+
 ## API Authentication
 
-All API endpoints (except `/api/login`, `/api/auth-info` and the `/api/oidc/` sign-in endpoints) require a valid JWT token.
+All API endpoints (except `/api/login`, `/api/auth-info` and the `/api/oidc/` sign-in endpoints) require a valid JWT token. Read-only users can only make `GET` requests, and only to the endpoints listed under [Roles](#roles).
 
 ### Obtain a Token
 
@@ -230,8 +256,8 @@ Bootimus can sign users in through any OpenID Connect provider — Authentik, Ke
 2. Bootimus redirects them to the provider (authorisation code flow with PKCE)
 3. The user signs in at the provider, which redirects back to `/api/oidc/callback`
 4. Bootimus exchanges the code for an ID token, verifies its signature, audience, expiry and nonce, and reads the username and groups claims
-5. If allowed groups are configured, the user must be in one of them (or in an admin group)
-6. A local user record is created or updated (see [Users from LDAP and OIDC](#users-from-ldap-and-oidc)), with admin rights if they are in an admin group
+5. If allowed groups or users are configured, the user must match one of them (or be an administrator)
+6. A local user record is created or updated (see [Users from LDAP and OIDC](#users-from-ldap-and-oidc)), as an administrator if they are in an admin group or on the admin user list, and read-only otherwise
 7. The browser is returned to the admin panel with a JWT token (same as local auth)
 
 If the ID token doesn't include the username or groups claim, Bootimus also asks the provider's userinfo endpoint.
@@ -288,16 +314,76 @@ export BOOTIMUS_OIDC_ADMIN_GROUPS=bootimus-admins
 export BOOTIMUS_OIDC_DISPLAY_NAME=Keycloak
 ```
 
-### Group Mapping
+### Microsoft Entra ID Example
+
+Entra ID sends group *IDs* rather than names in its groups claim, so the easiest way to map roles is with **app roles**, which Entra sends in a `roles` claim.
+
+1. In the [Microsoft Entra admin centre](https://entra.microsoft.com), go to **App registrations → New registration**:
+   - **Name**: `Bootimus`
+   - **Supported account types**: *Accounts in this organisational directory only (Single tenant)*
+   - **Redirect URI**: platform **Web**, `https://bootimus.example.com/api/oidc/callback`
+2. Note the **Application (client) ID** and **Directory (tenant) ID** from the overview page
+3. Under **Certificates & secrets**, create a **New client secret** and copy its **Value**
+4. Under **App roles**, create two roles, each with **Allowed member types** *Users/Groups*:
+   - Display name `Bootimus Admin`, value `Bootimus.Admin`
+   - Display name `Bootimus Read-only`, value `Bootimus.ReadOnly`
+5. Go to **Enterprise applications → Bootimus → Users and groups** and assign users or groups to the roles. Assigning groups requires Entra ID P1 or P2; on the free tier, assign users individually.
+6. Optionally, under **Enterprise applications → Bootimus → Properties**, set **Assignment required?** to **Yes** so only assigned users can sign in at all
+7. Configure Bootimus:
+
+```bash
+export BOOTIMUS_OIDC_ISSUER=https://login.microsoftonline.com/<tenant id>/v2.0
+export BOOTIMUS_OIDC_CLIENT_ID=<application id>
+export BOOTIMUS_OIDC_CLIENT_SECRET=<client secret value>
+export BOOTIMUS_OIDC_REDIRECT_URL=https://bootimus.example.com/api/oidc/callback
+export BOOTIMUS_OIDC_GROUPS_CLAIM=roles
+export BOOTIMUS_OIDC_ADMIN_GROUPS=Bootimus.Admin
+export BOOTIMUS_OIDC_ALLOWED_GROUPS=Bootimus.ReadOnly
+export BOOTIMUS_OIDC_DISPLAY_NAME=Microsoft
+```
+
+Keep the default username claim, `preferred_username`, which is the user's sign-in name (e.g. `alice@example.com`). Don't use `email`: Entra doesn't verify it, and Bootimus refuses email usernames the provider hasn't marked as verified.
+
+If you'd rather use security groups, add a **groups claim** under **Token configuration** and list the groups' **Object IDs** in `BOOTIMUS_OIDC_ADMIN_GROUPS` and `BOOTIMUS_OIDC_ALLOWED_GROUPS`, leaving `BOOTIMUS_OIDC_GROUPS_CLAIM` as `groups`.
+
+### Google Example
+
+Google doesn't send group membership or a `preferred_username` claim, so with Google you use email addresses as usernames and grant access with user and domain lists instead of groups.
+
+1. In the [Google Cloud console](https://console.cloud.google.com), select or create a project and go to **APIs & Services → OAuth consent screen** (called **Google Auth Platform** in newer versions of the console):
+   - **User type**: *Internal* if you use Google Workspace, so only accounts in your organisation can sign in. *External* allows any Google account, so always set `BOOTIMUS_OIDC_ALLOWED_USERS` in that case.
+   - Add the `openid`, `email` and `profile` scopes
+2. Go to **APIs & Services → Credentials → Create credentials → OAuth client ID**:
+   - **Application type**: Web application
+   - **Authorised redirect URIs**: `https://bootimus.example.com/api/oidc/callback` (Google only accepts HTTPS, apart from `http://localhost`)
+3. Note the **Client ID** and **Client secret**
+4. Configure Bootimus:
+
+```bash
+export BOOTIMUS_OIDC_ISSUER=https://accounts.google.com
+export BOOTIMUS_OIDC_CLIENT_ID=<client id>.apps.googleusercontent.com
+export BOOTIMUS_OIDC_CLIENT_SECRET=<client secret>
+export BOOTIMUS_OIDC_REDIRECT_URL=https://bootimus.example.com/api/oidc/callback
+export BOOTIMUS_OIDC_USERNAME_CLAIM=email
+export BOOTIMUS_OIDC_ADMIN_USERS=alice@example.com,bob@example.com
+export BOOTIMUS_OIDC_ALLOWED_USERS=@example.com
+export BOOTIMUS_OIDC_DISPLAY_NAME=Google
+```
+
+Here Alice and Bob are administrators and everyone else with an `@example.com` address is read-only. Bootimus only accepts email usernames that Google marks as verified.
+
+### Access Mapping
 
 | Setting | Effect |
 |---------|--------|
-| `BOOTIMUS_OIDC_ADMIN_GROUPS` | Members of any of these groups are administrators. If it is empty, no OIDC user is an administrator. |
-| `BOOTIMUS_OIDC_ALLOWED_GROUPS` | If set, only members of these groups (or of an admin group) can sign in. If empty, anyone the provider authenticates can sign in. |
+| `BOOTIMUS_OIDC_ADMIN_GROUPS` | Members of any of these groups are administrators. |
+| `BOOTIMUS_OIDC_ADMIN_USERS` | These users are administrators. Entries are usernames, or `@domain` to match every username ending in that domain. |
+| `BOOTIMUS_OIDC_ALLOWED_GROUPS` | If set, members of these groups can sign in as read-only users. |
+| `BOOTIMUS_OIDC_ALLOWED_USERS` | If set, these users (usernames or `@domain` entries) can sign in as read-only users. |
 
-Both take a comma-separated list, so group names can contain spaces (`Bootimus Admins,Infrastructure`). Matching ignores case. Group membership is re-read at every sign-in, so changes at the provider apply the next time the user signs in.
+If neither allowed list is set, **anyone the provider authenticates can sign in with read-only access** — Bootimus logs a warning at startup when that's the case. Once either allowed list is set, only users who match an allowed or admin list can sign in. If neither admin list is set, no OIDC user is an administrator.
 
-> **Note:** At present every admin panel page requires administrator rights. Users who are not in an admin group can sign in and are listed under **Users**, but cannot see or change anything until a read-only role is added. For now, set `BOOTIMUS_OIDC_ALLOWED_GROUPS` to the same groups as `BOOTIMUS_OIDC_ADMIN_GROUPS` if you want to stop such accounts being created.
+All four take a comma-separated list, so group names can contain spaces (`Bootimus Admins,Infrastructure`). Matching ignores case; an `@domain` entry matches that exact domain only, not its subdomains. Groups and lists are re-checked at every sign-in, so changes apply the next time the user signs in.
 
 ### Docker Compose Example
 
@@ -326,7 +412,7 @@ Users who sign in via LDAP or OIDC get a local user record the first time they s
 
 - **Source**: each user is marked `Local`, `LDAP` or `OIDC`. A user can only sign in through their own source: an OIDC or LDAP sign-in will never take over a local account with the same name (such as `admin`), and LDAP and OIDC users cannot use local password login.
 - **Usernames** are lower-cased, and may contain letters, digits and `. _ @ + -`. Sign-ins with other characters are refused.
-- **Admin rights** follow the user's groups and are refreshed at each sign-in, so changing the **Administrator** tick box for an LDAP or OIDC user only lasts until they next sign in.
+- **Admin rights** follow the user's groups (and, for OIDC, the admin user list) and are refreshed at each sign-in, so changing the **Administrator** tick box for an LDAP or OIDC user only lasts until they next sign in. Users who aren't administrators are read-only (see [Roles](#roles)).
 - **Disabling** a user in Bootimus blocks them immediately, even if the provider still lets them sign in.
 - **Deleting** a user only removes the local record; it is recreated at their next sign-in. Use the provider's groups, or disable the user, to remove access.
 - **Passwords** for LDAP and OIDC users are managed by the provider, so **Reset Password** is not offered for them and `bootimus user set-password` refuses them.
@@ -358,7 +444,9 @@ If someone signs in with a name that already belongs to a user from another sour
 | `--oidc-username-claim` | `preferred_username` | Claim used as the Bootimus username (e.g. `email`) |
 | `--oidc-groups-claim` | `groups` | Claim listing the user's groups |
 | `--oidc-admin-groups` | *(empty)* | Comma-separated groups whose members are administrators |
-| `--oidc-allowed-groups` | *(empty)* | Comma-separated groups allowed to sign in (empty allows anyone) |
+| `--oidc-allowed-groups` | *(empty)* | Comma-separated groups allowed to sign in |
+| `--oidc-admin-users` | *(empty)* | Comma-separated usernames or `@domain` entries who are administrators |
+| `--oidc-allowed-users` | *(empty)* | Comma-separated usernames or `@domain` entries allowed to sign in |
 | `--oidc-display-name` | `SSO` | Name shown on the sign-in button |
 | `--oidc-skip-verify` | `false` | Skip TLS certificate verification when talking to the provider |
 
@@ -388,6 +476,8 @@ All flags can be set via environment variables with the `BOOTIMUS_` prefix:
 | `BOOTIMUS_OIDC_GROUPS_CLAIM` | `--oidc-groups-claim` |
 | `BOOTIMUS_OIDC_ADMIN_GROUPS` | `--oidc-admin-groups` |
 | `BOOTIMUS_OIDC_ALLOWED_GROUPS` | `--oidc-allowed-groups` |
+| `BOOTIMUS_OIDC_ADMIN_USERS` | `--oidc-admin-users` |
+| `BOOTIMUS_OIDC_ALLOWED_USERS` | `--oidc-allowed-users` |
 | `BOOTIMUS_OIDC_DISPLAY_NAME` | `--oidc-display-name` |
 | `BOOTIMUS_OIDC_SKIP_VERIFY` | `--oidc-skip-verify` |
 
@@ -412,6 +502,8 @@ oidc:
   redirect_url: https://bootimus.example.com/api/oidc/callback
   admin_groups: bootimus-admins
   allowed_groups: bootimus-operators
+  admin_users: alice@example.com
+  allowed_users: "@example.com"
   display_name: Authentik
 ```
 
@@ -469,7 +561,11 @@ The sign-in must finish within 10 minutes, in the same browser that started it, 
 
 ### OIDC: User Is Not an Administrator or Is Refused
 
-The server log records why each sign-in was refused. Check which groups the provider actually sends — group names must match `BOOTIMUS_OIDC_ADMIN_GROUPS` or `BOOTIMUS_OIDC_ALLOWED_GROUPS`, and Keycloak sends full paths (`/bootimus-admins`) unless **Full group path** is turned off. If your provider uses a different claim name, set `BOOTIMUS_OIDC_GROUPS_CLAIM`.
+The server log records why each sign-in was refused. Check which groups the provider actually sends — group names must match `BOOTIMUS_OIDC_ADMIN_GROUPS` or `BOOTIMUS_OIDC_ALLOWED_GROUPS`, and Keycloak sends full paths (`/bootimus-admins`) unless **Full group path** is turned off. If your provider uses a different claim name, set `BOOTIMUS_OIDC_GROUPS_CLAIM` (Entra ID app roles use `roles`). For providers without groups, such as Google, use `BOOTIMUS_OIDC_ADMIN_USERS` and `BOOTIMUS_OIDC_ALLOWED_USERS`.
+
+### OIDC: "email … is not marked as verified by the provider"
+
+When `BOOTIMUS_OIDC_USERNAME_CLAIM` is `email`, the provider must send `email_verified: true`, otherwise anyone able to set an unverified address could sign in as someone else. Verify the address at the provider, or use a different username claim such as `preferred_username`.
 
 ### "A user with this name already exists from a different source"
 

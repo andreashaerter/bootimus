@@ -31,7 +31,8 @@ I've used Claude CLI to help with some parts of this project - mostly making the
 - **Hardware inventory**: Automatic collection of CPU, memory, manufacturer, serial number, and NIC info from PXE clients
 - **JWT authentication**: Secure token-based auth with a dedicated login page
 - **LDAP/Active Directory**: Optional LDAP backend with group-based admin access - local accounts always work as fallback
-- **OIDC single sign-on**: Sign in through Authentik, Keycloak or any OpenID Connect provider, with users created on first sign-in and admin rights mapped from groups
+- **OIDC single sign-on**: Sign in through Authentik, Keycloak, Microsoft Entra ID, Google or any OpenID Connect provider, with users created on first sign-in and admin rights mapped from groups or user lists
+- **Read-only role**: Non-admin users can view clients, images and boot activity without being able to change anything or see BMC passwords
 - **Swappable bootloaders**: Ship with embedded iPXE, or bring your own custom bootloader sets
 - **Raspberry Pi netboot**: Pi 3 and Pi 4 boards boot with no SD card — embedded UEFI firmware served over TFTP
 - **Modern admin UI**: Sidebar navigation, consistent toolbars, real-time colour-coded logs, REST API
