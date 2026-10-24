@@ -48,7 +48,7 @@ Navega a `http://your-server:8081` y verás una página de login dedicada. Intro
 - **Usuario**: `admin`
 - **Contraseña**: Revisa los logs de arranque del servidor
 
-Si LDAP está configurado, aparecerá un desplegable en la página de login para elegir entre autenticación local y LDAP. Si OIDC está configurado, aparece un botón **Sign in with …** para el inicio de sesión único. Mira la [Guía de autenticación](authentication.md) para más detalles.
+Si LDAP está configurado, aparecerá un desplegable en la página de login para elegir entre autenticación local y LDAP. Si OIDC está configurado, aparece un botón **Sign in with …** para el inicio de sesión único. Los usuarios que no son administradores tienen acceso de solo lectura: pueden explorar el panel, pero no cambiar nada. Mira la [Guía de autenticación](authentication.md) para más detalles.
 
 ### Inicio rápido
 

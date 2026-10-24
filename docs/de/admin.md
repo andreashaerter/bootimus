@@ -48,7 +48,7 @@ Navigiere zu `http://your-server:8081` — du siehst eine dedizierte Login-Seite
 - **Username**: `admin`
 - **Passwort**: Aus den Server-Startup-Logs
 
-Wenn LDAP konfiguriert ist, erscheint auf der Login-Seite ein Dropdown zur Auswahl zwischen lokaler und LDAP-Authentifizierung. Wenn OIDC konfiguriert ist, erscheint ein Button **Sign in with …** für Single Sign-On. Details im [Authentifizierungs-Leitfaden](authentication.md).
+Wenn LDAP konfiguriert ist, erscheint auf der Login-Seite ein Dropdown zur Auswahl zwischen lokaler und LDAP-Authentifizierung. Wenn OIDC konfiguriert ist, erscheint ein Button **Sign in with …** für Single Sign-On. Nutzer, die keine Administratoren sind, erhalten schreibgeschützten Zugriff: Sie können das Panel durchsehen, aber nichts ändern. Details im [Authentifizierungs-Leitfaden](authentication.md).
 
 ### Schnellstart
 

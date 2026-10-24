@@ -6,6 +6,7 @@ Bootimus usa autenticación JWT (JSON Web Token) para el panel admin. Opcionalme
 
 - [Autenticación local](#autenticación-local)
 - [Flujo de login](#flujo-de-login)
+- [Roles](#roles)
 - [Autenticación de la API](#autenticación-de-la-api)
 - [LDAP / Active Directory](#ldap--active-directory)
 - [OIDC / inicio de sesión único](#oidc--inicio-de-sesión-único)
@@ -57,7 +58,7 @@ abrir ningún puerto (ideal para recuperación de emergencia):
 Se pueden crear usuarios adicionales desde la pestaña **Users** del panel admin. Cada usuario tiene:
 - **Username**: Nombre de login único
 - **Password**: Almacenada como hash bcrypt
-- **Admin**: Si el usuario tiene privilegios de admin
+- **Admin**: Si el usuario es administrador; el resto de usuarios son de solo lectura (mira [Roles](#roles))
 - **Enabled**: Se puede deshabilitar sin borrar
 - **Source**: `Local`, `LDAP` o `OIDC` — de dónde procede la cuenta (mira [Usuarios de LDAP y OIDC](#usuarios-de-ldap-y-oidc))
 
@@ -83,9 +84,34 @@ datos configurada (SQLite o PostgreSQL):
 6. El token se almacena en el navegador y se envía con todas las peticiones a la API
 7. Al hacer logout o expirar el token, se muestra de nuevo la página de login
 
+## Roles
+
+Bootimus tiene dos roles:
+
+| Rol | Acceso |
+|-----|--------|
+| **Admin** | Todo. |
+| **Read-only** | Puede ver el dashboard, los clientes (incluido el inventario de hardware, el historial de arranque y el estado de energía del BMC), los grupos de clientes, las imágenes, los archivos públicos, los perfiles de distribución, el menú de arranque, los bootloaders, las herramientas, los clústeres y nodos de Kubernetes, las tareas programadas y el historial de intentos de arranque. |
+
+Los usuarios de solo lectura:
+
+- no pueden cambiar nada — el servidor rechaza cualquier escritura con `403 Your account has read-only access`, y el panel admin oculta los botones
+- no pueden ver los usuarios, los ajustes de webhooks, las copias de seguridad, el log del servidor en vivo, los archivos y scripts de autoinstalación, ni las configuraciones de máquina de los clústeres
+- nunca reciben las contraseñas del BMC (IPMI/Redfish) ni los parches de configuración de los clientes — se eliminan de todas las respuestas de la API que se les envían
+
+Un usuario es administrador si:
+
+- **Local**: la casilla **Administrator** está marcada en su cuenta
+- **LDAP**: coincide con `BOOTIMUS_LDAP_GROUP_FILTER` (o no hay filtro de grupo definido)
+- **OIDC**: está en alguno de los grupos de `BOOTIMUS_OIDC_ADMIN_GROUPS` o figura en `BOOTIMUS_OIDC_ADMIN_USERS`
+
+Todos los demás que pueden iniciar sesión son de solo lectura. `GET /api/me` devuelve el rol del usuario con la sesión iniciada.
+
+> **Actualización:** antes de añadir el acceso de solo lectura, los usuarios locales sin la casilla **Administrator** marcada podían iniciar sesión pero no veían nada. Ahora tienen acceso de solo lectura. Deshabilita las cuentas de ese tipo que no quieras que lo tengan.
+
 ## Autenticación de la API
 
-Todos los endpoints de la API (excepto `/api/login`, `/api/auth-info` y los endpoints de inicio de sesión `/api/oidc/`) requieren un token JWT válido.
+Todos los endpoints de la API (excepto `/api/login`, `/api/auth-info` y los endpoints de inicio de sesión `/api/oidc/`) requieren un token JWT válido. Los usuarios de solo lectura solo pueden hacer peticiones `GET`, y únicamente a los endpoints indicados en [Roles](#roles).
 
 ### Obtener un token
 
@@ -230,8 +256,8 @@ Bootimus puede autenticar usuarios mediante cualquier proveedor OpenID Connect �
 2. Bootimus lo redirige al proveedor (flujo de código de autorización con PKCE)
 3. El usuario inicia sesión en el proveedor, que lo redirige de vuelta a `/api/oidc/callback`
 4. Bootimus intercambia el código por un ID token, verifica su firma, audiencia, expiración y nonce, y lee los claims de username y grupos
-5. Si hay grupos permitidos configurados, el usuario debe estar en uno de ellos (o en un grupo admin)
-6. Se crea o actualiza un registro de usuario local (mira [Usuarios de LDAP y OIDC](#usuarios-de-ldap-y-oidc)), con derechos de admin si está en un grupo admin
+5. Si hay grupos o usuarios permitidos configurados, el usuario debe coincidir con alguno de ellos (o ser administrador)
+6. Se crea o actualiza un registro de usuario local (mira [Usuarios de LDAP y OIDC](#usuarios-de-ldap-y-oidc)), como administrador si está en un grupo admin o en la lista de usuarios admin, y de solo lectura en caso contrario
 7. El navegador vuelve al panel admin con un token JWT (igual que en auth local)
 
 Si el ID token no incluye el claim de username o de grupos, Bootimus también consulta el endpoint userinfo del proveedor.
@@ -288,16 +314,76 @@ export BOOTIMUS_OIDC_ADMIN_GROUPS=bootimus-admins
 export BOOTIMUS_OIDC_DISPLAY_NAME=Keycloak
 ```
 
-### Mapeo de grupos
+### Ejemplo con Microsoft Entra ID
+
+Entra ID envía los *IDs* de los grupos, y no sus nombres, en su claim de grupos, así que la forma más sencilla de mapear roles es con **app roles**, que Entra envía en un claim `roles`.
+
+1. En el [Microsoft Entra admin centre](https://entra.microsoft.com), ve a **App registrations → New registration**:
+   - **Name**: `Bootimus`
+   - **Supported account types**: *Accounts in this organisational directory only (Single tenant)*
+   - **Redirect URI**: plataforma **Web**, `https://bootimus.example.com/api/oidc/callback`
+2. Anota el **Application (client) ID** y el **Directory (tenant) ID** de la página de resumen
+3. En **Certificates & secrets**, crea un **New client secret** y copia su **Value**
+4. En **App roles**, crea dos roles, cada uno con **Allowed member types** *Users/Groups*:
+   - Display name `Bootimus Admin`, value `Bootimus.Admin`
+   - Display name `Bootimus Read-only`, value `Bootimus.ReadOnly`
+5. Ve a **Enterprise applications → Bootimus → Users and groups** y asigna usuarios o grupos a los roles. Asignar grupos requiere Entra ID P1 o P2; en el nivel gratuito, asigna los usuarios de uno en uno.
+6. Opcionalmente, en **Enterprise applications → Bootimus → Properties**, establece **Assignment required?** en **Yes** para que solo puedan iniciar sesión los usuarios asignados
+7. Configura Bootimus:
+
+```bash
+export BOOTIMUS_OIDC_ISSUER=https://login.microsoftonline.com/<tenant id>/v2.0
+export BOOTIMUS_OIDC_CLIENT_ID=<application id>
+export BOOTIMUS_OIDC_CLIENT_SECRET=<client secret value>
+export BOOTIMUS_OIDC_REDIRECT_URL=https://bootimus.example.com/api/oidc/callback
+export BOOTIMUS_OIDC_GROUPS_CLAIM=roles
+export BOOTIMUS_OIDC_ADMIN_GROUPS=Bootimus.Admin
+export BOOTIMUS_OIDC_ALLOWED_GROUPS=Bootimus.ReadOnly
+export BOOTIMUS_OIDC_DISPLAY_NAME=Microsoft
+```
+
+Mantén el claim de username por defecto, `preferred_username`, que es el nombre de inicio de sesión del usuario (p. ej. `alice@example.com`). No uses `email`: Entra no lo verifica, y Bootimus rechaza los usernames de tipo email que el proveedor no ha marcado como verificados.
+
+Si prefieres usar grupos de seguridad, añade un **groups claim** en **Token configuration** y lista los **Object IDs** de los grupos en `BOOTIMUS_OIDC_ADMIN_GROUPS` y `BOOTIMUS_OIDC_ALLOWED_GROUPS`, dejando `BOOTIMUS_OIDC_GROUPS_CLAIM` como `groups`.
+
+### Ejemplo con Google
+
+Google no envía la membresía de grupos ni un claim `preferred_username`, así que con Google se usan direcciones de email como usernames y se concede el acceso con listas de usuarios y dominios en lugar de grupos.
+
+1. En la [Google Cloud console](https://console.cloud.google.com), selecciona o crea un proyecto y ve a **APIs & Services → OAuth consent screen** (llamada **Google Auth Platform** en las versiones más recientes de la consola):
+   - **User type**: *Internal* si usas Google Workspace, de modo que solo puedan iniciar sesión las cuentas de tu organización. *External* permite cualquier cuenta de Google, así que en ese caso define siempre `BOOTIMUS_OIDC_ALLOWED_USERS`.
+   - Añade los scopes `openid`, `email` y `profile`
+2. Ve a **APIs & Services → Credentials → Create credentials → OAuth client ID**:
+   - **Application type**: Web application
+   - **Authorised redirect URIs**: `https://bootimus.example.com/api/oidc/callback` (Google solo acepta HTTPS, salvo `http://localhost`)
+3. Anota el **Client ID** y el **Client secret**
+4. Configura Bootimus:
+
+```bash
+export BOOTIMUS_OIDC_ISSUER=https://accounts.google.com
+export BOOTIMUS_OIDC_CLIENT_ID=<client id>.apps.googleusercontent.com
+export BOOTIMUS_OIDC_CLIENT_SECRET=<client secret>
+export BOOTIMUS_OIDC_REDIRECT_URL=https://bootimus.example.com/api/oidc/callback
+export BOOTIMUS_OIDC_USERNAME_CLAIM=email
+export BOOTIMUS_OIDC_ADMIN_USERS=alice@example.com,bob@example.com
+export BOOTIMUS_OIDC_ALLOWED_USERS=@example.com
+export BOOTIMUS_OIDC_DISPLAY_NAME=Google
+```
+
+Aquí Alice y Bob son administradores y todos los demás con una dirección `@example.com` son de solo lectura. Bootimus solo acepta usernames de tipo email que Google marque como verificados.
+
+### Mapeo de acceso
 
 | Ajuste | Efecto |
 |--------|--------|
-| `BOOTIMUS_OIDC_ADMIN_GROUPS` | Los miembros de cualquiera de estos grupos son administradores. Si está vacío, ningún usuario OIDC es administrador. |
-| `BOOTIMUS_OIDC_ALLOWED_GROUPS` | Si está definido, solo los miembros de estos grupos (o de un grupo admin) pueden iniciar sesión. Si está vacío, puede iniciar sesión cualquiera que el proveedor autentique. |
+| `BOOTIMUS_OIDC_ADMIN_GROUPS` | Los miembros de cualquiera de estos grupos son administradores. |
+| `BOOTIMUS_OIDC_ADMIN_USERS` | Estos usuarios son administradores. Las entradas son usernames, o `@domain` para coincidir con todos los usernames que terminen en ese dominio. |
+| `BOOTIMUS_OIDC_ALLOWED_GROUPS` | Si está definido, los miembros de estos grupos pueden iniciar sesión como usuarios de solo lectura. |
+| `BOOTIMUS_OIDC_ALLOWED_USERS` | Si está definido, estos usuarios (usernames o entradas `@domain`) pueden iniciar sesión como usuarios de solo lectura. |
 
-Ambos aceptan una lista separada por comas, así que los nombres de grupo pueden contener espacios (`Bootimus Admins,Infrastructure`). La comparación ignora mayúsculas y minúsculas. La membresía de grupo se vuelve a leer en cada login, así que los cambios en el proveedor se aplican la próxima vez que el usuario inicie sesión.
+Si no se define ninguna de las listas de permitidos, **cualquiera que el proveedor autentique puede iniciar sesión con acceso de solo lectura** — Bootimus registra una advertencia al arrancar cuando es el caso. Una vez definida cualquiera de las listas de permitidos, solo pueden iniciar sesión los usuarios que coincidan con una lista de permitidos o de admin. Si no se define ninguna lista de admin, ningún usuario OIDC es administrador.
 
-> **Nota:** Actualmente todas las páginas del panel admin requieren derechos de administrador. Los usuarios que no están en un grupo admin pueden iniciar sesión y aparecen en **Users**, pero no pueden ver ni cambiar nada hasta que se añada un rol de solo lectura. Por ahora, define `BOOTIMUS_OIDC_ALLOWED_GROUPS` con los mismos grupos que `BOOTIMUS_OIDC_ADMIN_GROUPS` si quieres evitar que se creen estas cuentas.
+Las cuatro aceptan una lista separada por comas, así que los nombres de grupo pueden contener espacios (`Bootimus Admins,Infrastructure`). La comparación ignora mayúsculas y minúsculas; una entrada `@domain` coincide solo con ese dominio exacto, no con sus subdominios. Los grupos y las listas se vuelven a comprobar en cada login, así que los cambios se aplican la próxima vez que el usuario inicie sesión.
 
 ### Ejemplo con Docker Compose
 
@@ -326,7 +412,7 @@ Los usuarios que inician sesión mediante LDAP u OIDC obtienen un registro de us
 
 - **Source**: cada usuario se marca como `Local`, `LDAP` u `OIDC`. Un usuario solo puede iniciar sesión por su propio origen: un login OIDC o LDAP nunca se apropiará de una cuenta local con el mismo nombre (como `admin`), y los usuarios LDAP y OIDC no pueden usar el login local con contraseña.
 - **Los usernames** se pasan a minúsculas y pueden contener letras, dígitos y `. _ @ + -`. Los logins con otros caracteres se rechazan.
-- **Los derechos de admin** siguen los grupos del usuario y se actualizan en cada login, así que cambiar la casilla **Administrator** de un usuario LDAP u OIDC solo dura hasta que vuelva a iniciar sesión.
+- **Los derechos de admin** siguen los grupos del usuario (y, en OIDC, la lista de usuarios admin) y se actualizan en cada login, así que cambiar la casilla **Administrator** de un usuario LDAP u OIDC solo dura hasta que vuelva a iniciar sesión. Los usuarios que no son administradores son de solo lectura (mira [Roles](#roles)).
 - **Deshabilitar** un usuario en Bootimus lo bloquea de inmediato, aunque el proveedor todavía le permita iniciar sesión.
 - **Borrar** un usuario solo elimina el registro local; se vuelve a crear en su próximo login. Usa los grupos del proveedor, o deshabilita al usuario, para quitarle el acceso.
 - **Las contraseñas** de los usuarios LDAP y OIDC las gestiona el proveedor, así que no se ofrece **Reset Password** para ellos y `bootimus user set-password` los rechaza.
@@ -358,7 +444,9 @@ Si alguien inicia sesión con un nombre que ya pertenece a un usuario de otro or
 | `--oidc-username-claim` | `preferred_username` | Claim usado como username de Bootimus (p. ej. `email`) |
 | `--oidc-groups-claim` | `groups` | Claim que lista los grupos del usuario |
 | `--oidc-admin-groups` | *(vacío)* | Grupos separados por comas cuyos miembros son administradores |
-| `--oidc-allowed-groups` | *(vacío)* | Grupos separados por comas con permiso para iniciar sesión (vacío permite a cualquiera) |
+| `--oidc-allowed-groups` | *(vacío)* | Grupos separados por comas con permiso para iniciar sesión |
+| `--oidc-admin-users` | *(vacío)* | Usernames o entradas `@domain` separados por comas que son administradores |
+| `--oidc-allowed-users` | *(vacío)* | Usernames o entradas `@domain` separados por comas con permiso para iniciar sesión |
 | `--oidc-display-name` | `SSO` | Nombre mostrado en el botón de login |
 | `--oidc-skip-verify` | `false` | Saltarse la verificación del certificado TLS al comunicarse con el proveedor |
 
@@ -388,6 +476,8 @@ Todos los flags se pueden definir vía variables de entorno con el prefijo `BOOT
 | `BOOTIMUS_OIDC_GROUPS_CLAIM` | `--oidc-groups-claim` |
 | `BOOTIMUS_OIDC_ADMIN_GROUPS` | `--oidc-admin-groups` |
 | `BOOTIMUS_OIDC_ALLOWED_GROUPS` | `--oidc-allowed-groups` |
+| `BOOTIMUS_OIDC_ADMIN_USERS` | `--oidc-admin-users` |
+| `BOOTIMUS_OIDC_ALLOWED_USERS` | `--oidc-allowed-users` |
 | `BOOTIMUS_OIDC_DISPLAY_NAME` | `--oidc-display-name` |
 | `BOOTIMUS_OIDC_SKIP_VERIFY` | `--oidc-skip-verify` |
 
@@ -412,6 +502,8 @@ oidc:
   redirect_url: https://bootimus.example.com/api/oidc/callback
   admin_groups: bootimus-admins
   allowed_groups: bootimus-operators
+  admin_users: alice@example.com
+  allowed_users: "@example.com"
   display_name: Authentik
 ```
 
@@ -469,7 +561,11 @@ El login debe completarse en 10 minutos, en el mismo navegador que lo inició, y
 
 ### OIDC: el usuario no es administrador o es rechazado
 
-El log del servidor registra por qué se rechazó cada login. Comprueba qué grupos envía realmente el proveedor — los nombres de grupo deben coincidir con `BOOTIMUS_OIDC_ADMIN_GROUPS` o `BOOTIMUS_OIDC_ALLOWED_GROUPS`, y Keycloak envía rutas completas (`/bootimus-admins`) a menos que **Full group path** esté desactivado. Si tu proveedor usa otro nombre de claim, define `BOOTIMUS_OIDC_GROUPS_CLAIM`.
+El log del servidor registra por qué se rechazó cada login. Comprueba qué grupos envía realmente el proveedor — los nombres de grupo deben coincidir con `BOOTIMUS_OIDC_ADMIN_GROUPS` o `BOOTIMUS_OIDC_ALLOWED_GROUPS`, y Keycloak envía rutas completas (`/bootimus-admins`) a menos que **Full group path** esté desactivado. Si tu proveedor usa otro nombre de claim, define `BOOTIMUS_OIDC_GROUPS_CLAIM` (los app roles de Entra ID usan `roles`). Para proveedores sin grupos, como Google, usa `BOOTIMUS_OIDC_ADMIN_USERS` y `BOOTIMUS_OIDC_ALLOWED_USERS`.
+
+### OIDC: "email … is not marked as verified by the provider"
+
+Cuando `BOOTIMUS_OIDC_USERNAME_CLAIM` es `email`, el proveedor debe enviar `email_verified: true`; de lo contrario, cualquiera que pudiera establecer una dirección sin verificar podría iniciar sesión como otra persona. Verifica la dirección en el proveedor, o usa otro claim de username como `preferred_username`.
 
 ### "A user with this name already exists from a different source"
 

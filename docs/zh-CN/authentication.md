@@ -6,6 +6,7 @@ Bootimus 使用 JWT (JSON Web Token) 对管理面板进行身份认证。你也�
 
 - [本地认证](#本地认证)
 - [登录流程](#登录流程)
+- [角色](#角色)
 - [API 认证](#api-认证)
 - [LDAP / Active Directory](#ldap--active-directory)
 - [OIDC / 单点登录](#oidc--单点登录)
@@ -56,7 +57,7 @@ docker exec bootimus /bootimus serve --reset-admin-password
 可以从管理面板的 **Users** 标签创建额外的用户。每个用户具有:
 - **Username**:唯一的登录名
 - **Password**:以 bcrypt 哈希存储
-- **Admin**:用户是否拥有管理员权限
+- **Admin**:用户是否为管理员;其他用户为只读(参见 [角色](#角色))
 - **Enabled**:可禁用而无需删除
 - **Source**:`Local`、`LDAP` 或 `OIDC` — 账号的来源(参见 [来自 LDAP 和 OIDC 的用户](#来自-ldap-和-oidc-的用户))
 
@@ -81,9 +82,34 @@ docker exec bootimus /bootimus serve --reset-admin-password
 6. token 存储在浏览器,并随所有 API 请求一起发送
 7. 退出登录或 token 过期后,再次显示登录页
 
+## 角色
+
+Bootimus 有两种角色:
+
+| 角色 | 访问权限 |
+|------|--------|
+| **Admin** | 拥有全部权限。 |
+| **Read-only** | 可以查看仪表盘、客户端(包括硬件清单、启动历史和 BMC 电源状态)、客户端组、镜像、公共文件、发行版配置、启动菜单、引导加载程序、工具、Kubernetes 集群和节点、计划任务以及启动尝试历史。 |
+
+只读用户:
+
+- 无法更改任何内容 — 服务器会拒绝每一次写入并返回 `403 Your account has read-only access`,管理面板也会隐藏相应的按钮
+- 无法查看用户、webhook 设置、备份、实时服务器日志、自动安装文件和脚本,以及集群机器配置
+- 永远不会收到 BMC (IPMI/Redfish) 密码或客户端配置补丁 — 发送给他们的每个 API 响应中都会移除这些内容
+
+满足以下条件的用户是管理员:
+
+- **Local**:其账号勾选了 **Administrator** 复选框
+- **LDAP**:匹配 `BOOTIMUS_LDAP_GROUP_FILTER`(或未设置组过滤器)
+- **OIDC**:属于 `BOOTIMUS_OIDC_ADMIN_GROUPS` 中的某个组,或列在 `BOOTIMUS_OIDC_ADMIN_USERS` 中
+
+其他所有能够登录的用户都是只读的。`GET /api/me` 会返回当前登录用户的角色。
+
+> **升级须知:** 在添加只读访问之前,未勾选 **Administrator** 复选框的本地用户可以登录,但看不到任何内容。现在他们拥有只读访问权限。请禁用你不希望其拥有该权限的此类账号。
+
 ## API 认证
 
-所有 API 端点(`/api/login`、`/api/auth-info` 和 `/api/oidc/` 登录端点除外)都需要有效的 JWT token。
+所有 API 端点(`/api/login`、`/api/auth-info` 和 `/api/oidc/` 登录端点除外)都需要有效的 JWT token。只读用户只能发起 `GET` 请求,并且只能访问 [角色](#角色) 中列出的端点。
 
 ### 获取 token
 
@@ -228,8 +254,8 @@ Bootimus 可以通过任何 OpenID Connect 提供商登录用户 — Authentik�
 2. Bootimus 将其重定向到提供商(带 PKCE 的授权码流程)
 3. 用户在提供商处登录,提供商随后重定向回 `/api/oidc/callback`
 4. Bootimus 用授权码换取 ID token,校验其签名、audience、过期时间和 nonce,并读取用户名和组声明
-5. 如果配置了允许的组,用户必须属于其中之一(或属于管理员组)
-6. 创建或更新本地用户记录(参见 [来自 LDAP 和 OIDC 的用户](#来自-ldap-和-oidc-的用户)),若用户属于管理员组则授予管理员权限
+5. 如果配置了允许的组或用户,用户必须匹配其中之一(或是管理员)
+6. 创建或更新本地用户记录(参见 [来自 LDAP 和 OIDC 的用户](#来自-ldap-和-oidc-的用户)),若用户属于管理员组或在管理员用户列表中则为管理员,否则为只读
 7. 浏览器带着 JWT token 返回管理面板(与本地认证相同)
 
 如果 ID token 中不包含用户名或组声明,Bootimus 还会向提供商的 userinfo 端点查询。
@@ -286,16 +312,76 @@ export BOOTIMUS_OIDC_ADMIN_GROUPS=bootimus-admins
 export BOOTIMUS_OIDC_DISPLAY_NAME=Keycloak
 ```
 
-### 组映射
+### Microsoft Entra ID 示例
+
+Entra ID 在组声明中发送的是组 *ID* 而不是名称,因此映射角色最简单的方法是使用 **app roles**,Entra 会在 `roles` 声明中发送它们。
+
+1. 在 [Microsoft Entra admin centre](https://entra.microsoft.com) 中进入 **App registrations → New registration**:
+   - **Name**:`Bootimus`
+   - **Supported account types**:*Accounts in this organisational directory only (Single tenant)*
+   - **Redirect URI**:平台选 **Web**,填 `https://bootimus.example.com/api/oidc/callback`
+2. 在概览页面记下 **Application (client) ID** 和 **Directory (tenant) ID**
+3. 在 **Certificates & secrets** 下创建一个 **New client secret**,并复制其 **Value**
+4. 在 **App roles** 下创建两个角色,**Allowed member types** 均为 *Users/Groups*:
+   - Display name 为 `Bootimus Admin`,value 为 `Bootimus.Admin`
+   - Display name 为 `Bootimus Read-only`,value 为 `Bootimus.ReadOnly`
+5. 进入 **Enterprise applications → Bootimus → Users and groups**,把用户或组分配给这些角色。分配组需要 Entra ID P1 或 P2;免费版请逐个分配用户。
+6. 可选:在 **Enterprise applications → Bootimus → Properties** 下,把 **Assignment required?** 设为 **Yes**,这样只有已分配的用户才能登录
+7. 配置 Bootimus:
+
+```bash
+export BOOTIMUS_OIDC_ISSUER=https://login.microsoftonline.com/<tenant id>/v2.0
+export BOOTIMUS_OIDC_CLIENT_ID=<application id>
+export BOOTIMUS_OIDC_CLIENT_SECRET=<client secret value>
+export BOOTIMUS_OIDC_REDIRECT_URL=https://bootimus.example.com/api/oidc/callback
+export BOOTIMUS_OIDC_GROUPS_CLAIM=roles
+export BOOTIMUS_OIDC_ADMIN_GROUPS=Bootimus.Admin
+export BOOTIMUS_OIDC_ALLOWED_GROUPS=Bootimus.ReadOnly
+export BOOTIMUS_OIDC_DISPLAY_NAME=Microsoft
+```
+
+请保留默认的用户名声明 `preferred_username`,它是用户的登录名(例如 `alice@example.com`)。不要使用 `email`:Entra 不会验证它,而 Bootimus 会拒绝提供商未标记为已验证的电子邮件用户名。
+
+如果你更想使用安全组,请在 **Token configuration** 下添加一个 **groups claim**,并把这些组的 **Object IDs** 填入 `BOOTIMUS_OIDC_ADMIN_GROUPS` 和 `BOOTIMUS_OIDC_ALLOWED_GROUPS`,同时让 `BOOTIMUS_OIDC_GROUPS_CLAIM` 保持为 `groups`。
+
+### Google 示例
+
+Google 不会发送组成员关系,也没有 `preferred_username` 声明,因此使用 Google 时,请把电子邮件地址用作用户名,并通过用户列表和域名列表而不是组来授予访问权限。
+
+1. 在 [Google Cloud console](https://console.cloud.google.com) 中选择或创建一个项目,进入 **APIs & Services → OAuth consent screen**(在较新版本的控制台中称为 **Google Auth Platform**):
+   - **User type**:如果使用 Google Workspace,请选 *Internal*,这样只有你所在组织的账号可以登录。*External* 允许任何 Google 账号,因此在这种情况下务必设置 `BOOTIMUS_OIDC_ALLOWED_USERS`。
+   - 添加 `openid`、`email` 和 `profile` scopes
+2. 进入 **APIs & Services → Credentials → Create credentials → OAuth client ID**:
+   - **Application type**:Web application
+   - **Authorised redirect URIs**:`https://bootimus.example.com/api/oidc/callback`(除 `http://localhost` 外,Google 只接受 HTTPS)
+3. 记下 **Client ID** 和 **Client secret**
+4. 配置 Bootimus:
+
+```bash
+export BOOTIMUS_OIDC_ISSUER=https://accounts.google.com
+export BOOTIMUS_OIDC_CLIENT_ID=<client id>.apps.googleusercontent.com
+export BOOTIMUS_OIDC_CLIENT_SECRET=<client secret>
+export BOOTIMUS_OIDC_REDIRECT_URL=https://bootimus.example.com/api/oidc/callback
+export BOOTIMUS_OIDC_USERNAME_CLAIM=email
+export BOOTIMUS_OIDC_ADMIN_USERS=alice@example.com,bob@example.com
+export BOOTIMUS_OIDC_ALLOWED_USERS=@example.com
+export BOOTIMUS_OIDC_DISPLAY_NAME=Google
+```
+
+在这里,Alice 和 Bob 是管理员,其他所有使用 `@example.com` 地址的人都是只读用户。Bootimus 只接受 Google 标记为已验证的电子邮件用户名。
+
+### 访问映射
 
 | 设置 | 作用 |
 |---------|--------|
-| `BOOTIMUS_OIDC_ADMIN_GROUPS` | 这些组中任一组的成员为管理员。如果为空,则没有任何 OIDC 用户是管理员。 |
-| `BOOTIMUS_OIDC_ALLOWED_GROUPS` | 如果设置,只有这些组(或管理员组)的成员可以登录。如果为空,提供商认证通过的任何人都可以登录。 |
+| `BOOTIMUS_OIDC_ADMIN_GROUPS` | 这些组中任一组的成员为管理员。 |
+| `BOOTIMUS_OIDC_ADMIN_USERS` | 这些用户为管理员。条目为用户名,或 `@domain`,用于匹配以该域名结尾的所有用户名。 |
+| `BOOTIMUS_OIDC_ALLOWED_GROUPS` | 如果设置,这些组的成员可以作为只读用户登录。 |
+| `BOOTIMUS_OIDC_ALLOWED_USERS` | 如果设置,这些用户(用户名或 `@domain` 条目)可以作为只读用户登录。 |
 
-两者都接受以逗号分隔的列表,因此组名可以包含空格(`Bootimus Admins,Infrastructure`)。匹配时忽略大小写。组成员关系在每次登录时重新读取,因此提供商处的变更会在用户下次登录时生效。
+如果两个允许列表都未设置,则**提供商认证通过的任何人都可以以只读权限登录** — 这种情况下 Bootimus 会在启动时记录一条警告。一旦设置了任一允许列表,只有匹配允许列表或管理员列表的用户才能登录。如果两个管理员列表都未设置,则没有任何 OIDC 用户是管理员。
 
-> **注意:** 目前管理面板的每个页面都需要管理员权限。不在管理员组中的用户可以登录并出现在 **Users** 列表中,但在添加只读角色之前,他们无法查看或更改任何内容。目前,如果你想阻止创建此类账号,请把 `BOOTIMUS_OIDC_ALLOWED_GROUPS` 设置为与 `BOOTIMUS_OIDC_ADMIN_GROUPS` 相同的组。
+这四项都接受以逗号分隔的列表,因此组名可以包含空格(`Bootimus Admins,Infrastructure`)。匹配时忽略大小写;`@domain` 条目只匹配该确切域名,不匹配其子域名。组和列表在每次登录时重新检查,因此变更会在用户下次登录时生效。
 
 ### Docker Compose 示例
 
@@ -324,7 +410,7 @@ services:
 
 - **Source**:每个用户都被标记为 `Local`、`LDAP` 或 `OIDC`。用户只能通过自己的来源登录:OIDC 或 LDAP 登录绝不会接管同名的本地账号(例如 `admin`),并且 LDAP 和 OIDC 用户不能使用本地密码登录。
 - **用户名**会被转为小写,可包含字母、数字和 `. _ @ + -`。包含其他字符的登录会被拒绝。
-- **管理员权限**取决于用户所属的组,并在每次登录时刷新,因此对 LDAP 或 OIDC 用户更改 **Administrator** 复选框,只会持续到他们下次登录。
+- **管理员权限**取决于用户所属的组(对于 OIDC,还包括管理员用户列表),并在每次登录时刷新,因此对 LDAP 或 OIDC 用户更改 **Administrator** 复选框,只会持续到他们下次登录。不是管理员的用户为只读(参见 [角色](#角色))。
 - 在 Bootimus 中**禁用**用户会立即阻止其访问,即使提供商仍允许其登录。
 - **删除**用户只会移除本地记录;该记录会在其下次登录时重新创建。请使用提供商的组,或禁用该用户,来移除访问权限。
 - LDAP 和 OIDC 用户的**密码**由提供商管理,因此不提供 **Reset Password**,`bootimus user set-password` 也会拒绝为他们设置密码。
@@ -356,7 +442,9 @@ services:
 | `--oidc-username-claim` | `preferred_username` | 用作 Bootimus 用户名的声明(例如 `email`) |
 | `--oidc-groups-claim` | `groups` | 列出用户所属组的声明 |
 | `--oidc-admin-groups` | *(空)* | 以逗号分隔的组,其成员为管理员 |
-| `--oidc-allowed-groups` | *(空)* | 以逗号分隔的允许登录的组(为空则允许任何人) |
+| `--oidc-allowed-groups` | *(空)* | 以逗号分隔的允许登录的组 |
+| `--oidc-admin-users` | *(空)* | 以逗号分隔的管理员用户名或 `@domain` 条目 |
+| `--oidc-allowed-users` | *(空)* | 以逗号分隔的允许登录的用户名或 `@domain` 条目 |
 | `--oidc-display-name` | `SSO` | 登录按钮上显示的名称 |
 | `--oidc-skip-verify` | `false` | 与提供商通信时跳过 TLS 证书校验 |
 
@@ -386,6 +474,8 @@ services:
 | `BOOTIMUS_OIDC_GROUPS_CLAIM` | `--oidc-groups-claim` |
 | `BOOTIMUS_OIDC_ADMIN_GROUPS` | `--oidc-admin-groups` |
 | `BOOTIMUS_OIDC_ALLOWED_GROUPS` | `--oidc-allowed-groups` |
+| `BOOTIMUS_OIDC_ADMIN_USERS` | `--oidc-admin-users` |
+| `BOOTIMUS_OIDC_ALLOWED_USERS` | `--oidc-allowed-users` |
 | `BOOTIMUS_OIDC_DISPLAY_NAME` | `--oidc-display-name` |
 | `BOOTIMUS_OIDC_SKIP_VERIFY` | `--oidc-skip-verify` |
 
@@ -410,6 +500,8 @@ oidc:
   redirect_url: https://bootimus.example.com/api/oidc/callback
   admin_groups: bootimus-admins
   allowed_groups: bootimus-operators
+  admin_users: alice@example.com
+  allowed_users: "@example.com"
   display_name: Authentik
 ```
 
@@ -467,7 +559,11 @@ curl https://authentik.example.com/application/o/bootimus/.well-known/openid-con
 
 ### OIDC:用户不是管理员或被拒绝登录
 
-服务器日志会记录每次登录被拒绝的原因。请检查提供商实际发送了哪些组 — 组名必须与 `BOOTIMUS_OIDC_ADMIN_GROUPS` 或 `BOOTIMUS_OIDC_ALLOWED_GROUPS` 匹配,并且除非关闭 **Full group path**,否则 Keycloak 会发送完整路径(`/bootimus-admins`)。如果你的提供商使用不同的声明名称,请设置 `BOOTIMUS_OIDC_GROUPS_CLAIM`。
+服务器日志会记录每次登录被拒绝的原因。请检查提供商实际发送了哪些组 — 组名必须与 `BOOTIMUS_OIDC_ADMIN_GROUPS` 或 `BOOTIMUS_OIDC_ALLOWED_GROUPS` 匹配,并且除非关闭 **Full group path**,否则 Keycloak 会发送完整路径(`/bootimus-admins`)。如果你的提供商使用不同的声明名称,请设置 `BOOTIMUS_OIDC_GROUPS_CLAIM`(Entra ID 的 app roles 使用 `roles`)。对于没有组的提供商(例如 Google),请使用 `BOOTIMUS_OIDC_ADMIN_USERS` 和 `BOOTIMUS_OIDC_ALLOWED_USERS`。
+
+### OIDC:"email … is not marked as verified by the provider"
+
+当 `BOOTIMUS_OIDC_USERNAME_CLAIM` 为 `email` 时,提供商必须发送 `email_verified: true`,否则任何能够设置未验证地址的人都可以冒充他人登录。请在提供商处验证该地址,或改用其他用户名声明,例如 `preferred_username`。
 
 ### "A user with this name already exists from a different source"
 

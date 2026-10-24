@@ -48,7 +48,7 @@ Va sur `http://your-server:8081`, tu tomberas sur une page de connexion dédiée
 - **Username** : `admin`
 - **Password** : à récupérer dans les logs de démarrage du serveur
 
-Si LDAP est configuré, un menu déroulant apparaît sur la page de connexion pour choisir entre l'authentification locale et LDAP. Si OIDC est configuré, un bouton **Sign in with …** apparaît pour l'authentification unique. Voir le [Guide d'authentification](authentication.md) pour les détails.
+Si LDAP est configuré, un menu déroulant apparaît sur la page de connexion pour choisir entre l'authentification locale et LDAP. Si OIDC est configuré, un bouton **Sign in with …** apparaît pour l'authentification unique. Les utilisateurs qui ne sont pas administrateurs ont un accès en lecture seule : ils peuvent parcourir le panneau mais ne peuvent rien modifier. Voir le [Guide d'authentification](authentication.md) pour les détails.
 
 ### Démarrage rapide
 
