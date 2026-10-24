@@ -27,9 +27,49 @@ type MenuBuilder struct {
 	profileManager    *profiles.Manager
 	autoInstallTypes  map[uint]string
 	forceLocalDefault bool
+	sanTarget         *models.SANTarget
+	sanDefault        bool
+	nextBootSAN       bool
 }
 
 func (s *Server) generateIPXEMenuWithGroups(images []models.Image, macAddress string, nextBootImageID ...uint) string {
+	var nbID uint
+	if len(nextBootImageID) > 0 {
+		nbID = nextBootImageID[0]
+	}
+	return s.generateIPXEMenuFor(images, macAddress, nbID, 0)
+}
+
+func (s *Server) resolveSANTarget(client *models.Client) (*models.SANTarget, bool) {
+	if client == nil || s.config.Storage == nil {
+		return nil, false
+	}
+	targetID := client.SANTargetID
+	bootDefault := client.BootFromSAN
+	var group *models.ClientGroup
+	if client.ClientGroupID != nil {
+		if g, err := s.config.Storage.GetClientGroup(*client.ClientGroupID); err == nil {
+			group = g
+		}
+	}
+	if targetID == nil && group != nil {
+		targetID = group.SANTargetID
+	}
+	if group != nil && group.BootFromSAN {
+		bootDefault = true
+	}
+	if targetID == nil {
+		return nil, false
+	}
+	target, err := s.config.Storage.GetSANTarget(*targetID)
+	if err != nil {
+		log.Printf("Warning: SAN target %d for client %s not found: %v", *targetID, client.MACAddress, err)
+		return nil, false
+	}
+	return target, bootDefault
+}
+
+func (s *Server) generateIPXEMenuFor(images []models.Image, macAddress string, nbID uint, nextBootSANID uint) string {
 	var groups []*models.ImageGroup
 	var theme *models.MenuTheme
 	var client *models.Client
@@ -58,9 +98,13 @@ func (s *Server) generateIPXEMenuWithGroups(images []models.Image, macAddress st
 		enabledTools = s.toolsManager.GetEnabledTools(serverURL)
 	}
 
-	var nbID uint
-	if len(nextBootImageID) > 0 {
-		nbID = nextBootImageID[0]
+	sanTarget, sanDefault := s.resolveSANTarget(client)
+	nextBootSAN := false
+	if nextBootSANID != 0 && s.config.Storage != nil {
+		if t, err := s.config.Storage.GetSANTarget(nextBootSANID); err == nil {
+			sanTarget = t
+			nextBootSAN = true
+		}
 	}
 
 	autoInstallTypes := make(map[uint]string)
@@ -86,6 +130,9 @@ func (s *Server) generateIPXEMenuWithGroups(images []models.Image, macAddress st
 		profileManager:    s.config.ProfileManager,
 		autoInstallTypes:  autoInstallTypes,
 		forceLocalDefault: client != nil && client.EnrollmentState == models.EnrollmentStateInstalled,
+		sanTarget:         sanTarget,
+		sanDefault:        sanDefault,
+		nextBootSAN:       nextBootSAN,
 	}
 
 	return mb.Build()
@@ -97,6 +144,8 @@ func (mb *MenuBuilder) Build() string {
 	sb.WriteString("#!ipxe\n\n")
 	if mb.hasEnabledImage(mb.nextBootImageID) {
 		sb.WriteString(fmt.Sprintf("goto iso%d\n\n", mb.nextBootImageID))
+	} else if mb.nextBootSAN && mb.sanTarget != nil {
+		sb.WriteString("goto san\n\n")
 	} else {
 		sb.WriteString(mb.buildMainMenu())
 	}
@@ -132,6 +181,9 @@ func (mb *MenuBuilder) menuTimeoutMs() int {
 func (mb *MenuBuilder) resolveDefaultItem(visibleGroups []*models.ImageGroup, ungroupedImages []models.Image) string {
 	if mb.nextBootImageID > 0 {
 		return fmt.Sprintf("iso%d", mb.nextBootImageID)
+	}
+	if mb.sanTarget != nil && (mb.nextBootSAN || mb.sanDefault) {
+		return "san"
 	}
 	if mb.forceLocalDefault {
 		return "local"
@@ -204,6 +256,11 @@ func (mb *MenuBuilder) buildMainMenu() string {
 			}
 			sb.WriteString(fmt.Sprintf("item iso%d %s (%s)%s\n", img.ID, img.Name, sizeStr, extractedTag))
 		}
+	}
+
+	if mb.sanTarget != nil {
+		sb.WriteString("item --gap -- SAN:\n")
+		sb.WriteString(fmt.Sprintf("item san Boot from SAN: %s\n", mb.sanTarget.Name))
 	}
 
 	sb.WriteString("item --gap -- Options:\n")
@@ -530,6 +587,8 @@ func (mb *MenuBuilder) buildFooter() string {
 		}
 	}
 
+	sb.WriteString(mb.buildSANBootSection())
+
 	sb.WriteString(`:local
 echo Booting from local disk...
 exit
@@ -622,4 +681,27 @@ func formatSize(bytes int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+func (mb *MenuBuilder) buildSANBootSection() string {
+	if mb.sanTarget == nil {
+		return ""
+	}
+	t := mb.sanTarget
+	var sb strings.Builder
+	sb.WriteString(":san\n")
+	sb.WriteString(fmt.Sprintf("echo Booting from SAN target %s...\n", t.Name))
+	if iqn := t.ResolveInitiatorIQN(mb.macAddress); iqn != "" {
+		sb.WriteString(fmt.Sprintf("set initiator-iqn %s\n", iqn))
+	}
+	if t.CHAPUsername != "" {
+		sb.WriteString(fmt.Sprintf("set username %s\n", t.CHAPUsername))
+		sb.WriteString(fmt.Sprintf("set password %s\n", t.CHAPPassword))
+	}
+	if t.ReverseCHAPUsername != "" {
+		sb.WriteString(fmt.Sprintf("set reverse-username %s\n", t.ReverseCHAPUsername))
+		sb.WriteString(fmt.Sprintf("set reverse-password %s\n", t.ReverseCHAPPassword))
+	}
+	sb.WriteString(fmt.Sprintf("sanboot --no-describe --drive 0x80 %s || goto failed\n\n", t.URI))
+	return sb.String()
 }

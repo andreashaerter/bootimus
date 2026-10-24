@@ -1440,7 +1440,7 @@ function clientRowHTML(client, includeGroupCell) {
                         <td>${client.boot_count || 0}</td>
                         <td>
                             ${client.last_boot ? new Date(client.last_boot).toLocaleString() : 'Never'}
-                            ${client.next_boot_image ? '<br><span class="badge badge-info" title="' + escapeHtml(client.next_boot_image) + '">Next: ' + escapeHtml(client.next_boot_image) + '</span>' : ''}
+                            ${client.next_boot_image ? '<br><span class="badge badge-info" title="' + escapeHtml(client.next_boot_image) + '">Next: ' + escapeHtml(nextBootLabel(client.next_boot_image)) + '</span>' : ''}
                         </td>
                         <td onclick="event.stopPropagation()">
                             ${!client.static ? '<button class="btn btn-success btn-sm" onclick="promoteClient(\'' + client.mac_address + '\')">Make Static</button>' : ''}
@@ -1596,6 +1596,8 @@ async function editClient(mac) {
             form.querySelector('[name="ipmi_username"]').value = currentClient.ipmi_username || '';
             form.querySelector('[name="ipmi_password"]').value = currentClient.ipmi_password || '';
             form.querySelector('[name="ipmi_insecure"]').checked = !!currentClient.ipmi_insecure;
+            await populateSANTargetSelect('edit-client-san-select', currentClient.san_target_id, '(inherit from group, or none)');
+            form.querySelector('[name="boot_from_san"]').checked = !!currentClient.boot_from_san;
             const powerResult = document.getElementById('power-client-result');
             if (powerResult) powerResult.textContent = '';
 
@@ -1852,14 +1854,16 @@ async function showNextBoot(mac) {
     document.getElementById('next-boot-mac').dataset.mac = mac;
 
     const select = document.getElementById('next-boot-image-select');
+    await loadSANTargets(true);
     select.innerHTML = images.map(img =>
         `<option value="${img.filename}">${img.name}</option>`
+    ).join('') + sanTargets.map(t =>
+        `<option value="san:${t.id}">Boot from SAN: ${escapeHtml(t.name)}</option>`
     ).join('');
 
     const currentDiv = document.getElementById('next-boot-current');
     if (client && client.next_boot_image) {
-        const img = images.find(i => i.filename === client.next_boot_image);
-        document.getElementById('next-boot-current-image').textContent = img ? img.name : client.next_boot_image;
+        document.getElementById('next-boot-current-image').textContent = nextBootLabel(client.next_boot_image);
         currentDiv.style.display = 'block';
     } else {
         currentDiv.style.display = 'none';
@@ -2966,6 +2970,8 @@ function setupForms() {
             ipmi_password: formData.get('ipmi_password') || '',
             ipmi_insecure: formData.get('ipmi_insecure') === 'on',
             auto_install_file: formData.get('auto_install_file') || '',
+            san_target_id: formData.get('san_target_id') ? parseInt(formData.get('san_target_id'), 10) : null,
+            boot_from_san: formData.get('boot_from_san') === 'on',
         };
         console.log('Updating client:', mac, updates);
 
@@ -6409,7 +6415,9 @@ function switchClientsSubtab(name) {
     document.querySelectorAll('#clients-tab .subtab').forEach(b => b.classList.toggle('active', b.dataset.subtab === name));
     document.getElementById('clients-subtab').style.display = name === 'clients' ? '' : 'none';
     document.getElementById('client-groups-subtab').style.display = name === 'client-groups' ? '' : 'none';
+    document.getElementById('san-targets-subtab').style.display = name === 'san-targets' ? '' : 'none';
     if (name === 'client-groups') loadClientGroups();
+    if (name === 'san-targets') loadSANTargets();
 }
 
 function switchImagesSubtab(name) {
@@ -6525,6 +6533,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 ipmi_password: fd.get('ipmi_password') || '',
                 ipmi_insecure: fd.get('ipmi_insecure') === 'on',
                 auto_install_file: fd.get('auto_install_file') || '',
+                san_target_id: fd.get('san_target_id') ? parseInt(fd.get('san_target_id'), 10) : null,
+                boot_from_san: fd.get('boot_from_san') === 'on',
             };
             try {
                 const res = await authFetch(`${API_BASE}/client-groups/update?id=${id}`, {
@@ -6613,6 +6623,8 @@ async function showEditClientGroupModal(id) {
         } catch (err) {}
 
         await populateAutoInstallFileDropdown('cg-autoinstall-select', g.auto_install_file);
+        await populateSANTargetSelect('cg-san-select', g.san_target_id, '(none)');
+        form.elements.boot_from_san.checked = !!g.boot_from_san;
 
         if (!images || images.length === 0) await loadImages();
         const allowedSel = document.getElementById('cg-allowed-images');
@@ -7739,3 +7751,159 @@ function downloadMenuPreview() {
     document.body.removeChild(a);
     URL.revokeObjectURL(a.href);
 }
+
+let sanTargets = [];
+let sanTargetsLoaded = false;
+
+function nextBootLabel(value) {
+    if (!value) return '';
+    if (value.startsWith('san:')) {
+        const t = sanTargets.find(x => String(x.id) === value.slice(4));
+        return 'SAN: ' + (t ? t.name : value.slice(4));
+    }
+    const img = images.find(i => i.filename === value);
+    return img ? img.name : value;
+}
+
+async function loadSANTargets(quiet) {
+    try {
+        const res = await authFetch(`${API_BASE}/san-targets`);
+        const data = await res.json();
+        if (!data.success) {
+            if (!quiet) document.getElementById('san-targets-table').innerHTML = `<p class="alert alert-error">${escapeHtml(data.error || 'Failed to load SAN targets')}</p>`;
+            return;
+        }
+        sanTargets = data.data || [];
+        sanTargetsLoaded = true;
+        if (!quiet) renderSANTargetsTable();
+    } catch (err) {
+        console.error('Failed to load SAN targets:', err);
+    }
+}
+
+async function populateSANTargetSelect(selectId, selectedId, emptyLabel) {
+    if (!sanTargetsLoaded) await loadSANTargets(true);
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    select.innerHTML = `<option value="">${escapeHtml(emptyLabel)}</option>` + sanTargets.map(t =>
+        `<option value="${t.id}" ${selectedId === t.id ? 'selected' : ''}>${escapeHtml(t.name)} — ${escapeHtml(t.uri)}</option>`
+    ).join('');
+}
+
+function renderSANTargetsTable() {
+    const container = document.getElementById('san-targets-table');
+    container.classList.remove('loading');
+    if (sanTargets.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-secondary); padding: 20px;">No SAN targets yet. Click "Add SAN Target" to define an iSCSI, AoE or HTTP disk.</p>';
+        return;
+    }
+    const rows = sanTargets
+        .filter(t => rowMatchesFilter('san-targets', [t.name, t.description, t.uri, t.initiator_iqn]))
+        .map(t => `
+        <tr>
+            <td><strong>${escapeHtml(t.name)}</strong>${t.description ? '<br><span style="color: var(--text-secondary); font-size: 12px;">' + escapeHtml(t.description) + '</span>' : ''}</td>
+            <td><code>${escapeHtml(t.uri)}</code></td>
+            <td>${t.initiator_iqn ? '<code>' + escapeHtml(t.initiator_iqn) + '</code>' : '<span style="color: var(--text-secondary);">iPXE default</span>'}</td>
+            <td>${t.chap_username ? '<span class="badge badge-info">CHAP</span>' : '<span style="color: var(--text-secondary);">None</span>'}${t.reverse_chap_username ? ' <span class="badge badge-info">Mutual</span>' : ''}</td>
+            <td>${t.client_count || 0} client${t.client_count === 1 ? '' : 's'}, ${t.group_count || 0} group${t.group_count === 1 ? '' : 's'}</td>
+            <td>
+                <button type="button" class="btn btn-sm read-ok" onclick="previewSANTarget(${t.id})">Preview Menu</button>
+                <button type="button" class="btn btn-sm admin-only" onclick="showSANTargetModal(${t.id})">Edit</button>
+                <button type="button" class="btn btn-sm btn-danger admin-only" onclick="deleteSANTarget(${t.id})">Delete</button>
+            </td>
+        </tr>`).join('');
+    container.innerHTML = `
+        <div class="table-scroll">
+        <table>
+            <thead><tr><th>Name</th><th>URI</th><th>Initiator IQN</th><th>Auth</th><th>Used by</th><th>Actions</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>
+        </div>`;
+}
+
+function showSANTargetModal(id) {
+    const form = document.getElementById('san-target-form');
+    form.reset();
+    const target = id ? sanTargets.find(t => t.id === id) : null;
+    form.elements.id.value = target ? target.id : '';
+    document.getElementById('san-target-modal-title').textContent = target ? 'Edit SAN Target' : 'Add SAN Target';
+    if (target) {
+        for (const key of ['name', 'description', 'uri', 'initiator_iqn', 'chap_username', 'chap_password', 'reverse_chap_username', 'reverse_chap_password']) {
+            form.elements[key].value = target[key] || '';
+        }
+    }
+    showModal('san-target-modal');
+}
+
+async function saveSANTarget(e) {
+    e.preventDefault();
+    const form = e.target;
+    const fd = new FormData(form);
+    const id = fd.get('id');
+    const body = {};
+    for (const key of ['name', 'description', 'uri', 'initiator_iqn', 'chap_username', 'chap_password', 'reverse_chap_username', 'reverse_chap_password']) {
+        body[key] = fd.get(key) || '';
+    }
+    try {
+        const res = await authFetch(`${API_BASE}/san-targets${id ? '?id=' + id : ''}`, {
+            method: id ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Failed to save SAN target', 'error');
+            return;
+        }
+        closeModal('san-target-modal');
+        showAlert(data.message || 'SAN target saved', 'success');
+        sanTargetsLoaded = false;
+        await loadSANTargets();
+    } catch (err) {
+        showAlert('Failed to save SAN target: ' + err.message, 'error');
+    }
+}
+
+async function deleteSANTarget(id) {
+    const target = sanTargets.find(t => t.id === id);
+    if (!target) return;
+    const users = (target.client_count || 0) + (target.group_count || 0);
+    if (!confirm(`Delete SAN target "${target.name}"?` + (users ? ` It will be removed from ${users} client(s) and group(s).` : ''))) return;
+    try {
+        const res = await authFetch(`${API_BASE}/san-targets?id=${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Failed to delete SAN target', 'error');
+            return;
+        }
+        showAlert('SAN target deleted', 'success');
+        sanTargetsLoaded = false;
+        await loadSANTargets();
+        if (clients.length) loadClients();
+    } catch (err) {
+        showAlert('Failed to delete SAN target: ' + err.message, 'error');
+    }
+}
+
+async function previewSANTarget(id) {
+    if (!clients || clients.length === 0) {
+        try { await loadClients(); } catch (_) {}
+    }
+    const direct = clients.find(c => c.san_target_id === id);
+    let mac = direct ? direct.mac_address : '';
+    if (!mac) {
+        const groupIds = clientGroups.filter(g => g.san_target_id === id).map(g => g.id);
+        const viaGroup = clients.find(c => !c.san_target_id && groupIds.includes(c.client_group_id));
+        if (viaGroup) mac = viaGroup.mac_address;
+    }
+    if (!mac) {
+        showAlert('Assign this SAN target to a client or client group first, then preview that client\'s menu.', 'info');
+        return;
+    }
+    previewBootMenu(mac);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const form = document.getElementById('san-target-form');
+    if (form) form.addEventListener('submit', saveSANTarget);
+});

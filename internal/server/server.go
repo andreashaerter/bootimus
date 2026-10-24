@@ -1673,6 +1673,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/clients/power", adminWrap(adminHandler.PowerClient))
 	mux.HandleFunc("/api/clients/power/status", readWrap(adminHandler.PowerStatusClient))
 	mux.HandleFunc("/api/clients/menu-preview", readWrap(s.handleMenuPreview))
+	mux.HandleFunc("/api/san-targets", readWrap(adminHandler.SANTargets))
 
 	mux.HandleFunc("/api/theme", readWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -2048,6 +2049,7 @@ func (s *Server) renderBootMenu(macAddress, remoteAddr string, commit bool) boot
 	result := bootMenuRender{MAC: macAddress, Kind: "menu"}
 
 	var nextBootImageID uint
+	var nextBootSANID uint
 	if s.config.Storage != nil {
 		client, err := s.config.Storage.GetClient(macAddress)
 		if err == nil {
@@ -2079,16 +2081,29 @@ func (s *Server) renderBootMenu(macAddress, remoteAddr string, commit bool) boot
 			}
 		}
 		if err == nil && client.NextBootImage != "" {
-			img, imgErr := s.config.Storage.GetImage(client.NextBootImage)
-			if imgErr == nil && img.Enabled {
-				if commit {
-					s.logAndBroadcast("Client %s: next boot action set - pre-selecting %s", macAddress, img.Name)
+			if sanID, ok := models.ParseNextBootSAN(client.NextBootImage); ok {
+				if target, tErr := s.config.Storage.GetSANTarget(sanID); tErr == nil {
+					if commit {
+						s.logAndBroadcast("Client %s: next boot action set - booting from SAN target %s", macAddress, target.Name)
+					}
+					nextBootSANID = sanID
+					result.NextBootImage = "SAN: " + target.Name
 				}
-				nextBootImageID = img.ID
-				result.NextBootImage = img.Name
-			}
-			if commit {
-				s.config.Storage.ClearNextBootImage(macAddress)
+				if commit {
+					s.config.Storage.ClearNextBootImage(macAddress)
+				}
+			} else {
+				img, imgErr := s.config.Storage.GetImage(client.NextBootImage)
+				if imgErr == nil && img.Enabled {
+					if commit {
+						s.logAndBroadcast("Client %s: next boot action set - pre-selecting %s", macAddress, img.Name)
+					}
+					nextBootImageID = img.ID
+					result.NextBootImage = img.Name
+				}
+				if commit {
+					s.config.Storage.ClearNextBootImage(macAddress)
+				}
 			}
 		}
 	}
@@ -2108,7 +2123,7 @@ func (s *Server) renderBootMenu(macAddress, remoteAddr string, commit bool) boot
 		images = convertISOsToImages(isos)
 	}
 
-	result.Script = s.generateIPXEMenuWithGroups(images, macAddress, nextBootImageID)
+	result.Script = s.generateIPXEMenuFor(images, macAddress, nextBootImageID, nextBootSANID)
 	return result
 }
 
