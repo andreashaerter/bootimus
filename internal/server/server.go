@@ -1670,6 +1670,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/profiles/update", adminWrap(adminHandler.UpdateDistroProfiles))
 	mux.HandleFunc("/api/iso-catalog", readWrap(adminHandler.GetISOCatalogue))
 	mux.HandleFunc("/api/images/boot-method", adminWrap(adminHandler.SetBootMethod))
+	mux.HandleFunc("/api/images/winpe", adminWrap(adminHandler.SetWinPEWIM))
 
 	mux.HandleFunc("/api/active-sessions", readWrap(s.handleActiveSessions))
 

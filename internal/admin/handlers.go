@@ -1468,6 +1468,17 @@ func (h *Handler) ExtractImage(w http.ResponseWriter, r *http.Request) {
 	image.NetbootURL = bootFiles.NetbootURL
 	image.NetbootAvailable = false
 	image.InstallWimPath = bootFiles.InstallWim
+	image.WIMFiles = nil
+	image.WIMPath = ""
+	image.WIMIndex = 0
+	if models.IsWindowsDistro(bootFiles.Distro) {
+		for _, w := range bootFiles.WIMFiles {
+			image.WIMFiles = append(image.WIMFiles, models.WIMFile{Path: w.Path, Size: w.Size})
+		}
+		if rel, err := filepath.Rel(bootFiles.ExtractedDir, bootFiles.BootWim); err == nil {
+			image.WIMPath = filepath.ToSlash(rel)
+		}
+	}
 
 	if bootFiles.Distro == "windows" {
 		mu := h.bootWimLock(filename)
@@ -1918,6 +1929,66 @@ func checkSanbootCompatibility(distro, filename string) (bool, string) {
 	}
 
 	return true, ""
+}
+
+func (h *Handler) SetWinPEWIM(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut && r.Method != http.MethodPost {
+		h.sendJSON(w, http.StatusMethodNotAllowed, Response{Success: false, Error: "Method not allowed"})
+		return
+	}
+	filename := r.URL.Query().Get("filename")
+	if filename == "" {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Missing filename"})
+		return
+	}
+	var req struct {
+		WIMPath  string `json:"wim_path"`
+		WIMIndex int    `json:"wim_index"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Invalid request body"})
+		return
+	}
+	image, err := h.storage.GetImage(filename)
+	if err != nil {
+		h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "Image not found"})
+		return
+	}
+	if !image.Extracted || !models.IsWindowsDistro(image.Distro) {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Only extracted Windows or WinPE images boot from a WIM"})
+		return
+	}
+	if req.WIMIndex < 0 {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "WIM index cannot be negative"})
+		return
+	}
+	wimPath := strings.TrimPrefix(filepath.ToSlash(filepath.Clean("/"+req.WIMPath)), "/")
+	if wimPath == "" || wimPath == "." || !strings.EqualFold(filepath.Ext(wimPath), ".wim") {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "wim_path must name a .wim file inside the extracted image"})
+		return
+	}
+	known := false
+	for _, w := range image.WIMFiles {
+		if w.Path == wimPath {
+			known = true
+			break
+		}
+	}
+	if !known {
+		isoBase := strings.TrimSuffix(filename, filepath.Ext(filename))
+		if _, err := os.Stat(filepath.Join(h.isoDir, isoBase, "iso", filepath.FromSlash(wimPath))); err != nil {
+			h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: fmt.Sprintf("%s was not found in the extracted image", wimPath)})
+			return
+		}
+	}
+	image.WIMPath = wimPath
+	image.WIMIndex = req.WIMIndex
+	if err := h.storage.UpdateImage(filename, image); err != nil {
+		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: "Failed to update image"})
+		return
+	}
+	log.Printf("Image %s now boots %s (index %d)", filename, wimPath, req.WIMIndex)
+	h.sendJSON(w, http.StatusOK, Response{Success: true, Message: "Boot WIM updated", Data: image})
 }
 
 func (h *Handler) SetBootMethod(w http.ResponseWriter, r *http.Request) {

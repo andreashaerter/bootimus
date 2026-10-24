@@ -371,9 +371,12 @@ func (mb *MenuBuilder) buildKernelBootSection(img *models.Image, encodedFilename
 		bootParams = " " + bootParams
 	}
 
-	switch img.Distro {
-	case "windows", "windows7":
+	switch {
+	case models.IsWindowsDistro(img.Distro):
 		bootParams = wimbootArgs(bootParams)
+		if img.WIMIndex > 0 && !hasParam(bootParams, "index") {
+			bootParams = strings.TrimSpace(bootParams + fmt.Sprintf(" index=%d", img.WIMIndex))
+		}
 		if bootParams != "" {
 			bootParams = " " + bootParams
 		}
@@ -382,7 +385,11 @@ func (mb *MenuBuilder) buildKernelBootSection(img *models.Image, encodedFilename
 		// Ship only boot.wim and let wimboot synthesize the ramdisk BCD +
 		// boot.sdi (the documented minimal setup). Feeding the ISO's DVD BCD
 		// hangs 24H2/25H2 media on a black screen after the loading bar.
-		sb.WriteString(fmt.Sprintf("initrd %s/boot/%s/iso/sources/boot.wim boot.wim || initrd %s/boot/%s/iso/SOURCES/BOOT.WIM boot.wim\n", baseURL, cacheDir, baseURL, cacheDir))
+		if img.WIMPath != "" {
+			sb.WriteString(fmt.Sprintf("initrd %s/boot/%s/iso/%s boot.wim\n", baseURL, cacheDir, encodePathSegments(img.WIMPath)))
+		} else {
+			sb.WriteString(fmt.Sprintf("initrd %s/boot/%s/iso/sources/boot.wim boot.wim || initrd %s/boot/%s/iso/SOURCES/BOOT.WIM boot.wim\n", baseURL, cacheDir, baseURL, cacheDir))
+		}
 		sb.WriteString("boot || goto failed\n")
 
 	default:
@@ -452,8 +459,12 @@ func wimbootArgs(params string) string {
 }
 
 func hasInitrdParam(params string) bool {
+	return hasParam(params, "initrd")
+}
+
+func hasParam(params, key string) bool {
 	for _, f := range strings.Fields(params) {
-		if strings.HasPrefix(f, "initrd=") {
+		if strings.HasPrefix(f, key+"=") {
 			return true
 		}
 	}
@@ -468,7 +479,7 @@ func (mb *MenuBuilder) resolveBootParams(img *models.Image, baseURL, encodedFile
 		params = mb.profileManager.GetBootParams(img.Distro, hasSquashfs)
 	}
 
-	if params == "" && !strings.HasPrefix(img.Distro, "windows") && img.BootMethod != imagescan.BootMethodUKI {
+	if params == "" && !models.IsWindowsDistro(img.Distro) && img.BootMethod != imagescan.BootMethodUKI {
 		params = fmt.Sprintf("iso-url=%s/isos/%s ip=dhcp", baseURL, encodedFilename)
 	}
 
