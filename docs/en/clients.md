@@ -11,6 +11,7 @@ Complete guide for managing network boot clients with MAC-based access control.
 - [Client Statistics](#client-statistics)
 - [Bulk Operations](#bulk-operations)
 - [Next Boot Action](#next-boot-action)
+- [Previewing a Client's Boot Menu](#previewing-a-clients-boot-menu)
 - [Wake-on-LAN](#wake-on-lan)
 - [BMC Power Control](#bmc-power-control)
 - [Hardware Inventory](#hardware-inventory)
@@ -393,6 +394,30 @@ curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/clients
 - If the global menu timeout is disabled (set to 0), a 10-second timeout is applied as an override
 - If the client doesn't boot before the action is consumed, the next boot clears on the first PXE request
 - Empty groups are hidden from the menu when a client has assigned images
+
+## Previewing a Client's Boot Menu
+
+Render the exact iPXE script a client will receive without waiting for it to PXE boot. The preview has no side effects: nothing is written to the boot log, the client's next-boot action is not consumed, and cluster enrolment state is left alone.
+
+### Via Web Interface
+
+- Click **"Preview Menu"** on a client row, or
+- Open **Boot Menu** → **Preview as Client**, enter a MAC address (or leave `unknown` for an unregistered client) and click **"Preview Menu"**
+
+The modal shows whether the MAC is a registered client, whether it would receive the normal menu or a cluster install boot, any pending next-boot image, and the full script with **Copy** and **Download** buttons.
+
+### Via API
+
+```bash
+# Preview for a specific client
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8081/api/clients/menu-preview?mac=00:11:22:33:44:55"
+
+# Preview the anonymous menu an unregistered client gets
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/clients/menu-preview
+```
+
+The response data contains `mac`, `known_client`, `client_name`, `next_boot_image`, `kind` (`menu` or `install`) and `script`. Read-only users can call this endpoint.
 
 ## Wake-on-LAN
 

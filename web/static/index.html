@@ -723,6 +723,20 @@
                     </div>
                 </form>
             </div>
+            <div class="card" style="margin-top: 20px;">
+                <h2>Preview as Client</h2>
+                <p style="color: var(--text-secondary); margin: 0 12px 12px; font-size: 13px;">
+                    Render the exact iPXE script a client would receive, without logging a boot or consuming its next-boot action. Leave the MAC as <code>unknown</code> to see the menu an unregistered client gets.
+                </p>
+                <div style="display: flex; gap: 10px; align-items: center; padding: 0 12px 12px; flex-wrap: wrap;">
+                    <input type="text" id="menu-preview-mac" value="unknown" placeholder="aa:bb:cc:dd:ee:ff" style="width: 220px;" list="menu-preview-mac-list">
+                    <datalist id="menu-preview-mac-list"></datalist>
+                    <button class="btn" type="button" onclick="previewBootMenu(document.getElementById('menu-preview-mac').value)">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        Preview Menu
+                    </button>
+                </div>
+            </div>
         </div>
 
         <!-- Settings Tab -->
@@ -1096,6 +1110,19 @@
             <button class="btn btn-primary" onclick="saveNextBoot()">Set Next Boot</button>
             <button class="btn btn-success" onclick="saveNextBootAndWake()" style="margin-left: 8px;">Set & Wake</button>
             <button type="button" class="btn" onclick="closeModal('next-boot-modal')">Cancel</button>
+        </div>
+    </div>
+
+    <div id="menu-preview-modal" class="modal">
+        <div class="modal-content" style="max-width: 860px;">
+            <div class="modal-header">
+                <h2>Boot Menu Preview</h2>
+            </div>
+            <p id="menu-preview-summary" style="color: var(--text-secondary); margin-bottom: 12px; font-size: 13px;"></p>
+            <pre id="menu-preview-script" style="background: #1a1a1a; color: #e0e0e0; padding: 16px; border-radius: var(--radius-sm); max-height: 60vh; overflow: auto; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; line-height: 1.5; white-space: pre; margin: 0 0 16px;"></pre>
+            <button type="button" class="btn btn-primary" onclick="copyMenuPreview()">Copy</button>
+            <button type="button" class="btn" onclick="downloadMenuPreview()" style="margin-left: 8px;">Download</button>
+            <button type="button" class="btn" onclick="closeModal('menu-preview-modal')" style="margin-left: 8px;">Close</button>
         </div>
     </div>
 

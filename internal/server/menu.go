@@ -52,8 +52,11 @@ func (s *Server) generateIPXEMenuWithGroups(images []models.Image, macAddress st
 		}
 	}
 
-	serverURL := fmt.Sprintf("http://%s:%d", s.config.ServerAddr, s.config.HTTPPort)
-	enabledTools := s.toolsManager.GetEnabledTools(serverURL)
+	var enabledTools []tools.EnabledTool
+	if s.toolsManager != nil {
+		serverURL := fmt.Sprintf("http://%s:%d", s.config.ServerAddr, s.config.HTTPPort)
+		enabledTools = s.toolsManager.GetEnabledTools(serverURL)
+	}
 
 	var nbID uint
 	if len(nextBootImageID) > 0 {
