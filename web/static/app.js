@@ -3014,175 +3014,58 @@ function setupForms() {
     if (hf) hf.addEventListener('submit', saveHousekeeping);
 }
 
-const API_REFERENCE = [
-    { category: 'Authentication', endpoints: [
-        { method: 'POST',   path: '/api/login',                    desc: 'Body: <code>{username, password}</code>. Returns JWT token.', publicAccess: true },
-        { method: 'GET',    path: '/api/auth-info',                desc: 'Available auth backends.', publicAccess: true },
-        { method: 'GET',    path: '/logout',                       desc: 'Redirect to login page.' },
-        { method: 'GET',    path: '/health',                       desc: 'Liveness probe.', publicAccess: true },
-    ]},
-    { category: 'Server / Stats', endpoints: [
-        { method: 'GET',    path: '/api/server-info',              desc: 'Version, uptime, paths, network info.' },
-        { method: 'GET',    path: '/api/stats',                    desc: 'Counts: clients, images, boots.' },
-        { method: 'GET',    path: '/api/active-sessions',          desc: 'Currently active boot sessions.' },
-        { method: 'GET',    path: '/metrics',                      desc: 'Prometheus metrics.' },
-    ]},
-    { category: 'Clients', endpoints: [
-        { method: 'GET',    path: '/api/clients',                  desc: 'List all clients. Add <code>?mac={mac}</code> for one.' },
-        { method: 'POST',   path: '/api/clients',                  desc: 'Create static client. Body: <code>{mac_address, name, ...}</code>' },
-        { method: 'PUT',    path: '/api/clients?mac={mac}',        desc: 'Partial update. Any model field accepted.' },
-        { method: 'DELETE', path: '/api/clients?mac={mac}',        desc: 'Delete client.' },
-        { method: 'POST',   path: '/api/clients/wake?mac={mac}',   desc: 'Send Wake-on-LAN packet.' },
-        { method: 'POST',   path: '/api/clients/next-boot?mac={mac}', desc: 'Body: <code>{filename}</code>. One-shot next-boot image.' },
-        { method: 'POST',   path: '/api/clients/promote?mac={mac}', desc: 'Promote discovered client to static.' },
-        { method: 'GET',    path: '/api/clients/inventory?mac={mac}', desc: 'Latest hardware inventory.' },
-        { method: 'GET',    path: '/api/clients/inventory/history?mac={mac}', desc: 'Historical inventory submissions.' },
-        { method: 'GET',    path: '/api/clients/menu-preview?mac={mac}', desc: 'Render the iPXE script a client would receive, without side effects. Omit <code>mac</code> for the anonymous menu.' },
-        { method: 'POST',   path: '/api/clients/power?mac={mac}',  desc: 'BMC (Redfish or Intel AMT) power control. Query: <code>action</code> (On/ForceOff/ForceRestart/GracefulShutdown/GracefulRestart).' },
-        { method: 'GET',    path: '/api/clients/power/status?mac={mac}', desc: 'BMC (Redfish or Intel AMT) power status.' },
-        { method: 'POST',   path: '/api/clients/import',           desc: 'CSV import (multipart).' },
-    ]},
-    { category: 'Client Groups', endpoints: [
-        { method: 'GET',    path: '/api/client-groups',            desc: 'List all groups.' },
-        { method: 'POST',   path: '/api/client-groups',            desc: 'Body: <code>{name, description, ...}</code>' },
-        { method: 'GET',    path: '/api/client-groups/get?id={id}', desc: 'Get one group.' },
-        { method: 'PUT',    path: '/api/client-groups/update?id={id}', desc: 'Update group.' },
-        { method: 'DELETE', path: '/api/client-groups/delete?id={id}', desc: 'Delete group.' },
-        { method: 'POST',   path: '/api/client-groups/membership', desc: 'Body: <code>{group_id, client_macs[]}</code>' },
-        { method: 'POST',   path: '/api/client-groups/wake?id={id}', desc: 'Wake all members.' },
-        { method: 'POST',   path: '/api/client-groups/next-boot?id={id}', desc: 'Body: <code>{filename}</code>. Set on all members.' },
-        { method: 'POST',   path: '/api/client-groups/power?id={id}', desc: 'Body: <code>{action}</code>. Power all members.' },
-    ]},
-    { category: 'Images', endpoints: [
-        { method: 'GET',    path: '/api/images',                   desc: 'List all images. Add <code>?filename={fn}</code> for one.' },
-        { method: 'PUT',    path: '/api/images?filename={fn}',     desc: 'Partial update. Fields: name, description, enabled, public, group_id, order, boot_method, distro, boot_params, auto_install_file, kernel_override, initrd_override.' },
-        { method: 'DELETE', path: '/api/images?filename={fn}',     desc: 'Delete image. Add <code>&delete_file=true</code> to also remove the ISO.' },
-        { method: 'POST',   path: '/api/images/upload',            desc: 'Multipart: <code>file</code>, <code>public</code>, <code>description</code>.' },
-        { method: 'POST',   path: '/api/images/download',          desc: 'Body: <code>{url, filename, description}</code>. filename is optional. Async download.' },
-        { method: 'POST',   path: '/api/images/extract?filename={fn}', desc: 'Extract kernel/initrd from ISO.' },
-        { method: 'GET',    path: '/api/images/extract-progress?filename={fn}', desc: 'Extraction progress.' },
-        { method: 'POST',   path: '/api/images/redetect?filename={fn}', desc: 'Re-run distro detection and boot-param resolution.' },
-        { method: 'GET',    path: '/api/images/boot-candidates?filename={fn}', desc: 'List kernel/initrd files found in the extracted ISO for override selection.' },
-        { method: 'POST',   path: '/api/images/patch-smb?filename={fn}', desc: 'Patch boot.wim for Windows SMB install.' },
-        { method: 'POST',   path: '/api/images/unpatch-smb?filename={fn}', desc: 'Restore the original boot.wim, removing the SMB patch.' },
-        { method: 'POST',   path: '/api/images/boot-method?filename={fn}', desc: 'Body: <code>{method}</code> (sanboot/kernel/nbd/nfs).' },
-        { method: 'POST',   path: '/api/images/netboot/download?filename={fn}', desc: 'Fetch netboot kernel/initrd from distro mirror.' },
-        { method: 'GET',    path: '/api/images/autoinstall?filename={fn}', desc: 'Get auto-install script for image.' },
-        { method: 'POST',   path: '/api/images/autoinstall?filename={fn}', desc: 'Body: <code>{script, type, enabled}</code>' },
-        { method: 'POST',   path: '/api/assign-images',            desc: 'Body: <code>{mac_address, image_filenames[]}</code>' },
-        { method: 'POST',   path: '/api/scan',                     desc: 'Scan filesystem for new ISOs.' },
-        { method: 'GET',    path: '/api/isos',                     desc: 'List ISO files on disk.' },
-        { method: 'GET',    path: '/api/downloads',                desc: 'List active downloads.' },
-        { method: 'GET',    path: '/api/downloads/progress?filename={fn}', desc: 'Download progress.' },
-    ]},
-    { category: 'Image Groups', endpoints: [
-        { method: 'GET',    path: '/api/groups',                   desc: 'List image groups.' },
-        { method: 'POST',   path: '/api/groups',                   desc: 'Body: <code>{name, parent_id, description, order}</code>' },
-        { method: 'PUT',    path: '/api/groups/update?id={id}',    desc: 'Update group.' },
-        { method: 'DELETE', path: '/api/groups/delete?id={id}',    desc: 'Delete group.' },
-    ]},
-    { category: 'Bootloaders', endpoints: [
-        { method: 'GET',    path: '/api/bootloaders',              desc: 'List sets (with built_in flag).' },
-        { method: 'POST',   path: '/api/bootloaders/create',       desc: 'Body: <code>{name}</code>. Create empty user set.' },
-        { method: 'POST',   path: '/api/bootloaders/upload',       desc: 'Multipart: <code>set</code>, <code>files[]</code>.' },
-        { method: 'DELETE', path: '/api/bootloaders/delete?set={name}', desc: 'Delete whole set, or add <code>&name={file}</code> for one file.' },
-        { method: 'POST',   path: '/api/bootloaders/select',       desc: 'Body: <code>{set}</code>. Set active set.' },
-        { method: 'GET',    path: '/api/usb',                      desc: 'List bundled USB boot images.' },
-    ]},
-    { category: 'Tools', endpoints: [
-        { method: 'GET',    path: '/api/tools',                    desc: 'List tools.' },
-        { method: 'POST',   path: '/api/tools/toggle?name={tool}', desc: 'Body: <code>{enabled}</code>' },
-        { method: 'POST',   path: '/api/tools/download?name={tool}', desc: 'Download tool to disk.' },
-        { method: 'DELETE', path: '/api/tools/delete?name={tool}', desc: 'Delete tool files.' },
-        { method: 'GET',    path: '/api/tools/progress?name={tool}', desc: 'Download progress.' },
-        { method: 'POST',   path: '/api/tools/url?name={tool}',    desc: 'Body: <code>{url}</code>. Override download URL.' },
-        { method: 'POST',   path: '/api/tools/custom',             desc: 'Body: <code>{name, display_name, ...}</code>. Create custom tool.' },
-        { method: 'DELETE', path: '/api/tools/custom/delete?name={tool}', desc: 'Delete custom tool.' },
-        { method: 'POST',   path: '/api/tools/update',             desc: 'Refresh tools catalogue from remote.' },
-    ]},
-    { category: 'Distro Profiles', endpoints: [
-        { method: 'GET',    path: '/api/profiles',                 desc: 'List distro profiles.' },
-        { method: 'POST',   path: '/api/profiles/save',            desc: 'Create/update custom profile.' },
-        { method: 'DELETE', path: '/api/profiles/delete?id={profile_id}', desc: 'Delete custom profile.' },
-        { method: 'POST',   path: '/api/profiles/update',          desc: 'Refresh built-in profiles from remote.' },
-        { method: 'GET',    path: '/api/iso-catalog',              desc: 'Curated catalogue of popular distros + mirror URLs (drives the Get Images modal).' },
-    ]},
-    { category: 'Auto-Install Files', endpoints: [
-        { method: 'GET',    path: '/api/autoinstall-files',        desc: 'List files.' },
-        { method: 'GET',    path: '/api/autoinstall-files/get?filename={fn}', desc: 'Get file content.' },
-        { method: 'POST',   path: '/api/autoinstall-files/save',   desc: 'Body: <code>{filename, content}</code>' },
-        { method: 'POST',   path: '/api/autoinstall-files/upload', desc: 'Multipart: <code>file</code>.' },
-        { method: 'GET',    path: '/api/autoinstall-files/download?filename={fn}', desc: 'Download file.' },
-        { method: 'DELETE', path: '/api/autoinstall-files/delete?filename={fn}', desc: 'Delete file.' },
-    ]},
-    { category: 'Custom Files', endpoints: [
-        { method: 'GET',    path: '/api/files',                    desc: 'List all custom files.' },
-        { method: 'POST',   path: '/api/files/upload',             desc: 'Multipart: <code>file</code>, <code>imageId</code>, <code>description</code>, <code>destinationPath</code>, <code>public</code>.' },
-        { method: 'PUT',    path: '/api/files/update?id={id}',     desc: 'Update file metadata.' },
-        { method: 'DELETE', path: '/api/files/delete?id={id}',     desc: 'Delete file.' },
-    ]},
-    { category: 'Driver Packs (Windows)', endpoints: [
-        { method: 'GET',    path: '/api/drivers?imageId={id}',     desc: 'List driver packs for image.' },
-        { method: 'POST',   path: '/api/drivers/upload',           desc: 'Multipart: <code>file</code>, <code>imageId</code>.' },
-        { method: 'DELETE', path: '/api/drivers/delete?id={id}',   desc: 'Delete pack.' },
-        { method: 'POST',   path: '/api/drivers/rebuild?imageId={id}', desc: 'Rebuild boot.wim with driver packs.' },
-    ]},
-    { category: 'Webhooks', endpoints: [
-        { method: 'GET',    path: '/api/webhook',                  desc: 'Get webhook config.' },
-        { method: 'PUT',    path: '/api/webhook',                  desc: 'Body: <code>{url, enabled, on_boot_started, ...}</code>' },
-        { method: 'POST',   path: '/api/webhook/test',             desc: 'Send test event.' },
-    ]},
-    { category: 'Scheduled Tasks', endpoints: [
-        { method: 'GET',    path: '/api/scheduled-tasks',          desc: 'List tasks.' },
-        { method: 'POST',   path: '/api/scheduled-tasks',          desc: 'Body: <code>{name, cron_expr, action_type, client_group_id, ...}</code>' },
-        { method: 'PUT',    path: '/api/scheduled-tasks/update?id={id}', desc: 'Update task.' },
-        { method: 'DELETE', path: '/api/scheduled-tasks/delete?id={id}', desc: 'Delete task.' },
-        { method: 'POST',   path: '/api/scheduled-tasks/run?id={id}', desc: 'Trigger now (out-of-band).' },
-    ]},
-    { category: 'Users', endpoints: [
-        { method: 'GET',    path: '/api/users',                    desc: 'List users.' },
-        { method: 'POST',   path: '/api/users',                    desc: 'Body: <code>{username, password, is_admin}</code>' },
-        { method: 'PUT',    path: '/api/users?id={id}',            desc: 'Update user.' },
-        { method: 'DELETE', path: '/api/users?id={id}',            desc: 'Delete user.' },
-        { method: 'POST',   path: '/api/users/reset-password?id={id}', desc: 'Body: <code>{new_password}</code>' },
-    ]},
-    { category: 'Settings', endpoints: [
-        { method: 'GET',    path: '/api/theme',                    desc: 'Menu theme + defaults.' },
-        { method: 'PUT',    path: '/api/theme',                    desc: 'Body: <code>{title, menu_timeout, default_menu_item}</code>' },
-        { method: 'GET',    path: '/api/backup/export',            desc: 'Download a <code>.tar.gz</code> backup of the database and data directory (ISOs and tools excluded).' },
-        { method: 'POST',   path: '/api/backup/import',            desc: 'Multipart field <code>backup</code>: stage a backup for restore on the next restart.' },
-        { method: 'GET',    path: '/api/backup/import',            desc: 'Is a restore staged?' },
-        { method: 'DELETE', path: '/api/backup/import',            desc: 'Discard the staged restore.' },
-        { method: 'GET',    path: '/api/housekeeping',             desc: 'Retention settings, last housekeeping report and data directory usage.' },
-        { method: 'PUT',    path: '/api/housekeeping',             desc: 'Body: <code>{boot_log_days, inventory_history_days, discovered_client_days, audit_log_days}</code>. 0 keeps forever.' },
-        { method: 'POST',   path: '/api/housekeeping/run',         desc: 'Run housekeeping now and return the report.' },
-    ]},
-    { category: 'Logs', endpoints: [
-        { method: 'GET',    path: '/api/logs',                     desc: 'Boot log entries.' },
-        { method: 'GET',    path: '/api/logs/stream',              desc: 'Server log SSE stream.' },
-        { method: 'GET',    path: '/api/logs/buffer',              desc: 'Recent in-memory log buffer.' },
-        { method: 'GET',    path: '/api/audit',                    desc: 'Admin action audit log. Query: <code>username</code>, <code>path</code>, <code>since</code> (RFC 3339), <code>limit</code>, <code>offset</code>.' },
-        { method: 'GET',    path: '/api/proxydhcp/events',         desc: 'Recent DHCP requests seen by the built-in proxyDHCP and the decision taken for each.' },
-        { method: 'GET',    path: '/api/proxydhcp/stream',         desc: 'SSE stream of proxyDHCP request events.' },
-        { method: 'POST',   path: '/api/proxydhcp/events/clear',   desc: 'Clear the recorded proxyDHCP request history.' },
-    ]},
-    { category: 'Public Boot Endpoints (no auth)', endpoints: [
-        { method: 'GET',    path: '/menu.ipxe',                    desc: 'Generated iPXE menu script.', publicAccess: true },
-        { method: 'GET',    path: '/autoexec.ipxe',                desc: 'iPXE autoexec for chainloaded bootloader.', publicAccess: true },
-        { method: 'POST',   path: '/inventory',                    desc: 'iPXE-submitted hardware inventory.', publicAccess: true },
-        { method: 'GET',    path: '/isos/{filename}',              desc: 'Direct ISO download.', publicAccess: true },
-        { method: 'GET',    path: '/boot/{cache_dir}/{path}',      desc: 'Extracted boot files (kernel/initrd/squashfs).', publicAccess: true },
-        { method: 'GET',    path: '/autoinstall/{filename}',       desc: 'Auto-install script (preseed/kickstart/cloud-init/autounattend).', publicAccess: true },
-        { method: 'GET',    path: '/files/{filename}',             desc: 'Custom file download.', publicAccess: true },
-        { method: 'GET',    path: '/bootenv/{filename}',           desc: 'NBD boot environment kernel/initrd.', publicAccess: true },
-    ]},
-];
+let apiReferenceSpec = null;
+
+async function loadAPIReferenceSpec() {
+    if (apiReferenceSpec) return apiReferenceSpec;
+    const res = await fetch(`${API_BASE}/openapi.json`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    apiReferenceSpec = await res.json();
+    return apiReferenceSpec;
+}
+
+function apiReferenceSections(spec) {
+    const byTag = new Map();
+    for (const tag of (spec.tags || [])) byTag.set(tag.name, { category: tag.name, description: tag.description || '', endpoints: [] });
+    for (const [path, ops] of Object.entries(spec.paths || {})) {
+        for (const [method, op] of Object.entries(ops)) {
+            const tag = (op.tags && op.tags[0]) || 'Other';
+            if (!byTag.has(tag)) byTag.set(tag, { category: tag, description: '', endpoints: [] });
+            const params = op.parameters || [];
+            const required = params.filter(p => p.in === 'query' && p.required).map(p => `${p.name}={${p.name}}`);
+            const optional = params.filter(p => p.in === 'query' && !p.required);
+            const body = op.requestBody || null;
+            const contentType = body ? Object.keys(body.content || {})[0] || '' : '';
+            byTag.get(tag).endpoints.push({
+                method: method.toUpperCase(),
+                path: required.length ? `${path}?${required.join('&')}` : path,
+                desc: op.summary || '',
+                optional,
+                body: body ? body.description || '' : '',
+                multipart: contentType === 'multipart/form-data',
+                publicAccess: !!op['x-bootimus-public'],
+                readOnly: !!op['x-bootimus-readonly'],
+                order: op['x-bootimus-order'] || 0,
+            });
+        }
+    }
+    const sections = [...byTag.values()].filter(s => s.endpoints.length);
+    for (const s of sections) s.endpoints.sort((a, b) => a.order - b.order);
+    return sections;
+}
 
 let apiRefImage = '';
 let apiRefMac = '';
 let apiRefServer = '';
 
 async function showAPIReference() {
+    const container = document.getElementById('api-reference-content');
+    try {
+        await loadAPIReferenceSpec();
+    } catch (err) {
+        if (container) container.innerHTML = `<p class="alert alert-error">Failed to load the OpenAPI document: ${escapeHtml(err.message)}</p>`;
+        return;
+    }
     if (!images || images.length === 0) {
         try { await loadImages(); } catch (_) {}
     }
@@ -3244,12 +3127,14 @@ function fillAPIRefPath(path) {
         .replace(/\{filename\}/g, fnEnc);
 }
 
-function buildAPIRefCurl(method, path, isPublic) {
+function buildAPIRefCurl(method, path, isPublic, multipart) {
     const base = (apiRefServer || window.location.origin).replace(/\/+$/, '');
     const url = base + fillAPIRefPath(path);
     const parts = [`curl -X ${method} '${url}'`];
     if (!isPublic) parts.push(`-H 'Authorization: Bearer $BOOTIMUS_TOKEN'`);
-    if (method === 'POST' || method === 'PUT') {
+    if (multipart) {
+        parts.push(`-F 'file=@/path/to/file'`);
+    } else if (method === 'POST' || method === 'PUT') {
         parts.push(`-H 'Content-Type: application/json' -d '{}'`);
     }
     return parts.join(' ');
@@ -3276,21 +3161,29 @@ function renderAPIReference(filter) {
     const q = (filter || '').trim().toLowerCase();
     const copyIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
     let html = '';
-    for (const section of API_REFERENCE) {
+    if (!apiReferenceSpec) {
+        container.innerHTML = '<p style="color: var(--text-secondary); padding: 20px;">Loading the OpenAPI document…</p>';
+        return;
+    }
+    for (const section of apiReferenceSections(apiReferenceSpec)) {
         const matching = section.endpoints.filter(e =>
-            !q || e.path.toLowerCase().includes(q) || e.desc.toLowerCase().includes(q) || section.category.toLowerCase().includes(q) || e.method.toLowerCase().includes(q)
+            !q || e.path.toLowerCase().includes(q) || e.desc.toLowerCase().includes(q) || e.body.toLowerCase().includes(q) || section.category.toLowerCase().includes(q) || e.method.toLowerCase().includes(q)
         );
         if (matching.length === 0) continue;
         html += `<div class="api-section"><h3>${escapeHtml(section.category)}</h3>`;
         for (const e of matching) {
             const filledPath = fillAPIRefPath(e.path);
             const noAuthBadge = e.publicAccess ? ' <span style="color: #ffb000; font-family: ui-monospace, monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.5px;">NO AUTH</span>' : '';
-            const curl = buildAPIRefCurl(e.method, e.path, !!e.publicAccess);
+            const readOnlyBadge = !e.publicAccess && e.readOnly ? ' <span style="color: #3498db; font-family: ui-monospace, monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.5px;" title="Available to read-only users">READ-ONLY OK</span>' : '';
+            const curl = buildAPIRefCurl(e.method, e.path, !!e.publicAccess, !!e.multipart);
+            let detail = escapeHtml(e.desc);
+            if (e.body) detail += ` ${e.multipart ? 'Multipart' : 'Body'}: <code>${escapeHtml(e.body)}</code>`;
+            if (e.optional.length) detail += ` Optional: ${e.optional.map(p => `<code>${escapeHtml(p.name)}</code>${p.description ? ' (' + escapeHtml(p.description) + ')' : ''}`).join(', ')}.`;
             html += `<div class="api-row">
                 <div class="api-row-head">
                     <span class="api-method ${e.method.toLowerCase()}">${e.method}</span>
-                    <code class="api-path">${escapeHtml(filledPath)}${noAuthBadge}</code>
-                    <span class="api-detail">${e.desc}</span>
+                    <code class="api-path">${escapeHtml(filledPath)}${noAuthBadge}${readOnlyBadge}</code>
+                    <span class="api-detail">${detail}</span>
                 </div>
                 <div class="api-curl">
                     <code>${escapeHtml(curl)}</code>

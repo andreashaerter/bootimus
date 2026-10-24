@@ -946,7 +946,7 @@
             <div class="card">
                 <h2>API Reference</h2>
                 <p style="color: var(--text-secondary); margin: 0 12px 8px; font-size: 13px;">
-                    All endpoints require authentication except where marked <span class="api-method public">PUBLIC</span>. Responses are JSON of the form <code>{success, data, error}</code>. Placeholders are shown as <code>{name}</code>.
+                    Generated from the server's OpenAPI document at <code>/api/openapi.json</code>. All endpoints require authentication except where marked <span class="api-method public">NO AUTH</span>. Responses are JSON of the form <code>{success, data, error}</code>. Placeholders are shown as <code>{name}</code>.
                 </p>
                 <div class="toolbar">
                     <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary);">
@@ -966,6 +966,10 @@
                         </select>
                     </label>
                     <input type="search" class="toolbar-filter" id="api-ref-filter" placeholder="Filter endpoints…" oninput="renderAPIReference(this.value)">
+                    <a class="btn" href="/api/openapi.json" download="bootimus-openapi.json">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        Download OpenAPI spec
+                    </a>
                 </div>
                 <div id="api-reference-content" style="padding: 0 12px 12px;"></div>
             </div>

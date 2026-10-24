@@ -1379,6 +1379,8 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 		http.Redirect(w, r, "/", http.StatusFound)
 	})
 
+	mux.HandleFunc("/api/openapi.json", adminHandler.OpenAPI(Version))
+
 	mux.HandleFunc("/api/auth-info", func(w http.ResponseWriter, r *http.Request) {
 		if s.config.Auth != nil {
 			s.config.Auth.HandleAuthInfo(w, r)
