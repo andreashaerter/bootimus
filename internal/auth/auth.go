@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"bootimus/internal/database"
+	"bootimus/internal/models"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -120,7 +121,7 @@ func (m *Manager) ValidateCredentials(username, password string) bool {
 		return false
 	}
 
-	if !user.Enabled {
+	if !user.Enabled || user.AuthSource() != models.UserSourceLocal {
 		return false
 	}
 
@@ -176,6 +177,7 @@ func (m *Manager) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	if method == "" {
 		method = "local"
 	}
+	username := req.Username
 
 	switch method {
 	case "ldap":
@@ -190,8 +192,17 @@ func (m *Manager) HandleLogin(w http.ResponseWriter, r *http.Request) {
 			log.Printf("LDAP: Error authenticating %s: %v", req.Username, err)
 		}
 		if ldapOk {
+			username = strings.ToLower(req.Username)
+			user, err := m.provisionExternalUser(username, models.UserSourceLDAP, ldapAdmin)
+			if err != nil {
+				log.Printf("LDAP: Login refused for %s: %v", username, err)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Login refused: " + err.Error()})
+				return
+			}
 			authenticated = true
-			isAdmin = ldapAdmin
+			isAdmin = user.IsAdmin
 		}
 	default:
 		if m.ValidateCredentials(req.Username, req.Password) {
@@ -207,7 +218,7 @@ func (m *Manager) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := m.GenerateToken(req.Username, isAdmin)
+	token, err := m.GenerateToken(username, isAdmin)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -215,14 +226,14 @@ func (m *Manager) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Auth: User '%s' logged in", req.Username)
+	log.Printf("Auth: User '%s' logged in", username)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"data": LoginResponse{
 			Token:    token,
-			Username: req.Username,
+			Username: username,
 			IsAdmin:  isAdmin,
 		},
 	})

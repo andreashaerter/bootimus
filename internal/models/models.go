@@ -44,7 +44,21 @@ type User struct {
 	Password  string     `gorm:"not null" json:"-"`
 	Enabled   bool       `gorm:"default:true" json:"enabled"`
 	IsAdmin   bool       `gorm:"default:false" json:"is_admin"`
+	Source    string     `gorm:"default:local" json:"source"`
 	LastLogin *time.Time `json:"last_login,omitempty"`
+}
+
+const (
+	UserSourceLocal = "local"
+	UserSourceLDAP  = "ldap"
+	UserSourceOIDC  = "oidc"
+)
+
+func (u *User) AuthSource() string {
+	if u.Source == "" {
+		return UserSourceLocal
+	}
+	return u.Source
 }
 
 func (u *User) SetPassword(password string) error {

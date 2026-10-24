@@ -541,7 +541,7 @@ func (s *PostgresStore) CreateUser(user *models.User) error {
 }
 
 func (s *PostgresStore) UpdateUser(username string, user *models.User) error {
-	return s.db.Model(&models.User{}).Where("username = ?", username).Updates(user).Error
+	return s.db.Model(&models.User{}).Where("username = ?", username).Select("*").Updates(user).Error
 }
 
 func (s *PostgresStore) DeleteUser(username string) error {

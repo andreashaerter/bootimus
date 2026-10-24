@@ -2766,6 +2766,7 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		Username: req.Username,
 		IsAdmin:  req.IsAdmin,
 		Enabled:  req.Enabled,
+		Source:   models.UserSourceLocal,
 	}
 
 	if err := user.SetPassword(req.Password); err != nil {
@@ -2885,6 +2886,11 @@ func (h *Handler) ResetUserPassword(w http.ResponseWriter, r *http.Request) {
 	user, err := h.storage.GetUser(req.Username)
 	if err != nil {
 		h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "User not found"})
+		return
+	}
+
+	if user.AuthSource() != models.UserSourceLocal {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Passwords for " + strings.ToUpper(user.AuthSource()) + " users are managed by their identity provider"})
 		return
 	}
 
