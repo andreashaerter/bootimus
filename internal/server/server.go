@@ -29,6 +29,7 @@ import (
 	"bootimus/internal/bmc"
 	_ "bootimus/internal/bmc/amt"
 	_ "bootimus/internal/bmc/redfish"
+	"bootimus/internal/diskimage"
 	"bootimus/internal/housekeeping"
 	"bootimus/internal/imagescan"
 	"bootimus/internal/metrics"
@@ -129,6 +130,7 @@ type Server struct {
 	toolsManager          *tools.Manager
 	smbManager            *smb.Manager
 	autoInstallLib        *autoinstall.Library
+	diskImages            *diskimage.Manager
 }
 
 type ActiveSession struct {
@@ -328,6 +330,14 @@ func New(cfg *Config) *Server {
 	s.scheduler = scheduler.New(cfg.Storage, s.executeScheduledTask)
 	if cfg.Storage != nil {
 		s.housekeeping = housekeeping.New(cfg.Storage)
+		s.diskImages = diskimage.New(cfg.Storage, diskimage.Config{
+			DataDir:    cfg.DataDir,
+			ServerAddr: cfg.ServerAddr,
+			HTTPPort:   cfg.HTTPPort,
+			NFSPort:    cfg.NFSPort,
+			NFSEnabled: cfg.NFSEnabled,
+		}, tm)
+		s.diskImages.OnEvent = s.fireDiskImagingEvent
 	}
 	s.loadBootloaderConfig()
 	return s
@@ -718,6 +728,9 @@ func (s *Server) Start() error {
 		go func() {
 			defer s.wg.Done()
 			nfsServer := nfs.NewServer(s.config.ISODir, s.config.NFSPort, s.config.BindInterface)
+			if s.diskImages != nil {
+				nfsServer.DiskImageDir = s.diskImages.Root()
+			}
 			if err := nfsServer.Start(); err != nil {
 				log.Printf("NFS server error: %v", err)
 			}
@@ -1269,6 +1282,8 @@ func (s *Server) startHTTPServer() error {
 	mux.Handle("/node-images/", http.StripPrefix("/node-images/", http.FileServer(http.Dir(s.provisionAssetDir()))))
 
 	mux.HandleFunc("/files/", s.handleCustomFile)
+	mux.HandleFunc("/diskimage/job", s.handleDiskImageJob)
+	mux.HandleFunc("/diskimage/callback", s.handleDiskImageCallback)
 
 	mux.HandleFunc("/bootenv/", func(w http.ResponseWriter, r *http.Request) {
 		urlPath := strings.TrimPrefix(r.URL.Path, "/bootenv/")
@@ -1345,6 +1360,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	}
 	adminHandler.WebhookNotifier = s.webhookNotifier
 	adminHandler.Housekeeping = s.housekeeping
+	adminHandler.DiskImaging = s.diskImages
 
 	staticFS, err := fs.Sub(web.Static, "static")
 	if err != nil {
@@ -1673,6 +1689,10 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/clients/power", adminWrap(adminHandler.PowerClient))
 	mux.HandleFunc("/api/clients/power/status", readWrap(adminHandler.PowerStatusClient))
 	mux.HandleFunc("/api/clients/menu-preview", readWrap(s.handleMenuPreview))
+	mux.HandleFunc("/api/disk-images", readWrap(adminHandler.DiskImages))
+	mux.HandleFunc("/api/disk-images/capture", adminWrap(adminHandler.CaptureDisk))
+	mux.HandleFunc("/api/disk-images/deploy", adminWrap(adminHandler.DeployDiskImage))
+	mux.HandleFunc("/api/disk-images/jobs", readWrap(adminHandler.DiskJobs))
 
 	mux.HandleFunc("/api/theme", readWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -2033,6 +2053,7 @@ type bootMenuRender struct {
 	KnownClient   bool   `json:"known_client"`
 	ClientName    string `json:"client_name,omitempty"`
 	NextBootImage string `json:"next_boot_image,omitempty"`
+	DiskJob       string `json:"disk_job,omitempty"`
 	Kind          string `json:"kind"`
 	Script        string `json:"script"`
 }
@@ -2046,6 +2067,15 @@ func normaliseMenuMAC(macAddress string) string {
 
 func (s *Server) renderBootMenu(macAddress, remoteAddr string, commit bool) bootMenuRender {
 	result := bootMenuRender{MAC: macAddress, Kind: "menu"}
+	if s.diskImages != nil {
+		if job := s.diskImages.ActiveJob(macAddress); job != nil && job.DiskImage != nil {
+			result.Kind = "imaging"
+			result.DiskJob = fmt.Sprintf("%s %s (disk %s)", job.Kind, job.DiskImage.Name, job.Disk)
+			if commit {
+				s.logAndBroadcast("Client %s: disk imaging job %d pending - booting Clonezilla to %s %s", macAddress, job.ID, job.Kind, job.DiskImage.Name)
+			}
+		}
+	}
 
 	var nextBootImageID uint
 	if s.config.Storage != nil {

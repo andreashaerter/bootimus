@@ -28,6 +28,7 @@ import (
 	"bootimus/internal/bmc"
 	_ "bootimus/internal/bmc/amt"
 	_ "bootimus/internal/bmc/redfish"
+	"bootimus/internal/diskimage"
 	"bootimus/internal/extractor"
 	"bootimus/internal/housekeeping"
 	"bootimus/internal/imagescan"
@@ -74,6 +75,7 @@ type Handler struct {
 	SchedulerRunNow    func(id uint) error
 	WebhookNotifier    *webhook.Notifier
 	Housekeeping       *housekeeping.Runner
+	DiskImaging        *diskimage.Manager
 }
 
 type extractionState struct {

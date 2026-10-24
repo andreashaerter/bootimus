@@ -44,6 +44,8 @@ var viewerReadRoutes = map[string]bool{
 	"/api/scheduled-tasks":           true,
 	"/api/clients/power/status":      true,
 	"/api/clients/menu-preview":      true,
+	"/api/disk-images":               true,
+	"/api/disk-images/jobs":          true,
 	"/api/theme":                     true,
 	"/api/usb":                       true,
 	"/api/usb/download":              true,

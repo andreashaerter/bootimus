@@ -473,6 +473,7 @@ function setupTabs() {
             if (item.dataset.tab === 'api-reference') showAPIReference();
             if (item.dataset.tab === 'audit') loadAuditLog();
             if (item.dataset.tab === 'pxe-debug') loadPXEDebug();
+            if (item.dataset.tab === 'disk-images') loadDiskImages();
         });
     });
 
@@ -798,6 +799,7 @@ async function loadWebhookConfig() {
         document.getElementById('webhook-on-client-discovered').checked = !!c.on_client_discovered;
         document.getElementById('webhook-on-inventory-updated').checked = !!c.on_inventory_updated;
         document.getElementById('webhook-on-admin-action').checked = !!c.on_admin_action;
+        document.getElementById('webhook-on-disk-imaging').checked = c.on_disk_imaging !== false;
     } catch (err) {
         console.error('Failed to load webhook config:', err);
     }
@@ -812,6 +814,7 @@ async function saveWebhookConfig(e) {
         on_client_discovered: document.getElementById('webhook-on-client-discovered').checked,
         on_inventory_updated: document.getElementById('webhook-on-inventory-updated').checked,
         on_admin_action: document.getElementById('webhook-on-admin-action').checked,
+        on_disk_imaging: document.getElementById('webhook-on-disk-imaging').checked,
     };
     try {
         const res = await authFetch(`${API_BASE}/webhook`, {
@@ -1447,6 +1450,8 @@ function clientRowHTML(client, includeGroupCell) {
                             <button class="btn btn-success btn-sm" onclick="wakeClient('${client.mac_address}')">Wake</button>
                             <button class="btn btn-primary btn-sm" onclick="showNextBoot('${client.mac_address}')">Next Boot</button>
                             <button class="btn btn-sm" onclick="previewBootMenu('${client.mac_address}')">Preview Menu</button>
+                            <button class="btn btn-sm" onclick="showCaptureDiskModal('${client.mac_address}')">Capture Disk</button>
+                            <button class="btn btn-sm" onclick="showDeployDiskModal({ mac: '${client.mac_address}' })">Deploy Image</button>
                         </td>
                     </tr>`;
 }
@@ -7738,4 +7743,287 @@ function downloadMenuPreview() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(a.href);
+}
+
+let diskImages = [];
+let diskJobs = [];
+let diskImagingStatus = null;
+
+async function loadDiskImages() {
+    try {
+        const [imgRes, jobRes] = await Promise.all([
+            authFetch(`${API_BASE}/disk-images`),
+            authFetch(`${API_BASE}/disk-images/jobs?limit=100`),
+        ]);
+        const imgData = await imgRes.json();
+        const jobData = await jobRes.json();
+        if (!imgData.success) {
+            document.getElementById('disk-images-table').innerHTML = `<p class="alert alert-error">${escapeHtml(imgData.error || 'Failed to load disk images')}</p>`;
+            return;
+        }
+        diskImagingStatus = imgData.data.status || null;
+        diskImages = imgData.data.images || [];
+        diskJobs = jobData.success ? (jobData.data || []) : [];
+        renderDiskImagingProblems();
+        renderDiskImages();
+        renderDiskJobs();
+    } catch (err) {
+        document.getElementById('disk-images-table').innerHTML = '<p class="alert alert-error">Failed to load disk images</p>';
+    }
+}
+
+function renderDiskImagingProblems() {
+    const banner = document.getElementById('disk-images-problems');
+    if (!banner) return;
+    const problems = (diskImagingStatus && diskImagingStatus.problems) || [];
+    if (problems.length === 0) {
+        banner.style.display = 'none';
+        return;
+    }
+    banner.innerHTML = '<strong>Disk imaging is not ready.</strong> ' + problems.map(escapeHtml).join(' ') +
+        ' Enable the Clonezilla tool under <strong>Tools</strong> and start Bootimus with <code>--nfs-enabled</code>.';
+    banner.style.display = 'block';
+}
+
+function diskImageStateBadge(state) {
+    const cls = state === 'ready' ? 'badge-success' : (state === 'capturing' ? 'badge-info' : 'badge-danger');
+    return `<span class="badge ${cls}">${escapeHtml(state)}</span>`;
+}
+
+function diskJobStateBadge(state) {
+    const cls = { completed: 'badge-success', running: 'badge-info', pending: 'badge-warning', failed: 'badge-danger', cancelled: 'badge-info' }[state] || 'badge-info';
+    return `<span class="badge ${cls}">${escapeHtml(state)}</span>`;
+}
+
+function renderDiskImages() {
+    const container = document.getElementById('disk-images-table');
+    if (!container) return;
+    const filterInput = document.getElementById('disk-images-filter');
+    const q = filterInput ? filterInput.value.trim().toLowerCase() : '';
+    const rows = diskImages.filter(img => !q || [img.name, img.description, img.source_mac, img.source_client_name, img.state].some(v => (v || '').toLowerCase().includes(q)));
+    if (rows.length === 0) {
+        container.innerHTML = `<p style="color: var(--text-secondary); padding: 20px;">${diskImages.length === 0 ? 'No disk images yet. Use Capture Disk to create one from a client.' : 'No images match the filter.'}</p>`;
+        return;
+    }
+    container.innerHTML = `
+        <div class="table-scroll">
+        <table>
+            <thead><tr>
+                <th>Name</th><th>Description</th><th>Source</th><th>Disk</th><th>Size</th><th>State</th><th>Created</th><th>Actions</th>
+            </tr></thead>
+            <tbody>
+                ${rows.map(img => `
+                    <tr>
+                        <td><strong>${escapeHtml(img.name)}</strong></td>
+                        <td>${escapeHtml(img.description || '-')}</td>
+                        <td>${img.source_mac ? `<code>${escapeHtml(img.source_mac)}</code>${img.source_client_name ? ' ' + escapeHtml(img.source_client_name) : ''}` : '-'}</td>
+                        <td>${escapeHtml(img.disk || '-')}</td>
+                        <td>${img.size_bytes ? formatBytes(img.size_bytes) : '-'}</td>
+                        <td>${diskImageStateBadge(img.state)}</td>
+                        <td style="white-space: nowrap;">${new Date(img.created_at).toLocaleString()}</td>
+                        <td style="white-space: nowrap;">
+                            ${img.state === 'ready' ? `<button class="btn btn-sm btn-primary" onclick="showDeployDiskModal({ imageId: ${img.id} })">Deploy</button>` : ''}
+                            <button class="btn btn-sm admin-only" onclick="editDiskImageDescription(${img.id})">Edit</button>
+                            <button class="btn btn-sm btn-danger admin-only" onclick="deleteDiskImage(${img.id}, '${jsAttrEscape(img.name)}')">Delete</button>
+                        </td>
+                    </tr>`).join('')}
+            </tbody>
+        </table>
+        </div>`;
+}
+
+function diskJobDuration(job) {
+    if (!job.started_at) return '-';
+    const end = job.finished_at ? new Date(job.finished_at) : new Date();
+    const secs = Math.max(0, Math.round((end - new Date(job.started_at)) / 1000));
+    if (secs < 60) return `${secs}s`;
+    return `${Math.floor(secs / 60)}m ${secs % 60}s`;
+}
+
+function renderDiskJobs() {
+    const container = document.getElementById('disk-jobs-table');
+    if (!container) return;
+    if (diskJobs.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-secondary); padding: 20px;">No capture or deploy jobs yet.</p>';
+        return;
+    }
+    container.innerHTML = `
+        <div class="table-scroll">
+        <table>
+            <thead><tr>
+                <th>Queued</th><th>Client</th><th>Job</th><th>Image</th><th>Disk</th><th>State</th><th>Duration</th><th>Message</th><th></th>
+            </tr></thead>
+            <tbody>
+                ${diskJobs.map(job => `
+                    <tr>
+                        <td style="white-space: nowrap;">${new Date(job.created_at).toLocaleString()}</td>
+                        <td><code>${escapeHtml(job.client_mac)}</code>${job.client_name ? ' ' + escapeHtml(job.client_name) : ''}</td>
+                        <td>${escapeHtml(job.kind)}</td>
+                        <td>${escapeHtml(job.disk_image ? job.disk_image.name : String(job.disk_image_id))}</td>
+                        <td>${escapeHtml(job.disk || '-')}</td>
+                        <td>${diskJobStateBadge(job.state)}</td>
+                        <td>${diskJobDuration(job)}</td>
+                        <td style="font-size: 12px; color: var(--text-secondary);">${escapeHtml(job.message || '')}</td>
+                        <td>${(job.state === 'pending' || job.state === 'running') ? `<button class="btn btn-sm btn-danger admin-only" onclick="cancelDiskJob(${job.id})">Cancel</button>` : ''}</td>
+                    </tr>`).join('')}
+            </tbody>
+        </table>
+        </div>`;
+}
+
+function clientOptionLabel(c) {
+    return `${c.mac_address}${c.name ? ' (' + c.name + ')' : ''}`;
+}
+
+async function ensureClientsLoaded() {
+    if (!clients || clients.length === 0) {
+        try { await loadClients(); } catch (_) {}
+    }
+}
+
+async function showCaptureDiskModal(mac) {
+    await ensureClientsLoaded();
+    const select = document.getElementById('capture-disk-mac');
+    select.innerHTML = (clients || []).map(c => `<option value="${escapeHtml(c.mac_address)}"${c.mac_address === mac ? ' selected' : ''}>${escapeHtml(clientOptionLabel(c))}</option>`).join('');
+    document.getElementById('capture-disk-name').value = '';
+    document.getElementById('capture-disk-description').value = '';
+    document.getElementById('capture-disk-device').value = 'sda';
+    document.getElementById('capture-disk-wake').checked = false;
+    showModal('capture-disk-modal');
+}
+
+async function submitCaptureDisk(e) {
+    if (e) e.preventDefault();
+    const body = {
+        mac_address: document.getElementById('capture-disk-mac').value,
+        name: document.getElementById('capture-disk-name').value.trim(),
+        description: document.getElementById('capture-disk-description').value.trim(),
+        disk: document.getElementById('capture-disk-device').value.trim(),
+        wake: document.getElementById('capture-disk-wake').checked,
+    };
+    try {
+        const res = await authFetch(`${API_BASE}/disk-images/capture`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Failed to queue capture', 'error');
+            return;
+        }
+        showAlert(data.message || 'Capture queued', 'success');
+        closeModal('capture-disk-modal');
+        loadDiskImages();
+    } catch (err) {
+        showAlert('Failed to queue capture: ' + err.message, 'error');
+    }
+}
+
+async function showDeployDiskModal(opts) {
+    opts = opts || {};
+    await ensureClientsLoaded();
+    if (diskImages.length === 0) {
+        try { await loadDiskImages(); } catch (_) {}
+    }
+    const ready = diskImages.filter(img => img.state === 'ready');
+    if (ready.length === 0) {
+        showAlert('No disk images are ready to deploy. Capture one first.', 'error');
+        return;
+    }
+    const imageSelect = document.getElementById('deploy-disk-image');
+    imageSelect.innerHTML = ready.map(img => `<option value="${img.id}"${img.id === opts.imageId ? ' selected' : ''}>${escapeHtml(img.name)}${img.size_bytes ? ' (' + formatBytes(img.size_bytes) + ')' : ''}</option>`).join('');
+    const targetSelect = document.getElementById('deploy-disk-target');
+    const groups = (typeof clientGroups !== 'undefined' && clientGroups) ? clientGroups : [];
+    let html = '<optgroup label="Clients">' + (clients || []).map(c => `<option value="mac:${escapeHtml(c.mac_address)}"${c.mac_address === opts.mac ? ' selected' : ''}>${escapeHtml(clientOptionLabel(c))}</option>`).join('') + '</optgroup>';
+    if (groups.length) {
+        html += '<optgroup label="Client groups (all enabled members)">' + groups.map(g => `<option value="group:${g.id}"${g.id === opts.groupId ? ' selected' : ''}>${escapeHtml(g.name)} (${g.member_count} members)</option>`).join('') + '</optgroup>';
+    }
+    targetSelect.innerHTML = html;
+    document.getElementById('deploy-disk-device').value = 'sda';
+    document.getElementById('deploy-disk-wake').checked = false;
+    showModal('deploy-disk-modal');
+}
+
+async function submitDeployDisk(e) {
+    if (e) e.preventDefault();
+    const target = document.getElementById('deploy-disk-target').value;
+    const body = {
+        image_id: parseInt(document.getElementById('deploy-disk-image').value, 10),
+        disk: document.getElementById('deploy-disk-device').value.trim(),
+        wake: document.getElementById('deploy-disk-wake').checked,
+    };
+    if (target.startsWith('group:')) {
+        body.client_group_id = parseInt(target.slice(6), 10);
+    } else {
+        body.mac_address = target.slice(4);
+    }
+    const imageName = document.getElementById('deploy-disk-image').selectedOptions[0].textContent;
+    if (!confirm(`Deploy ${imageName} and overwrite disk ${body.disk || 'sda'} on the selected target on its next PXE boot?`)) return;
+    try {
+        const res = await authFetch(`${API_BASE}/disk-images/deploy`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Failed to queue deploy', 'error');
+            return;
+        }
+        showAlert(data.message + (data.error ? ' (' + data.error + ')' : ''), data.error ? 'warning' : 'success');
+        closeModal('deploy-disk-modal');
+        loadDiskImages();
+    } catch (err) {
+        showAlert('Failed to queue deploy: ' + err.message, 'error');
+    }
+}
+
+function bulkDeployDiskImageClientGroup() {
+    const id = parseInt(document.getElementById('edit-client-group-form').elements.id.value, 10);
+    if (!id) return;
+    showDeployDiskModal({ groupId: id });
+}
+
+async function cancelDiskJob(id) {
+    if (!confirm('Cancel this job? A capture in progress will be discarded.')) return;
+    try {
+        const res = await authFetch(`${API_BASE}/disk-images/jobs?id=${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        showAlert(data.message || data.error || 'Done', data.success ? 'success' : 'error');
+        loadDiskImages();
+    } catch (err) {
+        showAlert('Failed to cancel job', 'error');
+    }
+}
+
+async function deleteDiskImage(id, name) {
+    if (!confirm(`Delete disk image ${name} and all of its files? This cannot be undone.`)) return;
+    try {
+        const res = await authFetch(`${API_BASE}/disk-images?id=${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        showAlert(data.message || data.error || 'Done', data.success ? 'success' : 'error');
+        loadDiskImages();
+    } catch (err) {
+        showAlert('Failed to delete disk image', 'error');
+    }
+}
+
+async function editDiskImageDescription(id) {
+    const img = diskImages.find(i => i.id === id);
+    if (!img) return;
+    const description = prompt(`Description for ${img.name}`, img.description || '');
+    if (description === null) return;
+    try {
+        const res = await authFetch(`${API_BASE}/disk-images?id=${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ description }),
+        });
+        const data = await res.json();
+        showAlert(data.message || data.error || 'Done', data.success ? 'success' : 'error');
+        loadDiskImages();
+    } catch (err) {
+        showAlert('Failed to update disk image', 'error');
+    }
 }

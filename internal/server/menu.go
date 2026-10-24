@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bootimus/internal/diskimage"
 	"bootimus/internal/imagescan"
 	"bootimus/internal/models"
 	"bootimus/internal/profiles"
@@ -27,6 +28,7 @@ type MenuBuilder struct {
 	profileManager    *profiles.Manager
 	autoInstallTypes  map[uint]string
 	forceLocalDefault bool
+	diskBoot          *diskimage.Boot
 }
 
 func (s *Server) generateIPXEMenuWithGroups(images []models.Image, macAddress string, nextBootImageID ...uint) string {
@@ -63,6 +65,18 @@ func (s *Server) generateIPXEMenuWithGroups(images []models.Image, macAddress st
 		nbID = nextBootImageID[0]
 	}
 
+	var diskBoot *diskimage.Boot
+	if s.diskImages != nil {
+		if job := s.diskImages.ActiveJob(macAddress); job != nil {
+			boot, err := s.diskImages.Boot(job, enabledTools)
+			if err != nil {
+				log.Printf("Disk imaging: cannot boot job %d for %s: %v", job.ID, macAddress, err)
+			} else {
+				diskBoot = boot
+			}
+		}
+	}
+
 	autoInstallTypes := make(map[uint]string)
 	for i := range images {
 		if images[i].BootMethod != "kernel" {
@@ -86,6 +100,7 @@ func (s *Server) generateIPXEMenuWithGroups(images []models.Image, macAddress st
 		profileManager:    s.config.ProfileManager,
 		autoInstallTypes:  autoInstallTypes,
 		forceLocalDefault: client != nil && client.EnrollmentState == models.EnrollmentStateInstalled,
+		diskBoot:          diskBoot,
 	}
 
 	return mb.Build()
@@ -95,15 +110,35 @@ func (mb *MenuBuilder) Build() string {
 	var sb strings.Builder
 
 	sb.WriteString("#!ipxe\n\n")
-	if mb.hasEnabledImage(mb.nextBootImageID) {
+	if mb.diskBoot != nil {
+		sb.WriteString("goto diskimaging\n\n")
+	} else if mb.hasEnabledImage(mb.nextBootImageID) {
 		sb.WriteString(fmt.Sprintf("goto iso%d\n\n", mb.nextBootImageID))
 	} else {
 		sb.WriteString(mb.buildMainMenu())
 	}
 	sb.WriteString(mb.buildGroupMenus())
 	sb.WriteString(mb.buildImageBootSections())
+	sb.WriteString(mb.buildDiskImagingSection())
 	sb.WriteString(mb.buildFooter())
 
+	return sb.String()
+}
+
+func (mb *MenuBuilder) buildDiskImagingSection() string {
+	if mb.diskBoot == nil {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString(":diskimaging\n")
+	sb.WriteString(fmt.Sprintf("echo %s...\n", mb.diskBoot.Label))
+	params := mb.diskBoot.Params
+	if !hasInitrdParam(params) {
+		params = strings.TrimSpace("initrd=initrd " + params)
+	}
+	sb.WriteString(fmt.Sprintf("kernel %s %s\n", mb.diskBoot.KernelURL, params))
+	sb.WriteString(fmt.Sprintf("initrd --name initrd %s\n", mb.diskBoot.InitrdURL))
+	sb.WriteString("boot || goto failed\n\n")
 	return sb.String()
 }
 

@@ -141,4 +141,17 @@ type Storage interface {
 	ResetClientEnrollment(mac string) error
 
 	GetStats() (map[string]int64, error)
+
+	CreateDiskImage(image *models.DiskImage) error
+	GetDiskImage(id uint) (*models.DiskImage, error)
+	GetDiskImageByName(name string) (*models.DiskImage, error)
+	ListDiskImages() ([]*models.DiskImage, error)
+	UpdateDiskImage(image *models.DiskImage) error
+	DeleteDiskImage(id uint) error
+	CreateDiskJob(job *models.DiskJob) error
+	GetDiskJob(id uint) (*models.DiskJob, error)
+	GetDiskJobByToken(token string) (*models.DiskJob, error)
+	ListDiskJobs(mac string, limit int) ([]*models.DiskJob, error)
+	ActiveDiskJobForClient(mac string) (*models.DiskJob, error)
+	UpdateDiskJob(job *models.DiskJob) error
 }
