@@ -125,6 +125,7 @@ func newAccessEnv(t *testing.T) *accessEnv {
 	srv := &Server{config: &Config{Storage: store, Auth: mgr, ServerAddr: "10.0.0.1", HTTPPort: 8080, DataDir: t.TempDir()}}
 	mux := http.NewServeMux()
 	srv.setupAdminInterface(mux)
+	t.Cleanup(srv.audit.wait)
 
 	adminTok, _ := mgr.GenerateToken("admin", true)
 	viewerTok, _ := mgr.GenerateToken("viewer", false)

@@ -38,6 +38,7 @@ func newReplicaEnv(t *testing.T) (*accessEnv, *Server) {
 	srv := &Server{config: &Config{Storage: store, Auth: mgr, ServerAddr: "10.0.0.1", HTTPPort: 8080, DataDir: t.TempDir(), Replica: cfg}}
 	mux := http.NewServeMux()
 	srv.setupAdminInterface(mux)
+	t.Cleanup(srv.audit.wait)
 	t.Cleanup(func() {
 		if srv.replica != nil {
 			srv.replica.Stop()

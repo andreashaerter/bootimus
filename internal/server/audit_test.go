@@ -37,6 +37,7 @@ func newAuditEnv(t *testing.T) *auditEnv {
 	srv := &Server{config: &Config{Storage: store, Auth: mgr, ServerAddr: "10.0.0.1", HTTPPort: 8080, DataDir: t.TempDir()}}
 	mux := http.NewServeMux()
 	srv.setupAdminInterface(mux)
+	t.Cleanup(srv.audit.wait)
 	tok, _ := mgr.GenerateToken("alice", true)
 	return &auditEnv{srv: srv, handler: mux, store: store, admin: tok}
 }
