@@ -1083,6 +1083,10 @@
                     <span>Restore staged: restart Bootimus to apply it. The current database and settings are replaced on the next start.</span>
                     <button class="btn btn-sm" type="button" onclick="cancelRestore()">Cancel</button>
                 </div>
+                <div id="restore-failed-notice" class="alert alert-error" style="display: none; margin: 0 12px 12px; align-items: center; justify-content: space-between; gap: 12px;">
+                    <span id="restore-failed-text"></span>
+                    <button class="btn btn-sm" type="button" onclick="cancelRestore()">Dismiss</button>
+                </div>
                 <div style="display: flex; gap: 10px; align-items: center; padding: 0 12px 12px; flex-wrap: wrap;">
                     <input type="file" id="restore-file" accept=".tar.gz,.tgz,application/gzip">
                     <button class="btn" type="button" id="restore-upload-btn" onclick="uploadRestore()">

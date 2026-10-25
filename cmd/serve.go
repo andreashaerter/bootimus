@@ -310,7 +310,13 @@ func applyPendingRestore(dataDir string, dbCfg *storage.Config) {
 		return
 	}
 	if err != nil {
-		log.Fatalf("Failed to apply staged backup restore (left in place under %s/.restore-pending): %v", dataDir, err)
+		log.Printf("Failed to apply staged backup restore: %v", err)
+		if moved, moveErr := storage.FailRestore(dataDir, err); moveErr != nil {
+			log.Printf("Staged backup left under %s/.restore-pending and will be retried on the next start: %v", dataDir, moveErr)
+		} else {
+			log.Printf("Staged backup moved to %s; starting with the current database", moved)
+		}
+		return
 	}
 	log.Printf("Restored backup staged at %s (%s database, %d files)", summary.StagedAt.Format(time.RFC3339), summary.Database, summary.FileCount)
 }
