@@ -748,8 +748,8 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 /* Pin both scrollbars inside the viewport when a tab's main content
    is a wide table. Without this, a tall table pushes its horizontal
    scrollbar off-screen because the whole tab scrolls vertically. */
-.tab-content.active:has(.table-scroll):not(#settings-tab) { overflow: hidden; }
-.tab-content.active:has(.table-scroll):not(#settings-tab) > .card { flex: 1; min-height: 0; }
+.tab-content.active:has(.table-scroll):not(#settings-tab):not(#users-tab):not(#client-detail-tab) { overflow: hidden; }
+.tab-content.active:has(.table-scroll):not(#settings-tab):not(#users-tab):not(#client-detail-tab) > .card { flex: 1; min-height: 0; }
 /* Every wrapper between .card and .table-scroll must be a flex column
    so heights propagate. This catches render-target divs (#images-table)
    and subtab wrappers (#images-subtab, #clients-subtab) transparently. */
