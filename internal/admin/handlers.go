@@ -5081,8 +5081,10 @@ func (h *Handler) ExportBackup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	skipDirs := map[string]bool{
-		"isos":  true,
-		"tools": true,
+		"isos":             true,
+		"tools":            true,
+		".restore-pending": true,
+		".restore-failed":  true,
 	}
 	skipFiles := map[string]bool{
 		"bootimus.db":         true,
@@ -5147,7 +5149,11 @@ func (h *Handler) ImportBackup(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		summary, err := storage.PendingRestore(h.dataDir)
 		if errors.Is(err, storage.ErrNoPendingRestore) {
-			h.sendJSON(w, http.StatusOK, Response{Success: true, Data: map[string]interface{}{"pending": false}})
+			data := map[string]interface{}{"pending": false}
+			if failed, failErr := storage.LastRestoreFailure(h.dataDir); failErr == nil {
+				data["last_failure"] = failed
+			}
+			h.sendJSON(w, http.StatusOK, Response{Success: true, Data: data})
 			return
 		}
 		if err != nil {
@@ -5158,6 +5164,14 @@ func (h *Handler) ImportBackup(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		if err := storage.CancelRestore(h.dataDir); err != nil {
 			if errors.Is(err, storage.ErrNoPendingRestore) {
+				if _, failErr := storage.LastRestoreFailure(h.dataDir); failErr == nil {
+					if clearErr := storage.ClearRestoreFailure(h.dataDir); clearErr != nil {
+						h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: clearErr.Error()})
+						return
+					}
+					h.sendJSON(w, http.StatusOK, Response{Success: true, Message: "Failed restore dismissed"})
+					return
+				}
 				h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "No restore is staged"})
 				return
 			}
