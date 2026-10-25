@@ -1,4 +1,4 @@
-# Deployment Profiles
+# Deployment Profiles and Enrolment Rules
 
 A deployment profile is a named bundle of the settings that decide what a client boots into: an image, an auto-install file, a SAN target, a bootloader set and an optional first-boot action. Assign a profile to a client or to a client group and every member gets those settings each time it boots. Edit the profile and the change applies to all of them immediately, because nothing is copied into the clients.
 
@@ -11,6 +11,7 @@ A deployment profile is a named bundle of the settings that decide what a client
 - [Effective settings](#effective-settings)
 - [Examples](#examples)
 - [Via API](#via-api)
+- [Auto-enrolment rules](#auto-enrolment-rules)
 
 ## What a profile holds
 
@@ -80,3 +81,51 @@ curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/clients/effect
 ```
 
 Client groups take `profile_id` in the same way through `PUT /api/client-groups/update?id=<id>`.
+
+## Auto-enrolment rules
+
+Profiles decide what a client gets; enrolment rules decide which clients get which profile, without anyone touching the admin UI. A rule matches on what Bootimus already knows about a machine from its first PXE boot: the MAC address, the hardware inventory that iPXE reports (manufacturer, product, serial number, UUID) and the firmware it booted with. The first matching rule, in priority order, places the client in a client group and a deployment profile, can mark it static and can give it a name.
+
+Rules run when a client is discovered and again on every inventory report while the client is still unenrolled. Because the inventory arrives before the same boot's menu request, a brand-new machine gets its profile, and with it a first-boot action, on the very first boot.
+
+### What rules touch
+
+Rules only act on discovered clients that no human has managed yet: non-static clients with no group, no profile and no earlier rule match. Within that, each setting is applied only where the client has nothing: an existing name is kept even if the rule has a name pattern. Once a client has been enrolled it is never re-evaluated, so later manual changes stick. Disabling or deleting a rule does not undo the enrolments it made.
+
+### Conditions
+
+| Condition | Matches when |
+|-----------|--------------|
+| MAC prefix | The client's MAC starts with the prefix; colons, dashes and case are ignored, so `aa:bb:cc`, `AA-BB-CC` and `aabbcc` are the same |
+| Manufacturer contains | The inventory manufacturer contains the text, case-insensitive |
+| Product contains | The inventory product contains the text, case-insensitive |
+| Serial matches | The serial number matches the Go regular expression |
+| UUID prefix | The SMBIOS UUID starts with the prefix |
+| Firmware | `bios`, `uefi` or `arm64`, taken from the platform and architecture iPXE reports |
+
+Every filled-in condition must hold. A rule with no conditions is rejected.
+
+### Name patterns
+
+The name pattern is applied to unnamed clients and may use `{{MAC}}`, `{{MAC_SUFFIX}}` (the last six hex digits), `{{SERIAL}}`, `{{PRODUCT}}`, `{{MANUFACTURER}}` and `{{HOSTNAME_SAFE}}`, which is the serial number, or the MAC suffix when there is no serial, reduced to lower-case letters, digits and dashes so it can double as a hostname.
+
+### Trying rules out
+
+The rule editor shows how many existing clients the conditions would match as you type, with the names they would receive, and marks the ones that are already managed. **Apply to existing clients** runs every enabled rule over the discovered clients that nothing has placed yet, for example after importing rules into an installation that already has a backlog of unknown machines. Each match is logged, counted on the rule and sent as a `client.auto_enrolled` webhook event when that event is enabled.
+
+### Via API
+
+```bash
+# Create a rule: UEFI Dell machines go to the lab group and profile, become static and are named after their serial
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"lab-dell","priority":10,"enabled":true,"manufacturer_contains":"Dell","firmware":"uefi","client_group_id":1,"profile_id":1,"make_static":true,"name_pattern":"lab-{{HOSTNAME_SAFE}}"}' \
+  http://localhost:8081/api/enrolment-rules
+
+# Dry run against the clients Bootimus already knows
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"manufacturer_contains":"Dell","firmware":"uefi","name_pattern":"lab-{{HOSTNAME_SAFE}}"}' \
+  http://localhost:8081/api/enrolment-rules/test
+
+# Enrol the backlog of unmanaged discovered clients
+curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/enrolment-rules/apply
+```

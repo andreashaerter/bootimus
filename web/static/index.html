@@ -218,6 +218,7 @@
                     <button class="subtab" data-subtab="client-groups" onclick="switchClientsSubtab('client-groups')">Client Groups</button>
                     <button class="subtab" data-subtab="san-targets" onclick="switchClientsSubtab('san-targets')">SAN Targets</button>
                     <button class="subtab" data-subtab="deployment-profiles" onclick="switchClientsSubtab('deployment-profiles')">Deployment Profiles</button>
+                    <button class="subtab" data-subtab="enrolment-rules" onclick="switchClientsSubtab('enrolment-rules')">Enrolment Rules</button>
                 </div>
 
                 <div id="clients-subtab">
@@ -352,6 +353,24 @@
                     <div id="deployment-profiles-table" class="loading">
                         <div class="spinner"></div>
                         Loading deployment profiles...
+                    </div>
+                </div>
+                <div id="enrolment-rules-subtab" style="display: none;">
+                    <h2>Enrolment Rules</h2>
+                    <p style="color: var(--text-secondary); margin: 0 12px 8px; font-size: 13px;">
+                        When a client PXE boots for the first time, rules are checked in priority order against its MAC address, hardware inventory and firmware. The first match places it in a client group and deployment profile, can make it static and can name it. Rules only touch discovered clients that nobody has grouped, profiled or named yet.
+                    </p>
+                    <div class="toolbar">
+                        <button class="btn admin-only" type="button" onclick="showEnrolmentRuleModal()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            Add Rule
+                        </button>
+                        <button class="btn admin-only" type="button" onclick="applyEnrolmentRules()">Apply to existing clients</button>
+                        <span id="enrolment-rules-status" style="color: var(--text-secondary); font-size: 12px; align-self: center;"></span>
+                    </div>
+                    <div id="enrolment-rules-table" class="loading">
+                        <div class="spinner"></div>
+                        Loading enrolment rules...
                     </div>
                 </div>
             </div>
@@ -975,6 +994,10 @@
                             <label for="webhook-on-admin-action"><code>admin.action</code> — a change was made through the admin API (mirrors the audit log)</label>
                         </div>
                         <div class="checkbox-group">
+                            <input type="checkbox" id="webhook-on-auto-enrol">
+                            <label for="webhook-on-auto-enrol"><code>client.auto_enrolled</code> — an enrolment rule placed a newly discovered client</label>
+                        </div>
+                        <div class="checkbox-group">
                             <input type="checkbox" id="webhook-on-install">
                             <label for="webhook-on-install"><code>install.completed</code> / <code>install.failed</code> — an unattended install reported its result or timed out</label>
                         </div>
@@ -1566,6 +1589,93 @@
                 </div>
                 <button type="submit" class="btn btn-danger">Queue Deploy</button>
                 <button type="button" class="btn" onclick="closeModal('deploy-disk-modal')" style="margin-left: 8px;">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="enrolment-rule-modal" class="modal">
+        <div class="modal-content" style="max-width: 640px;">
+            <div class="modal-header">
+                <h2 id="enrolment-rule-modal-title">Add Enrolment Rule</h2>
+            </div>
+            <form id="enrolment-rule-form">
+                <input type="hidden" name="id">
+                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 10px;">
+                    <div class="form-group">
+                        <label>Name *</label>
+                        <input type="text" name="name" required placeholder="Lab Dells">
+                    </div>
+                    <div class="form-group">
+                        <label>Priority</label>
+                        <input type="number" name="priority" value="100" min="0" step="1">
+                        <small style="color: var(--text-secondary);">Lower runs first.</small>
+                    </div>
+                </div>
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" name="enabled" id="er-enabled" checked>
+                    <label for="er-enabled">Enabled</label>
+                </div>
+                <fieldset style="border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 12px;">
+                    <legend style="padding: 0 6px; font-weight: 500;">Match when every filled-in condition holds</legend>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div class="form-group">
+                            <label>MAC prefix</label>
+                            <input type="text" name="mac_prefix" placeholder="aa:bb:cc" style="font-family: ui-monospace, monospace;">
+                        </div>
+                        <div class="form-group">
+                            <label>Firmware</label>
+                            <select name="firmware">
+                                <option value="">Any</option>
+                                <option value="bios">Legacy BIOS</option>
+                                <option value="uefi">UEFI x86</option>
+                                <option value="arm64">UEFI ARM64</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Manufacturer contains</label>
+                            <input type="text" name="manufacturer_contains" placeholder="Dell">
+                        </div>
+                        <div class="form-group">
+                            <label>Product contains</label>
+                            <input type="text" name="product_contains" placeholder="OptiPlex">
+                        </div>
+                        <div class="form-group">
+                            <label>Serial matches (regular expression)</label>
+                            <input type="text" name="serial_pattern" placeholder="^LAB" style="font-family: ui-monospace, monospace;">
+                        </div>
+                        <div class="form-group">
+                            <label>UUID prefix</label>
+                            <input type="text" name="uuid_prefix" placeholder="4c4c4544" style="font-family: ui-monospace, monospace;">
+                        </div>
+                    </div>
+                </fieldset>
+                <fieldset style="border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 12px;">
+                    <legend style="padding: 0 6px; font-weight: 500;">Then apply</legend>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div class="form-group">
+                            <label>Client group</label>
+                            <select name="client_group_id" id="er-group-select"></select>
+                        </div>
+                        <div class="form-group">
+                            <label>Deployment profile</label>
+                            <select name="profile_id" id="er-profile-select"></select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Name pattern</label>
+                        <input type="text" name="name_pattern" placeholder="lab-{{HOSTNAME_SAFE}}" style="font-family: ui-monospace, monospace;">
+                        <small style="color: var(--text-secondary);">Only applied to unnamed clients. Placeholders: <code>{{MAC}}</code>, <code>{{MAC_SUFFIX}}</code>, <code>{{SERIAL}}</code>, <code>{{PRODUCT}}</code>, <code>{{MANUFACTURER}}</code>, <code>{{HOSTNAME_SAFE}}</code> (the serial, or the MAC suffix, reduced to lower-case letters, digits and dashes).</small>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" name="make_static" id="er-make-static">
+                        <label for="er-make-static">Make the client static</label>
+                    </div>
+                </fieldset>
+                <div id="enrolment-rule-preview" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px; min-height: 18px;"></div>
+                <div style="display: flex; gap: 10px;">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <button type="button" class="btn" onclick="closeModal('enrolment-rule-modal')">Cancel</button>
+                </div>
             </form>
         </div>
     </div>

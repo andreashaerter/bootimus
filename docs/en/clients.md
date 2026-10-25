@@ -470,7 +470,7 @@ With LIO (`targetcli`) create a fileio or block backstore, an iqn, a LUN and a p
 
 ## Deployment Profiles
 
-When several clients should get the same image, auto-install file, SAN target or bootloader set, put those settings in a deployment profile and assign the profile to the clients or to their group instead of filling in each client. A client's own settings always win over its profile, and a client's profile wins over its group's. The client editor shows the **Effective settings** that result. See the [Deployment Profiles guide](deployment-profiles.md) for precedence, first-boot actions and examples.
+When several clients should get the same image, auto-install file, SAN target or bootloader set, put those settings in a deployment profile and assign the profile to the clients or to their group instead of filling in each client. A client's own settings always win over its profile, and a client's profile wins over its group's. The client editor shows the **Effective settings** that result. See the [Deployment Profiles guide](deployment-profiles.md) for precedence, first-boot actions and examples, and its [auto-enrolment rules](deployment-profiles.md#auto-enrolment-rules) section for placing newly discovered machines into a group and profile automatically.
 
 ## Wake-on-LAN
 

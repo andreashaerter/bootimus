@@ -1926,6 +1926,9 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/san-targets", readWrap(adminHandler.SANTargets))
 	mux.HandleFunc("/api/deployment-profiles", readWrap(adminHandler.DeploymentProfiles))
 	mux.HandleFunc("/api/clients/effective", readWrap(s.handleClientEffective))
+	mux.HandleFunc("/api/enrolment-rules", readWrap(adminHandler.EnrolmentRules))
+	mux.HandleFunc("/api/enrolment-rules/test", adminWrap(s.handleEnrolmentRuleTest))
+	mux.HandleFunc("/api/enrolment-rules/apply", adminWrap(s.handleEnrolmentRulesApply))
 
 	mux.HandleFunc("/api/theme", readWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -2257,6 +2260,7 @@ func (s *Server) handleInventoryReport(w http.ResponseWriter, r *http.Request) {
 
 	clientName := ""
 	if c, err := s.config.Storage.GetClient(mac); err == nil {
+		s.enrolClient(c, inv, r.RemoteAddr)
 		clientName = c.Name
 	}
 	ip := r.RemoteAddr

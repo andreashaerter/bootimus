@@ -508,7 +508,7 @@ function setupTabs() {
             if (matchingTab) matchingTab.classList.add('active');
 
             if (item.dataset.tab === 'images') loadGroups();
-            if (item.dataset.tab === 'clients') { loadClientGroups(); loadDeploymentProfiles(true); }
+            if (item.dataset.tab === 'clients') { loadClientGroups(); loadDeploymentProfiles(true); loadEnrolmentRules(true); }
             if (item.dataset.tab === 'tools') loadTools();
             if (item.dataset.tab === 'bootloaders') loadBootloaders();
             if (item.dataset.tab === 'profiles') loadProfiles();
@@ -946,6 +946,7 @@ async function loadWebhookConfig() {
         document.getElementById('webhook-on-admin-action').checked = !!c.on_admin_action;
         document.getElementById('webhook-on-disk-imaging').checked = c.on_disk_imaging !== false;
         document.getElementById('webhook-on-install').checked = !!c.on_install;
+        document.getElementById('webhook-on-auto-enrol').checked = !!c.on_auto_enrol;
     } catch (err) {
         console.error('Failed to load webhook config:', err);
     }
@@ -962,6 +963,7 @@ async function saveWebhookConfig(e) {
         on_admin_action: document.getElementById('webhook-on-admin-action').checked,
         on_disk_imaging: document.getElementById('webhook-on-disk-imaging').checked,
         on_install: document.getElementById('webhook-on-install').checked,
+        on_auto_enrol: document.getElementById('webhook-on-auto-enrol').checked,
     };
     try {
         const res = await authFetch(`${API_BASE}/webhook`, {
@@ -6815,9 +6817,11 @@ function switchClientsSubtab(name) {
     document.getElementById('client-groups-subtab').style.display = name === 'client-groups' ? '' : 'none';
     document.getElementById('san-targets-subtab').style.display = name === 'san-targets' ? '' : 'none';
     document.getElementById('deployment-profiles-subtab').style.display = name === 'deployment-profiles' ? '' : 'none';
+    document.getElementById('enrolment-rules-subtab').style.display = name === 'enrolment-rules' ? '' : 'none';
     if (name === 'client-groups') loadClientGroups();
     if (name === 'san-targets') loadSANTargets();
     if (name === 'deployment-profiles') loadDeploymentProfiles();
+    if (name === 'enrolment-rules') loadEnrolmentRules();
 }
 
 function switchImagesSubtab(name) {
@@ -9128,8 +9132,13 @@ function deploymentProfileName(id) {
 }
 
 function deploymentProfileBadge(client) {
-    if (!client.profile_id) return '';
-    return ` <span class="badge badge-info" title="Deployment profile">${escapeHtml(deploymentProfileName(client.profile_id))}</span>`;
+    let html = '';
+    if (client.profile_id) html += ` <span class="badge badge-info" title="Deployment profile">${escapeHtml(deploymentProfileName(client.profile_id))}</span>`;
+    if (client.enrolled_by_rule_id) {
+        const rule = enrolmentRules.find(r => r.id === client.enrolled_by_rule_id);
+        html += ` <span class="badge badge-warning" title="Enrolled by rule${rule ? ': ' + escapeHtml(rule.name) : ''}">auto-enrolled</span>`;
+    }
+    return html;
 }
 
 async function loadDeploymentProfiles(quiet) {
@@ -9350,4 +9359,265 @@ async function loadClientEffective(mac) {
 document.addEventListener('DOMContentLoaded', () => {
     const form = document.getElementById('deployment-profile-form');
     if (form) form.addEventListener('submit', saveDeploymentProfile);
+});
+
+let enrolmentRules = [];
+let enrolmentRulesLoaded = false;
+let enrolmentPreviewTimer = null;
+
+async function loadEnrolmentRules(quiet) {
+    try {
+        const res = await authFetch(`${API_BASE}/enrolment-rules`);
+        const data = await res.json();
+        if (!data.success) {
+            if (!quiet) document.getElementById('enrolment-rules-table').innerHTML = `<p class="alert alert-error">${escapeHtml(data.error || 'Failed to load enrolment rules')}</p>`;
+            return;
+        }
+        enrolmentRules = data.data || [];
+        enrolmentRulesLoaded = true;
+        if (!quiet) renderEnrolmentRulesTable();
+    } catch (err) {
+        console.error('Failed to load enrolment rules:', err);
+    }
+}
+
+function enrolmentConditions(r) {
+    const parts = [];
+    if (r.mac_prefix) parts.push(`MAC ${escapeHtml(r.mac_prefix)}*`);
+    if (r.manufacturer_contains) parts.push(`manufacturer ~ ${escapeHtml(r.manufacturer_contains)}`);
+    if (r.product_contains) parts.push(`product ~ ${escapeHtml(r.product_contains)}`);
+    if (r.serial_pattern) parts.push(`serial =~ <code>${escapeHtml(r.serial_pattern)}</code>`);
+    if (r.uuid_prefix) parts.push(`UUID ${escapeHtml(r.uuid_prefix)}*`);
+    if (r.firmware) parts.push(`firmware ${escapeHtml(r.firmware)}`);
+    return parts.join('<br>');
+}
+
+function enrolmentActions(r) {
+    const parts = [];
+    if (r.client_group_id) { const g = clientGroups.find(x => x.id === r.client_group_id); parts.push('group ' + escapeHtml(g ? g.name : '#' + r.client_group_id)); }
+    if (r.profile_id) parts.push('profile ' + escapeHtml(deploymentProfileName(r.profile_id)));
+    if (r.name_pattern) parts.push('name <code>' + escapeHtml(r.name_pattern) + '</code>');
+    if (r.make_static) parts.push('make static');
+    return parts.join('<br>');
+}
+
+function renderEnrolmentRulesTable() {
+    const container = document.getElementById('enrolment-rules-table');
+    container.classList.remove('loading');
+    if (enrolmentRules.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-secondary); padding: 20px;">No enrolment rules yet. Click "Add Rule" to place newly discovered clients automatically.</p>';
+        return;
+    }
+    const rows = enrolmentRules.map((r, i) => `
+        <tr style="${r.enabled ? '' : 'opacity: 0.6;'}">
+            <td style="white-space: nowrap;">
+                ${r.priority}
+                <button type="button" class="btn btn-sm admin-only" title="Move up" ${i === 0 ? 'disabled' : ''} onclick="moveEnrolmentRule(${r.id}, -1)">▲</button>
+                <button type="button" class="btn btn-sm admin-only" title="Move down" ${i === enrolmentRules.length - 1 ? 'disabled' : ''} onclick="moveEnrolmentRule(${r.id}, 1)">▼</button>
+            </td>
+            <td><strong>${escapeHtml(r.name)}</strong>${r.enabled ? '' : ' <span class="badge badge-warning">disabled</span>'}</td>
+            <td style="font-size: 12px;">${enrolmentConditions(r)}</td>
+            <td style="font-size: 12px;">${enrolmentActions(r)}</td>
+            <td>${r.match_count || 0}${r.last_matched_at ? '<br><span style="color: var(--text-secondary); font-size: 11px;">' + new Date(r.last_matched_at).toLocaleString() + '</span>' : ''}</td>
+            <td>
+                <button type="button" class="btn btn-sm admin-only" onclick="toggleEnrolmentRule(${r.id})">${r.enabled ? 'Disable' : 'Enable'}</button>
+                <button type="button" class="btn btn-sm admin-only" onclick="showEnrolmentRuleModal(${r.id})">Edit</button>
+                <button type="button" class="btn btn-sm btn-danger admin-only" onclick="deleteEnrolmentRule(${r.id})">Delete</button>
+            </td>
+        </tr>`).join('');
+    container.innerHTML = `
+        <div class="table-scroll">
+        <table>
+            <thead><tr><th>Priority</th><th>Name</th><th>Conditions</th><th>Applies</th><th>Matches</th><th>Actions</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>
+        </div>`;
+}
+
+function enrolmentRuleBody(form) {
+    const fd = new FormData(form);
+    return {
+        name: fd.get('name') || '',
+        priority: parseInt(fd.get('priority') || '100', 10),
+        enabled: fd.get('enabled') === 'on',
+        mac_prefix: fd.get('mac_prefix') || '',
+        manufacturer_contains: fd.get('manufacturer_contains') || '',
+        product_contains: fd.get('product_contains') || '',
+        serial_pattern: fd.get('serial_pattern') || '',
+        uuid_prefix: fd.get('uuid_prefix') || '',
+        firmware: fd.get('firmware') || '',
+        client_group_id: fd.get('client_group_id') ? parseInt(fd.get('client_group_id'), 10) : null,
+        profile_id: fd.get('profile_id') ? parseInt(fd.get('profile_id'), 10) : null,
+        make_static: fd.get('make_static') === 'on',
+        name_pattern: fd.get('name_pattern') || '',
+    };
+}
+
+async function saveEnrolmentRuleQuiet(rule) {
+    const res = await authFetch(`${API_BASE}/enrolment-rules?id=${rule.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(rule),
+    });
+    return res.json();
+}
+
+async function showEnrolmentRuleModal(id) {
+    const form = document.getElementById('enrolment-rule-form');
+    form.reset();
+    const rule = id ? enrolmentRules.find(r => r.id === id) : null;
+    form.elements.id.value = rule ? rule.id : '';
+    document.getElementById('enrolment-rule-modal-title').textContent = rule ? 'Edit Enrolment Rule' : 'Add Enrolment Rule';
+    if (!clientGroups || clientGroups.length === 0) { try { await loadClientGroups(); } catch (_) {} }
+    const gSel = document.getElementById('er-group-select');
+    gSel.innerHTML = '<option value="">(leave unchanged)</option>' + (clientGroups || []).map(g => `<option value="${g.id}" ${rule && rule.client_group_id === g.id ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('');
+    await populateDeploymentProfileSelect('er-profile-select', rule ? rule.profile_id : null, '(leave unchanged)');
+    if (rule) {
+        for (const key of ['name', 'priority', 'mac_prefix', 'manufacturer_contains', 'product_contains', 'serial_pattern', 'uuid_prefix', 'firmware', 'name_pattern']) {
+            form.elements[key].value = rule[key] == null ? '' : rule[key];
+        }
+        form.elements.enabled.checked = !!rule.enabled;
+        form.elements.make_static.checked = !!rule.make_static;
+    } else {
+        form.elements.priority.value = enrolmentRules.length ? Math.max(...enrolmentRules.map(r => r.priority)) + 10 : 100;
+    }
+    document.getElementById('enrolment-rule-preview').textContent = '';
+    scheduleEnrolmentPreview();
+    showModal('enrolment-rule-modal');
+}
+
+function scheduleEnrolmentPreview() {
+    clearTimeout(enrolmentPreviewTimer);
+    enrolmentPreviewTimer = setTimeout(previewEnrolmentRule, 400);
+}
+
+async function previewEnrolmentRule() {
+    const form = document.getElementById('enrolment-rule-form');
+    const box = document.getElementById('enrolment-rule-preview');
+    const body = enrolmentRuleBody(form);
+    body.name = body.name || 'preview';
+    const hasCondition = body.mac_prefix || body.manufacturer_contains || body.product_contains || body.serial_pattern || body.uuid_prefix || body.firmware;
+    if (!hasCondition) {
+        box.textContent = 'Fill in at least one condition to see which existing clients would match.';
+        return;
+    }
+    if (!body.client_group_id && !body.profile_id && !body.make_static && !body.name_pattern) body.make_static = true;
+    try {
+        const res = await authFetch(`${API_BASE}/enrolment-rules/test`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            box.textContent = data.error || 'Preview unavailable';
+            return;
+        }
+        const matches = data.data.matches || [];
+        const eligible = matches.filter(m => m.eligible).length;
+        if (matches.length === 0) {
+            box.textContent = 'Matches no existing client.';
+            return;
+        }
+        const sample = matches.slice(0, 5).map(m => `<code>${escapeHtml(m.mac_address)}</code>${m.name ? ' ' + escapeHtml(m.name) : (m.would_name ? ' → ' + escapeHtml(m.would_name) : '')}${m.eligible ? '' : ' <span style="color: var(--text-muted);">(already managed)</span>'}`).join(', ');
+        box.innerHTML = `Matches ${matches.length} existing client${matches.length === 1 ? '' : 's'}, ${eligible} eligible for enrolment: ${sample}${matches.length > 5 ? ', …' : ''}`;
+    } catch (err) {
+        box.textContent = 'Preview unavailable';
+    }
+}
+
+async function saveEnrolmentRule(e) {
+    e.preventDefault();
+    const form = e.target;
+    const id = form.elements.id.value;
+    const body = enrolmentRuleBody(form);
+    try {
+        const res = await authFetch(`${API_BASE}/enrolment-rules${id ? '?id=' + id : ''}`, {
+            method: id ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Failed to save enrolment rule', 'error');
+            return;
+        }
+        closeModal('enrolment-rule-modal');
+        showAlert(data.message || 'Enrolment rule saved', 'success');
+        await loadEnrolmentRules();
+    } catch (err) {
+        showAlert('Failed to save enrolment rule: ' + err.message, 'error');
+    }
+}
+
+async function toggleEnrolmentRule(id) {
+    const rule = enrolmentRules.find(r => r.id === id);
+    if (!rule) return;
+    const data = await saveEnrolmentRuleQuiet({ ...rule, enabled: !rule.enabled });
+    if (!data.success) {
+        showAlert(data.error || 'Failed to update enrolment rule', 'error');
+        return;
+    }
+    await loadEnrolmentRules();
+}
+
+async function moveEnrolmentRule(id, direction) {
+    const index = enrolmentRules.findIndex(r => r.id === id);
+    const other = enrolmentRules[index + direction];
+    if (index < 0 || !other) return;
+    const rule = enrolmentRules[index];
+    let a = other.priority, b = rule.priority;
+    if (a === b) { a = direction < 0 ? b : b + 1; b = direction < 0 ? b + 1 : b; }
+    const first = await saveEnrolmentRuleQuiet({ ...rule, priority: a });
+    const second = await saveEnrolmentRuleQuiet({ ...other, priority: b });
+    if (!first.success || !second.success) showAlert((first.error || second.error) || 'Failed to reorder rules', 'error');
+    await loadEnrolmentRules();
+}
+
+async function deleteEnrolmentRule(id) {
+    const rule = enrolmentRules.find(r => r.id === id);
+    if (!rule) return;
+    if (!confirm(`Delete enrolment rule "${rule.name}"? Clients it already enrolled keep their group and profile.`)) return;
+    try {
+        const res = await authFetch(`${API_BASE}/enrolment-rules?id=${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Failed to delete enrolment rule', 'error');
+            return;
+        }
+        showAlert('Enrolment rule deleted', 'success');
+        await loadEnrolmentRules();
+    } catch (err) {
+        showAlert('Failed to delete enrolment rule: ' + err.message, 'error');
+    }
+}
+
+async function applyEnrolmentRules() {
+    if (!confirm('Run every enabled rule over discovered clients that have no group, profile or rule yet?')) return;
+    const status = document.getElementById('enrolment-rules-status');
+    status.textContent = 'Applying…';
+    try {
+        const res = await authFetch(`${API_BASE}/enrolment-rules/apply`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.success) {
+            status.textContent = '';
+            showAlert(data.error || 'Failed to apply enrolment rules', 'error');
+            return;
+        }
+        status.textContent = `${data.data.enrolled.length} of ${data.data.considered} unenrolled client(s) placed`;
+        showAlert(data.message || 'Enrolment rules applied', 'success');
+        await loadEnrolmentRules();
+        if (clients.length) loadClients();
+    } catch (err) {
+        status.textContent = '';
+        showAlert('Failed to apply enrolment rules: ' + err.message, 'error');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const form = document.getElementById('enrolment-rule-form');
+    if (!form) return;
+    form.addEventListener('submit', saveEnrolmentRule);
+    form.addEventListener('input', scheduleEnrolmentPreview);
+    form.addEventListener('change', scheduleEnrolmentPreview);
 });
