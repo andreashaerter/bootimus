@@ -114,6 +114,7 @@ function showApp() {
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('main-header').style.display = '';
     document.getElementById('main-app').style.display = '';
+    if (macFromHash()) handleClientDetailHash();
 }
 
 async function handleLogin(e) {
@@ -485,6 +486,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupForms();
     setupUpload();
     document.getElementById('login-form').addEventListener('submit', handleLogin);
+    window.addEventListener('popstate', handleClientDetailHash);
     consumeOIDCRedirect();
     checkAuth();
 });
@@ -494,6 +496,11 @@ function setupTabs() {
     // Setup sidebar nav items
     document.querySelectorAll('.sidebar-nav .nav-item').forEach(item => {
         item.addEventListener('click', () => {
+            if (clientDetailMac) {
+                clientDetailMac = null;
+                clientDetailClient = null;
+                if (location.hash.startsWith('#clients/')) history.replaceState(null, '', location.pathname + location.search);
+            }
             // Update sidebar active state
             document.querySelectorAll('.sidebar-nav .nav-item').forEach(n => n.classList.remove('active'));
             item.classList.add('active');
@@ -1413,6 +1420,7 @@ async function loadClients() {
         if (data.success) {
             clients = data.data || [];
             renderClientsTable();
+            if (clientDetailMac) refreshClientDetail();
         }
     } catch (err) {
         document.getElementById('clients-table').innerHTML = '<p class="alert alert-error">Failed to load clients</p>';
@@ -1597,7 +1605,7 @@ function clientRowHTML(client, includeGroupCell) {
                             }
                         </td>` : '';
     return `
-                    <tr class="row-clickable" onclick="editClient('${client.mac_address}')">
+                    <tr class="row-clickable" onclick="showClientDetail('${client.mac_address}')">
                         <td class="col-check" onclick="event.stopPropagation()"><input type="checkbox" ${selectedClientMacs.has(client.mac_address) ? 'checked' : ''} onchange="toggleClientSelection('${client.mac_address}', this.checked)"></td>
                         <td><code>${client.mac_address}</code></td>
                         <td>${client.name || '-'}${client.enrollment_state ? ' ' + enrollmentStateBadge(client.enrollment_state) : ''}</td>
@@ -1756,6 +1764,394 @@ function renderClientsTable() {
 function showAddClientModal() {
     document.getElementById('add-client-form').reset();
     showModal('add-client-modal');
+}
+
+let clientDetailMac = null;
+let clientDetailClient = null;
+let clientDetailTimelineBefore = '';
+let clientDetailTimelineItems = [];
+let clientDetailInventory = null;
+let clientDetailInventoryHistory = null;
+
+const TIMELINE_KIND_LABELS = { boot: 'Boot', install: 'Install', disk: 'Disk', dhcp: 'DHCP', audit: 'Change' };
+
+function clientDetailHash(mac) {
+    return '#clients/' + encodeURIComponent(mac);
+}
+
+function macFromHash() {
+    const h = location.hash || '';
+    if (!h.startsWith('#clients/')) return '';
+    try { return decodeURIComponent(h.slice('#clients/'.length)).toLowerCase(); } catch (_) { return ''; }
+}
+
+function activateClientDetailPanel() {
+    document.querySelectorAll('.sidebar-nav .nav-item').forEach(n => n.classList.toggle('active', n.dataset.tab === 'clients'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    document.getElementById('client-detail-tab').classList.add('active');
+}
+
+async function showClientDetail(mac, options) {
+    if (!mac) return;
+    mac = mac.toLowerCase();
+    const opts = options || {};
+    if (!opts.fromHash && location.hash !== clientDetailHash(mac)) {
+        history.pushState({ clientDetail: mac }, '', clientDetailHash(mac));
+    }
+    clientDetailMac = mac;
+    clientDetailTimelineBefore = '';
+    clientDetailTimelineItems = [];
+    clientDetailInventory = null;
+    clientDetailInventoryHistory = null;
+    activateClientDetailPanel();
+    document.getElementById('client-detail-header').innerHTML = '<p style="color: var(--text-secondary); margin: 0;">Loading…</p>';
+    document.getElementById('client-detail-actions').innerHTML = '';
+    document.getElementById('client-detail-hardware-history').style.display = 'none';
+    document.getElementById('client-detail-hw-toggle').textContent = 'Show history';
+    await refreshClientDetail();
+}
+
+async function refreshClientDetail() {
+    const mac = clientDetailMac;
+    if (!mac) return;
+    try {
+        const res = await authFetch(`${API_BASE}/clients?mac=${encodeURIComponent(mac)}`);
+        const data = await res.json();
+        if (!data.success || !data.data) {
+            document.getElementById('client-detail-header').innerHTML = `<p class="alert alert-error">${escapeHtml(data.error || 'Client not found')}</p>`;
+            return;
+        }
+        if (clientDetailMac !== mac) return;
+        clientDetailClient = data.data;
+        if (!sanTargetsLoaded) await loadSANTargets(true);
+        renderClientDetailHeader(clientDetailClient);
+        renderClientDetailActions(clientDetailClient);
+        renderClientDetailOverview(clientDetailClient);
+        renderClientDetailProvisioning(clientDetailClient);
+        await Promise.all([
+            loadClientDetailHardware(mac),
+            loadClientInstallHistory(mac, 'client-detail-installs'),
+            loadClientTimeline(mac, true),
+        ]);
+    } catch (err) {
+        document.getElementById('client-detail-header').innerHTML = '<p class="alert alert-error">Failed to load client</p>';
+    }
+}
+
+function closeClientDetail() {
+    clientDetailMac = null;
+    clientDetailClient = null;
+    if (location.hash.startsWith('#clients/')) history.pushState(null, '', location.pathname + location.search);
+    const nav = document.querySelector('.sidebar-nav .nav-item[data-tab="clients"]');
+    if (nav) nav.click();
+}
+
+function handleClientDetailHash() {
+    const mac = macFromHash();
+    if (mac) {
+        if (mac !== clientDetailMac) showClientDetail(mac, { fromHash: true });
+        return;
+    }
+    if (clientDetailMac) {
+        clientDetailMac = null;
+        clientDetailClient = null;
+        const nav = document.querySelector('.sidebar-nav .nav-item[data-tab="clients"]');
+        if (nav) nav.click();
+    }
+}
+
+function clientDetailBadges(client) {
+    const badges = [];
+    badges.push(`<span class="badge ${client.static ? 'badge-success' : 'badge-info'}">${client.static ? 'Static' : 'Discovered'}</span>`);
+    badges.push(`<span class="badge ${client.enabled ? 'badge-success' : 'badge-danger'}">${client.enabled ? 'Enabled' : 'Disabled'}</span>`);
+    if (client.enrollment_state) badges.push(enrollmentStateBadge(client.enrollment_state));
+    const install = INSTALL_STATE_LABELS[client.install_state];
+    if (install) badges.push(`<span class="badge ${install[1]}" title="${escapeHtml(client.install_image || '')}">${install[0]}${client.install_updated_at ? ' · ' + relativeTime(client.install_updated_at) : ''}</span>`);
+    if (client.next_boot_image) badges.push(`<span class="badge badge-warning" title="${escapeHtml(client.next_boot_image)}">Next boot: ${escapeHtml(nextBootLabel(client.next_boot_image))}</span>`);
+    const group = clientGroupName(client);
+    if (group) badges.push(`<span class="badge badge-info">Group: ${escapeHtml(group)}</span>`);
+    return badges.join('');
+}
+
+function renderClientDetailHeader(client) {
+    const header = document.getElementById('client-detail-header');
+    header.innerHTML = `
+        <div class="client-detail-title">
+            <h1>${escapeHtml(client.name || 'Unnamed client')}</h1>
+            <code>${escapeHtml(client.mac_address)}</code>
+        </div>
+        <div class="client-detail-badges">${clientDetailBadges(client)}</div>
+        ${client.description ? `<p style="color: var(--text-secondary); margin: 8px 0 0; font-size: 13px;">${escapeHtml(client.description)}</p>` : ''}`;
+}
+
+function renderClientDetailActions(client) {
+    const mac = jsAttrEscape(client.mac_address);
+    const buttons = [];
+    buttons.push(`<button class="btn btn-primary btn-sm" type="button" onclick="editClient('${mac}')">Edit</button>`);
+    if (!client.static) buttons.push(`<button class="btn btn-success btn-sm" type="button" onclick="promoteClient('${mac}')">Make Static</button>`);
+    buttons.push(`<button class="btn btn-success btn-sm" type="button" onclick="wakeClient('${mac}')">Wake</button>`);
+    buttons.push(`<button class="btn btn-sm" type="button" onclick="showNextBoot('${mac}')">Next Boot</button>`);
+    if (client.ipmi_host) {
+        buttons.push(`<button class="btn btn-sm" type="button" onclick="clientDetailPower('On')">Power On</button>`);
+        buttons.push(`<button class="btn btn-sm" type="button" onclick="clientDetailPower('GracefulShutdown')">Graceful Off</button>`);
+        buttons.push(`<button class="btn btn-danger btn-sm" type="button" onclick="clientDetailPower('ForceOff')">Force Off</button>`);
+        buttons.push(`<button class="btn btn-sm" type="button" onclick="clientDetailPower('ForceRestart')">Restart</button>`);
+        buttons.push(`<button class="btn btn-sm read-ok" type="button" onclick="clientDetailPowerStatus()">Power State</button>`);
+        buttons.push(`<button class="btn btn-sm" type="button" onclick="openClientConsole('${mac}')">Open Console</button>`);
+    }
+    buttons.push(`<button class="btn btn-sm read-ok" type="button" onclick="previewBootMenu('${mac}')">Preview Menu</button>`);
+    buttons.push(`<button class="btn btn-sm" type="button" onclick="showCaptureDiskModal('${mac}')">Capture Disk</button>`);
+    buttons.push(`<button class="btn btn-sm" type="button" onclick="showDeployDiskModal({ mac: '${mac}' })">Deploy Image</button>`);
+    buttons.push(`<button class="btn btn-danger btn-sm" type="button" onclick="deleteClient('${mac}')">Delete</button>`);
+    document.getElementById('client-detail-actions').innerHTML = buttons.join('');
+    if (client.ipmi_host) clientDetailPowerStatus(true);
+    else document.getElementById('client-detail-power-result').textContent = '';
+}
+
+function kvRows(rows) {
+    return rows.map(([label, value]) => `<div class="kv-label">${escapeHtml(label)}</div><div class="kv-value">${value}</div>`).join('');
+}
+
+function kvText(value, fallback) {
+    if (value === undefined || value === null || value === '') return `<span style="color: var(--text-muted);">${escapeHtml(fallback || '-')}</span>`;
+    return escapeHtml(String(value));
+}
+
+function renderClientDetailOverview(client) {
+    const san = client.san_target_id ? (sanTargets.find(t => t.id === client.san_target_id) || {}).name || `#${client.san_target_id}` : '';
+    const rows = [
+        ['Last boot', client.last_boot ? `${new Date(client.last_boot).toLocaleString()} <span style="color: var(--text-muted); font-weight: 400;">(${relativeTime(client.last_boot)})</span>` : kvText('', 'Never')],
+        ['Boot count', kvText(client.boot_count || 0)],
+        ['Bootloader set', kvText(client.bootloader_set, 'Default')],
+        ['Allowed images', kvText((client.allowed_images || client.images || []).length)],
+        ['Public images', kvText(client.show_public_images !== false ? 'Shown' : 'Hidden')],
+        ['SAN target', san ? `${escapeHtml(san)}${client.boot_from_san ? ' <span class="badge badge-info">default</span>' : ''}` : kvText('', 'None')],
+        ['Auto-install file', kvText(client.auto_install_file, 'None')],
+        ['BMC', client.ipmi_host ? `${escapeHtml(client.bmc_protocol || 'redfish')} · ${escapeHtml(client.ipmi_host)}${client.ipmi_port ? ':' + client.ipmi_port : ''}` : kvText('', 'Not configured')],
+        ['proxyDHCP option 43', kvText(client.proxy_dhcp_no_vendor_option ? 'Omitted' : 'Sent')],
+        ['Created', kvText(client.created_at ? new Date(client.created_at).toLocaleString() : '')],
+        ['Updated', kvText(client.updated_at ? new Date(client.updated_at).toLocaleString() : '')],
+    ];
+    document.getElementById('client-detail-overview').innerHTML = kvRows(rows);
+}
+
+function renderClientDetailProvisioning(client) {
+    const rows = [
+        ['Client group', kvText(clientGroupName(client), 'None')],
+        ['Next boot', client.next_boot_image ? escapeHtml(nextBootLabel(client.next_boot_image)) : kvText('', 'None pending')],
+        ['Install state', client.install_state ? `${(INSTALL_STATE_LABELS[client.install_state] || [client.install_state])[0]}${client.install_image ? ' · ' + escapeHtml(client.install_image) : ''}` : kvText('', 'No unattended install recorded')],
+    ];
+    if (client.cluster_id || client.cluster_role) {
+        rows.push(['Kubernetes', `${escapeHtml(client.cluster && client.cluster.name ? client.cluster.name : '#' + client.cluster_id)}${client.cluster_role ? ' · ' + escapeHtml(client.cluster_role) : ''}`]);
+    }
+    document.getElementById('client-detail-provisioning').innerHTML = kvRows(rows) + '<div id="client-detail-provisioning-extra" style="grid-column: 1 / -1;"></div>';
+}
+
+function renderClientDetailActivity(counts) {
+    const rows = [
+        ['Boots recorded', kvText(counts.boots)],
+        ['Unattended installs', kvText(counts.installs)],
+        ['Disk imaging jobs', kvText(counts.disk)],
+        ['Inventory submissions', kvText(counts.inventory)],
+    ];
+    document.getElementById('client-detail-activity').innerHTML = kvRows(rows);
+}
+
+const INVENTORY_FIELDS = [
+    ['Manufacturer', 'manufacturer'],
+    ['Product', 'product'],
+    ['Serial', 'serial'],
+    ['UUID', 'uuid'],
+    ['Asset tag', 'asset'],
+    ['CPU', 'cpu'],
+    ['Memory', 'memory'],
+    ['Platform', 'platform'],
+    ['Architecture', 'buildarch'],
+    ['NIC', 'nic_chip'],
+    ['IP address', 'ip_address'],
+];
+
+function inventoryValue(inv, key) {
+    const v = inv ? inv[key] : '';
+    if (!v) return '';
+    return key === 'memory' ? formatBytes(v) : String(v);
+}
+
+async function loadClientDetailHardware(mac) {
+    const container = document.getElementById('client-detail-hardware');
+    container.innerHTML = '<p style="color: var(--text-secondary); margin: 0;">Loading…</p>';
+    try {
+        const [invRes, histRes] = await Promise.all([
+            authFetch(`${API_BASE}/clients/inventory?mac=${encodeURIComponent(mac)}`),
+            authFetch(`${API_BASE}/clients/inventory/history?mac=${encodeURIComponent(mac)}&limit=50`),
+        ]);
+        const invData = await invRes.json();
+        const histData = await histRes.json();
+        if (clientDetailMac !== mac) return;
+        clientDetailInventory = invData.success ? invData.data : null;
+        clientDetailInventoryHistory = histData.success ? (histData.data || []) : [];
+        renderClientDetailHardware();
+        renderClientDetailInventoryHistory();
+        updateClientDetailActivity();
+    } catch (err) {
+        container.innerHTML = '<p style="color: var(--danger); margin: 0;">Failed to load hardware inventory.</p>';
+    }
+}
+
+function renderClientDetailHardware() {
+    const container = document.getElementById('client-detail-hardware');
+    const inv = clientDetailInventory;
+    const rows = INVENTORY_FIELDS.map(([label, key]) => [label, inventoryValue(inv, key)]).filter(([, v]) => v);
+    if (!inv || rows.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-secondary); margin: 0;">No hardware inventory yet. It is collected automatically when the client PXE boots.</p>';
+        return;
+    }
+    rows.push(['Last seen', inv.created_at ? new Date(inv.created_at).toLocaleString() : '']);
+    container.innerHTML = `<div class="kv-grid" style="padding: 0;">${kvRows(rows.map(([l, v]) => [l, escapeHtml(v)]))}</div>`;
+}
+
+function toggleClientDetailInventoryHistory() {
+    const panel = document.getElementById('client-detail-hardware-history');
+    const btn = document.getElementById('client-detail-hw-toggle');
+    const show = panel.style.display === 'none';
+    panel.style.display = show ? '' : 'none';
+    btn.textContent = show ? 'Hide history' : 'Show history';
+}
+
+function renderClientDetailInventoryHistory() {
+    const panel = document.getElementById('client-detail-hardware-history');
+    const history = clientDetailInventoryHistory || [];
+    if (history.length === 0) {
+        panel.innerHTML = '<p style="color: var(--text-secondary); margin: 0;">No inventory history.</p>';
+        return;
+    }
+    const cols = INVENTORY_FIELDS.filter(([, key]) => history.some(h => h[key]));
+    const body = history.map((h, i) => {
+        const older = history[i + 1];
+        return `<tr>
+            <td style="white-space: nowrap;">${new Date(h.created_at).toLocaleString()}</td>
+            ${cols.map(([, key]) => {
+                const v = inventoryValue(h, key);
+                const changed = older && inventoryValue(older, key) !== v;
+                return `<td>${changed ? `<span class="hw-changed" title="Changed since the previous submission">${escapeHtml(v || '-')}</span>` : escapeHtml(v || '-')}</td>`;
+            }).join('')}
+        </tr>`;
+    }).join('');
+    panel.innerHTML = `<p style="color: var(--text-secondary); margin: 0 0 8px; font-size: 12px;">Newest first. Highlighted values differ from the previous submission.</p>
+        <div class="table-scroll"><table>
+            <thead><tr><th>Submitted</th>${cols.map(([label]) => `<th>${escapeHtml(label)}</th>`).join('')}</tr></thead>
+            <tbody>${body}</tbody>
+        </table></div>`;
+}
+
+function updateClientDetailActivity() {
+    const items = clientDetailTimelineItems;
+    const ids = new Set();
+    const counts = { boots: 0, installs: 0, disk: 0, inventory: (clientDetailInventoryHistory || []).length };
+    for (const it of items) {
+        if (it.source_id && ids.has(it.source_id)) continue;
+        if (it.source_id) ids.add(it.source_id);
+        if (it.kind === 'boot') counts.boots++;
+        if (it.kind === 'install') counts.installs++;
+        if (it.kind === 'disk') counts.disk++;
+    }
+    if (clientDetailClient && clientDetailClient.boot_count > counts.boots) counts.boots = clientDetailClient.boot_count;
+    renderClientDetailActivity(counts);
+}
+
+async function loadClientTimeline(mac, reset) {
+    const container = document.getElementById('client-detail-timeline');
+    const more = document.getElementById('client-detail-timeline-more');
+    const status = document.getElementById('client-detail-timeline-status');
+    if (reset) {
+        clientDetailTimelineBefore = '';
+        clientDetailTimelineItems = [];
+        container.innerHTML = '<p style="color: var(--text-secondary); margin: 0;">Loading…</p>';
+    }
+    try {
+        const cursor = clientDetailTimelineBefore ? `&before=${encodeURIComponent(clientDetailTimelineBefore)}` : '';
+        const res = await authFetch(`${API_BASE}/clients/timeline?mac=${encodeURIComponent(mac)}&limit=50${cursor}`);
+        const data = await res.json();
+        if (clientDetailMac !== mac) return;
+        if (!data.success) {
+            container.innerHTML = `<p class="alert alert-error">${escapeHtml(data.error || 'Failed to load timeline')}</p>`;
+            return;
+        }
+        clientDetailTimelineItems = clientDetailTimelineItems.concat(data.data.items || []);
+        clientDetailTimelineBefore = data.data.next_before || '';
+        more.style.display = data.data.has_more ? '' : 'none';
+        status.textContent = `${clientDetailTimelineItems.length} event${clientDetailTimelineItems.length === 1 ? '' : 's'}`;
+        renderClientTimeline();
+        updateClientDetailActivity();
+    } catch (err) {
+        container.innerHTML = '<p class="alert alert-error">Failed to load timeline</p>';
+    }
+}
+
+function loadMoreClientTimeline() {
+    if (clientDetailMac) loadClientTimeline(clientDetailMac, false);
+}
+
+function renderClientTimeline() {
+    const container = document.getElementById('client-detail-timeline');
+    if (clientDetailTimelineItems.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-secondary); margin: 0;">Nothing recorded for this client yet.</p>';
+        return;
+    }
+    container.innerHTML = clientDetailTimelineItems.map(it => `
+        <div class="timeline-item">
+            <span class="timeline-dot ${escapeHtml(it.status || 'info')}"></span>
+            <span class="timeline-time">${new Date(it.time).toLocaleString()}</span>
+            <div>
+                <span class="timeline-kind">${escapeHtml(TIMELINE_KIND_LABELS[it.kind] || it.kind)}</span><strong>${escapeHtml(it.title || '')}</strong>
+                ${it.detail ? `<div class="timeline-detail">${escapeHtml(it.detail)}</div>` : ''}
+            </div>
+        </div>`).join('');
+}
+
+async function clientDetailPower(action) {
+    const mac = clientDetailMac;
+    const result = document.getElementById('client-detail-power-result');
+    if (!mac) return;
+    result.textContent = `Sending ${action}…`;
+    result.style.color = 'var(--text-secondary)';
+    try {
+        const res = await authFetch(`${API_BASE}/clients/power?mac=${encodeURIComponent(mac)}&action=${encodeURIComponent(action)}`, { method: 'POST' });
+        const data = await res.json();
+        result.textContent = (data.success ? '✓ ' : '✗ ') + (data.message || data.error || '');
+        result.style.color = data.success ? 'var(--teal, green)' : 'var(--danger)';
+        setTimeout(() => clientDetailPowerStatus(true), 3000);
+    } catch (err) {
+        result.textContent = '✗ ' + err.message;
+        result.style.color = 'var(--danger)';
+    }
+}
+
+async function clientDetailPowerStatus(quiet) {
+    const mac = clientDetailMac;
+    const result = document.getElementById('client-detail-power-result');
+    if (!mac) return;
+    if (!quiet) {
+        result.textContent = 'Querying…';
+        result.style.color = 'var(--text-secondary)';
+    }
+    try {
+        const res = await authFetch(`${API_BASE}/clients/power/status?mac=${encodeURIComponent(mac)}`);
+        const data = await res.json();
+        if (clientDetailMac !== mac) return;
+        if (data.success && data.data) {
+            result.textContent = 'Power: ' + (data.data.state || 'unknown');
+            result.style.color = 'var(--text-primary)';
+        } else if (!quiet) {
+            result.textContent = '✗ ' + (data.error || 'unknown');
+            result.style.color = 'var(--danger)';
+        }
+    } catch (err) {
+        if (!quiet) {
+            result.textContent = '✗ ' + err.message;
+            result.style.color = 'var(--danger)';
+        }
+    }
 }
 
 async function editClient(mac) {
@@ -2003,6 +2399,7 @@ async function deleteClient(mac) {
 
         if (data.success) {
             showAlert('Client deleted successfully', 'success');
+            if (clientDetailMac === mac.toLowerCase()) closeClientDetail();
             loadClients();
             loadStats();
         } else {
@@ -7579,8 +7976,8 @@ function installStateBadge(client) {
     return `<span class="badge ${entry[1]}" title="${title}">${entry[0]}</span><br><span style="font-size: 11px; color: var(--text-muted);">${relativeTime(client.install_updated_at)}</span>`;
 }
 
-async function loadClientInstallHistory(mac) {
-    const container = document.getElementById('client-install-history');
+async function loadClientInstallHistory(mac, containerId) {
+    const container = document.getElementById(containerId || 'client-install-history');
     if (!container) return;
     container.innerHTML = '<span style="color: var(--text-muted);">Loading…</span>';
     try {

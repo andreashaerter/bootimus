@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"net/url"
 	"time"
 
 	"bootimus/internal/models"
@@ -11,6 +12,7 @@ import (
 type AuditLogFilter struct {
 	Username string
 	Path     string
+	Text     string
 	Since    time.Time
 	Limit    int
 	Offset   int
@@ -27,6 +29,9 @@ func listAuditLogs(db *gorm.DB, filter AuditLogFilter) ([]models.AuditLog, int64
 	}
 	if filter.Path != "" {
 		q = q.Where("path LIKE ?", "%"+filter.Path+"%")
+	}
+	if filter.Text != "" {
+		q = q.Where("summary LIKE ? OR query LIKE ?", "%"+filter.Text+"%", "%"+url.QueryEscape(filter.Text)+"%")
 	}
 	if !filter.Since.IsZero() {
 		q = q.Where("created_at >= ?", filter.Since)

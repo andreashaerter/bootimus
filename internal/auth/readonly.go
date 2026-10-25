@@ -21,7 +21,7 @@ func (m *Manager) ReadMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		r = withUsername(r, claims.Username)
+		r = withClaims(r, claims)
 		if claims.IsAdmin {
 			next(w, r)
 			return
