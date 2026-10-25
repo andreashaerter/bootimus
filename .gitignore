@@ -51,3 +51,6 @@ bootloaders/thinos-initrd
 signing/
 *.key
 *.crt
+
+# End-to-end QEMU test binary and run logs.
+/.e2e/

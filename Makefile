@@ -1,4 +1,4 @@
-.PHONY: help build run test test-integration openapi clean docker-build docker-up docker-down docker-push release binaries bootloaders sync-profiles bump appliance appliance-amd64 appliance-arm64 test-appliance build-website push-website deploy-website
+.PHONY: help build run test test-integration test-e2e e2e-binary openapi clean docker-build docker-up docker-down docker-push release binaries bootloaders sync-profiles bump appliance appliance-amd64 appliance-arm64 test-appliance build-website push-website deploy-website
 
 VERSION     ?= $(shell cat VERSION)
 DOCKER_USER ?= garybowers
@@ -33,6 +33,7 @@ help:
 	@echo "  make clean            - Remove build artifacts"
 	@echo "  make test             - Run unit tests"
 	@echo "  make test-integration - Run integration tests against a throwaway OIDC provider (needs Docker)"
+	@echo "  make test-e2e         - PXE boot QEMU VMs against a real bootimus (needs qemu-system-x86, OVMF; see CONTRIBUTING.md)"
 	@echo "  make openapi          - Write the OpenAPI document to docs/openapi.json"
 	@echo ""
 	@echo "Local (container):"
@@ -69,6 +70,16 @@ test:
 
 openapi:
 	go run -ldflags="$(LDFLAGS)" . openapi > docs/openapi.json
+
+E2E_BIN := $(CURDIR)/.e2e/bootimus
+
+e2e-binary:
+	@mkdir -p .e2e
+	go build -ldflags="$(LDFLAGS)" -o $(E2E_BIN) .
+
+test-e2e:
+	@if [ -z "$$BOOTIMUS_E2E_BINARY" ]; then $(MAKE) --no-print-directory e2e-binary; fi
+	BOOTIMUS_E2E=1 BOOTIMUS_E2E_BINARY=$${BOOTIMUS_E2E_BINARY:-$(E2E_BIN)} go test -count=1 -v -timeout 25m ./e2e/
 
 test-integration:
 	@docker rm -f $(OIDC_TEST_CONTAINER) >/dev/null 2>&1 || true
