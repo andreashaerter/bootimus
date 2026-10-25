@@ -252,7 +252,7 @@ func (m *Manager) Capture(req CaptureRequest) (*models.DiskJob, error) {
 		ClientMAC:   mac,
 		ClientName:  client.Name,
 		Kind:        models.DiskJobKindCapture,
-		DiskImageID: image.ID,
+		DiskImageID: &image.ID,
 		Disk:        disk,
 		State:       models.DiskJobStatePending,
 		Token:       newToken(),
@@ -300,7 +300,7 @@ func (m *Manager) Deploy(req DeployRequest) (*models.DiskJob, error) {
 		ClientMAC:   mac,
 		ClientName:  client.Name,
 		Kind:        models.DiskJobKindDeploy,
-		DiskImageID: image.ID,
+		DiskImageID: &image.ID,
 		Disk:        disk,
 		State:       models.DiskJobStatePending,
 		Token:       newToken(),
@@ -341,8 +341,8 @@ func (m *Manager) Cancel(jobID uint) error {
 	if job.Kind == models.DiskJobKindCapture {
 		os.RemoveAll(m.stagingPath(job.Token))
 		if job.DiskImage != nil && job.DiskImage.State == models.DiskImageStateCapturing {
-			if err := m.store.DeleteDiskImage(job.DiskImageID); err != nil {
-				log.Printf("Disk imaging: failed to remove unfinished image %d: %v", job.DiskImageID, err)
+			if err := m.store.DeleteDiskImage(job.DiskImage.ID); err != nil {
+				log.Printf("Disk imaging: failed to remove unfinished image %d: %v", job.DiskImage.ID, err)
 			}
 		}
 	}
@@ -386,7 +386,10 @@ func (m *Manager) Boot(job *models.DiskJob, enabled []tools.EnabledTool) (*Boot,
 		return nil, ErrToolUnavailable
 	}
 	if job.DiskImage == nil {
-		image, err := m.store.GetDiskImage(job.DiskImageID)
+		if job.DiskImageID == nil {
+			return nil, fmt.Errorf("job %d refers to a deleted image", job.ID)
+		}
+		image, err := m.store.GetDiskImage(*job.DiskImageID)
 		if err != nil {
 			return nil, err
 		}
@@ -534,7 +537,7 @@ func (m *Manager) markImageFailed(job *models.DiskJob) {
 	}
 	job.DiskImage.State = models.DiskImageStateFailed
 	if err := m.store.UpdateDiskImage(job.DiskImage); err != nil {
-		log.Printf("Disk imaging: failed to mark image %d failed: %v", job.DiskImageID, err)
+		log.Printf("Disk imaging: failed to mark image %d failed: %v", job.DiskImage.ID, err)
 	}
 }
 

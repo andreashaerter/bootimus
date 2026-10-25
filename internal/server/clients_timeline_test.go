@@ -44,7 +44,7 @@ func seedTimeline(t *testing.T, env *accessEnv, mac string) {
 	if err := env.store.CreateDiskImage(img); err != nil {
 		t.Fatal(err)
 	}
-	if err := env.store.CreateDiskJob(&models.DiskJob{ClientMAC: mac, Kind: "deploy", DiskImageID: img.ID, Disk: "sda", State: models.DiskJobStateFailed, Token: "job1", Message: "nfs_mount_failed"}); err != nil {
+	if err := env.store.CreateDiskJob(&models.DiskJob{ClientMAC: mac, Kind: "deploy", DiskImageID: &img.ID, Disk: "sda", State: models.DiskJobStateFailed, Token: "job1", Message: "nfs_mount_failed"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := env.store.CreateAuditLog(&models.AuditLog{Username: "admin", Method: "PUT", Path: "/api/clients", Query: "mac=" + mac, Status: 200, Summary: "Updated client " + mac}); err != nil {

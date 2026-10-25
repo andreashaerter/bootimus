@@ -88,6 +88,42 @@ jobs:
           path: .e2e/run
           if-no-files-found: ignore
 
+  postgres:
+    name: Storage & backup on PostgreSQL
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: bootimus
+          POSTGRES_PASSWORD: bootimus
+          POSTGRES_DB: bootimus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bootimus"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install the PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client
+          pg_dump --version
+
+      - name: Test against PostgreSQL
+        env:
+          BOOTIMUS_TEST_POSTGRES_DSN: postgres://bootimus:bootimus@localhost:5432/bootimus?sslmode=disable
+        run: go test -count=1 -p 1 ./internal/storage/ ./internal/server/ ./internal/admin/
+
   docker:
     name: Docker build (no push)
     runs-on: ubuntu-latest

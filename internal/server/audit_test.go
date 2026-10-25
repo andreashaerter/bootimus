@@ -10,24 +10,19 @@ import (
 	"bootimus/internal/auth"
 	"bootimus/internal/models"
 	"bootimus/internal/storage"
+	"bootimus/internal/storage/storagetest"
 )
 
 type auditEnv struct {
 	srv     *Server
 	handler http.Handler
-	store   *storage.SQLiteStore
+	store   storage.Storage
 	admin   string
 }
 
 func newAuditEnv(t *testing.T) *auditEnv {
 	t.Helper()
-	store, err := storage.NewSQLiteStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.AutoMigrate(); err != nil {
-		t.Fatal(err)
-	}
+	store := storagetest.New(t)
 	mgr, err := auth.NewManager(store, nil, nil)
 	if err != nil {
 		t.Fatal(err)

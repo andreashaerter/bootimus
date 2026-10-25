@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"bootimus/internal/models"
-	"bootimus/internal/storage"
+	"bootimus/internal/storage/storagetest"
 )
 
 func importClientsCSV(t *testing.T, h *Handler, csv string) {
@@ -32,13 +32,7 @@ func importClientsCSV(t *testing.T, h *Handler, csv string) {
 }
 
 func TestImportClientsCSVKeepsFieldsItDoesNotCarry(t *testing.T) {
-	store, err := storage.NewSQLiteStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.AutoMigrate(); err != nil {
-		t.Fatal(err)
-	}
+	store := storagetest.New(t)
 	h := &Handler{storage: store}
 
 	mac := "aa:bb:cc:dd:ee:03"
@@ -75,13 +69,7 @@ func TestImportClientsCSVKeepsFieldsItDoesNotCarry(t *testing.T) {
 }
 
 func TestImportClientsCSVNoVendorOption(t *testing.T) {
-	store, err := storage.NewSQLiteStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.AutoMigrate(); err != nil {
-		t.Fatal(err)
-	}
+	store := storagetest.New(t)
 	h := &Handler{storage: store}
 
 	if err := store.CreateClient(&models.Client{MACAddress: "aa:bb:cc:dd:ee:01", Name: "i219", ProxyDHCPNoVendorOption: true}); err != nil {

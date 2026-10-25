@@ -10,23 +10,17 @@ import (
 
 	"bootimus/internal/models"
 	"bootimus/internal/storage"
+	"bootimus/internal/storage/storagetest"
 )
 
-func newWinPEHandler(t *testing.T) (*Handler, *storage.SQLiteStore, string) {
+func newWinPEHandler(t *testing.T) (*Handler, storage.Storage, string) {
 	t.Helper()
 	dataDir := t.TempDir()
 	isoDir := filepath.Join(dataDir, "isos")
 	if err := os.MkdirAll(isoDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	store, err := storage.NewSQLiteStore(dataDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.AutoMigrate(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { store.Close() })
+	store := storagetest.New(t)
 	return &Handler{storage: store, dataDir: dataDir, isoDir: isoDir}, store, isoDir
 }
 

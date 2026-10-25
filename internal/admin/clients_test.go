@@ -9,16 +9,11 @@ import (
 
 	"bootimus/internal/models"
 	"bootimus/internal/storage"
+	"bootimus/internal/storage/storagetest"
 )
 
 func TestCreateClientStatus(t *testing.T) {
-	store, err := storage.NewSQLiteStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.AutoMigrate(); err != nil {
-		t.Fatal(err)
-	}
+	store := storagetest.New(t)
 	if err := store.CreateClient(&models.Client{MACAddress: "aa:bb:cc:dd:ee:20"}); err != nil {
 		t.Fatal(err)
 	}

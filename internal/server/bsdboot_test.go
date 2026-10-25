@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"bootimus/internal/models"
-	"bootimus/internal/storage"
+	"bootimus/internal/storage/storagetest"
 )
 
 type bsdReadFrom struct {
@@ -28,14 +28,7 @@ func (b *bsdReadFrom) RemoteAddr() net.UDPAddr {
 
 func newBSDTestServer(t *testing.T) (*Server, string) {
 	t.Helper()
-	store, err := storage.NewSQLiteStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.AutoMigrate(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := storagetest.New(t)
 
 	isoDir := t.TempDir()
 	bsdDir := filepath.Join(isoDir, "lab", "install77", "bsd")

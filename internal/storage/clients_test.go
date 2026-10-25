@@ -7,18 +7,6 @@ import (
 	"bootimus/internal/models"
 )
 
-func newTestStore(t *testing.T) *SQLiteStore {
-	t.Helper()
-	store, err := NewSQLiteStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("NewSQLiteStore: %v", err)
-	}
-	if err := store.AutoMigrate(); err != nil {
-		t.Fatalf("AutoMigrate: %v", err)
-	}
-	return store
-}
-
 func TestDeleteClientHardDeletesAndAllowsRecreate(t *testing.T) {
 	store := newTestStore(t)
 	mac := "aa:bb:cc:dd:ee:ff"

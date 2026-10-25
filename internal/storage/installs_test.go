@@ -8,7 +8,7 @@ import (
 )
 
 func TestInstallRecordsLifecycle(t *testing.T) {
-	store := newAuditTestStore(t)
+	store := newTestStore(t)
 	if err := store.CreateClient(&models.Client{MACAddress: "aa:bb:cc:dd:ee:01", Name: "lab", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}

@@ -9,24 +9,19 @@ import (
 
 	"bootimus/internal/models"
 	"bootimus/internal/storage"
+	"bootimus/internal/storage/storagetest"
 )
 
 const testWorkerConfig = "version: v1alpha1\nmachine:\n  type: worker\ncluster:\n  controlPlane:\n    endpoint: https://10.0.0.5:6443\n"
 
-func newTalosTestServer(t *testing.T) (*Server, *storage.SQLiteStore) {
+func newTalosTestServer(t *testing.T) (*Server, storage.Storage) {
 	t.Helper()
-	store, err := storage.NewSQLiteStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("NewSQLiteStore: %v", err)
-	}
-	if err := store.AutoMigrate(); err != nil {
-		t.Fatalf("AutoMigrate: %v", err)
-	}
+	store := storagetest.New(t)
 	srv := &Server{config: &Config{Storage: store, ServerAddr: "10.0.0.1", HTTPPort: 8080, DataDir: t.TempDir()}}
 	return srv, store
 }
 
-func setupApprovedNode(t *testing.T, store *storage.SQLiteStore, mac, uuid, token string) (*models.Cluster, *models.NodeImage) {
+func setupApprovedNode(t *testing.T, store storage.Storage, mac, uuid, token string) (*models.Cluster, *models.NodeImage) {
 	t.Helper()
 	image := &models.NodeImage{Name: "talos v1.10.5", Provider: models.ProviderTalos, Version: "v1.10.5", ImageRef: "abc123"}
 	if err := store.CreateNodeImage(image); err != nil {
