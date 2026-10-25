@@ -47,6 +47,7 @@ var viewerReadRoutes = map[string]bool{
 	"/api/disk-images":               true,
 	"/api/disk-images/jobs":          true,
 	"/api/clients/installs":          true,
+	"/api/clients/timeline":          true,
 	"/api/installs":                  true,
 	"/api/san-targets":               true,
 	"/api/deployment-profiles":       true,
