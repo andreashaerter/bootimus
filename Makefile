@@ -1,4 +1,4 @@
-.PHONY: help build run test test-integration test-e2e e2e-binary test-ui openapi clean docker-build docker-up docker-down docker-push release binaries bootloaders sync-profiles bump appliance appliance-amd64 appliance-arm64 test-appliance build-website push-website deploy-website
+.PHONY: help build run test test-integration test-postgres test-e2e e2e-binary test-ui openapi clean docker-build docker-up docker-down docker-push release binaries bootloaders sync-profiles bump appliance appliance-amd64 appliance-arm64 test-appliance build-website push-website deploy-website
 
 VERSION     ?= $(shell cat VERSION)
 DOCKER_USER ?= garybowers
@@ -21,6 +21,11 @@ WEBSITE_IMAGE    := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/$(GCP_REPO)/webs
 OIDC_TEST_IMAGE     ?= ghcr.io/navikt/mock-oauth2-server:6.0.4
 OIDC_TEST_PORT      ?= 18080
 OIDC_TEST_CONTAINER := bootimus-oidc-test
+PG_TEST_MAJOR       := $(shell pg_dump --version 2>/dev/null | grep -oE '[0-9]+' | head -1)
+PG_TEST_IMAGE       ?= postgres:$(if $(PG_TEST_MAJOR),$(PG_TEST_MAJOR),16)
+PG_TEST_PORT        ?= 15432
+PG_TEST_CONTAINER   := bootimus-postgres-test
+PG_TEST_DSN         := postgres://bootimus:bootimus@localhost:$(PG_TEST_PORT)/bootimus?sslmode=disable
 
 ## Help -----------------------------------------------------------------------
 
@@ -33,6 +38,7 @@ help:
 	@echo "  make clean            - Remove build artifacts"
 	@echo "  make test             - Run unit tests"
 	@echo "  make test-integration - Run integration tests against a throwaway OIDC provider (needs Docker)"
+	@echo "  make test-postgres    - Run storage, server and admin tests against a throwaway PostgreSQL (needs Docker, pg_dump, psql)"
 	@echo "  make test-e2e         - PXE boot QEMU VMs against a real bootimus (needs qemu-system-x86, OVMF; see CONTRIBUTING.md)"
 	@echo "  make test-ui          - Playwright smoke tests of the admin UI against a real bootimus (needs Node and Chromium; see CONTRIBUTING.md)"
 	@echo "  make openapi          - Write the OpenAPI document to docs/openapi.json"
@@ -99,6 +105,19 @@ test-integration:
 	    sleep 1; \
 	done; \
 	BOOTIMUS_TEST_OIDC_URL=http://localhost:$(OIDC_TEST_PORT) go test -count=1 -v -run Integration ./internal/auth/
+
+test-postgres:
+	@docker rm -f $(PG_TEST_CONTAINER) >/dev/null 2>&1 || true
+	docker run -d --rm --name $(PG_TEST_CONTAINER) -p $(PG_TEST_PORT):5432 \
+	    -e POSTGRES_USER=bootimus -e POSTGRES_PASSWORD=bootimus -e POSTGRES_DB=bootimus $(PG_TEST_IMAGE) >/dev/null
+	@trap 'docker rm -f $(PG_TEST_CONTAINER) >/dev/null' EXIT; \
+	echo "Waiting for PostgreSQL ($(PG_TEST_IMAGE)) on port $(PG_TEST_PORT)..."; \
+	for i in $$(seq 1 60); do \
+	    docker exec $(PG_TEST_CONTAINER) pg_isready -h 127.0.0.1 -U bootimus >/dev/null 2>&1 && break; \
+	    if [ $$i -eq 60 ]; then echo "PostgreSQL did not start"; docker logs $(PG_TEST_CONTAINER); exit 1; fi; \
+	    sleep 1; \
+	done; \
+	BOOTIMUS_TEST_POSTGRES_DSN='$(PG_TEST_DSN)' go test -count=1 -p 1 ./internal/storage/ ./internal/server/ ./internal/admin/
 
 bootloaders:
 	@echo "Building iPXE bootloaders and downloading Secure Boot binaries..."

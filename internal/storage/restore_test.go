@@ -216,3 +216,55 @@ func TestApplyPendingRestoreRefusesMismatchedDatabase(t *testing.T) {
 		t.Fatalf("cancel left a pending restore: %v", err)
 	}
 }
+
+func TestKeepDumpLineDropsNewerServerSettings(t *testing.T) {
+	cases := map[string]bool{
+		"SET transaction_timeout = 0;":           false,
+		"SET statement_timeout = 0;":             true,
+		"SET client_encoding = 'UTF8';":          true,
+		"CREATE TABLE clients (id bigint);":      true,
+		"INSERT INTO settings VALUES ('SET x');": true,
+	}
+	for line, want := range cases {
+		if got := keepDumpLine(line); got != want {
+			t.Errorf("keepDumpLine(%q) = %v, want %v", line, got, want)
+		}
+	}
+	var out strings.Builder
+	if err := filterDump(&out, strings.NewReader("SET transaction_timeout = 0;\nSELECT 1;\n")); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "SELECT 1;\n" {
+		t.Fatalf("filtered dump = %q", out.String())
+	}
+}
+
+func TestFailRestoreMovesStagingAsideAndRecordsError(t *testing.T) {
+	dataDir := t.TempDir()
+	if _, err := StageRestore(dataDir, buildArchive(t, []archiveEntry{{name: "bootimus.db", body: "new-db"}})); err != nil {
+		t.Fatal(err)
+	}
+	moved, err := FailRestore(dataDir, errors.New("psql exploded"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved != filepath.Join(dataDir, restoreFailedDir) {
+		t.Fatalf("moved to %q", moved)
+	}
+	if _, err := PendingRestore(dataDir); !errors.Is(err, ErrNoPendingRestore) {
+		t.Fatalf("pending restore should be gone, got %v", err)
+	}
+	failure, err := LastRestoreFailure(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failure.Error != "psql exploded" || failure.FailedAt == nil || failure.Database != "sqlite" {
+		t.Fatalf("failure summary = %+v", failure)
+	}
+	if err := ClearRestoreFailure(dataDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LastRestoreFailure(dataDir); !errors.Is(err, ErrNoPendingRestore) {
+		t.Fatalf("failure should be cleared, got %v", err)
+	}
+}

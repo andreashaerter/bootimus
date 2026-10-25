@@ -16,9 +16,9 @@ func TestDiskJobsListingAndActiveLookup(t *testing.T) {
 		t.Fatal("duplicate image names must be rejected")
 	}
 	jobs := []*models.DiskJob{
-		{ClientMAC: "aa:bb:cc:dd:ee:01", Kind: models.DiskJobKindDeploy, DiskImageID: image.ID, State: models.DiskJobStateCompleted, Token: "t1"},
-		{ClientMAC: "aa:bb:cc:dd:ee:01", Kind: models.DiskJobKindDeploy, DiskImageID: image.ID, State: models.DiskJobStatePending, Token: "t2"},
-		{ClientMAC: "aa:bb:cc:dd:ee:02", Kind: models.DiskJobKindCapture, DiskImageID: image.ID, State: models.DiskJobStateRunning, Token: "t3"},
+		{ClientMAC: "aa:bb:cc:dd:ee:01", Kind: models.DiskJobKindDeploy, DiskImageID: &image.ID, State: models.DiskJobStateCompleted, Token: "t1"},
+		{ClientMAC: "aa:bb:cc:dd:ee:01", Kind: models.DiskJobKindDeploy, DiskImageID: &image.ID, State: models.DiskJobStatePending, Token: "t2"},
+		{ClientMAC: "aa:bb:cc:dd:ee:02", Kind: models.DiskJobKindCapture, DiskImageID: &image.ID, State: models.DiskJobStateRunning, Token: "t3"},
 	}
 	for _, j := range jobs {
 		if err := store.CreateDiskJob(j); err != nil {

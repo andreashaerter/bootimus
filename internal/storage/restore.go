@@ -2,6 +2,7 @@ package storage
 
 import (
 	"archive/tar"
+	"bufio"
 	"compress/gzip"
 	"encoding/json"
 	"errors"
@@ -17,6 +18,7 @@ import (
 
 const (
 	restorePendingDir    = ".restore-pending"
+	restoreFailedDir     = ".restore-failed"
 	restoreSummaryFile   = ".restore-summary.json"
 	restoreMaxArchive    = int64(2 << 30)
 	sqliteDatabaseFile   = "bootimus.db"
@@ -24,10 +26,40 @@ const (
 )
 
 type RestoreSummary struct {
-	Database  string    `json:"database"`
-	FileCount int       `json:"file_count"`
-	Bytes     int64     `json:"bytes"`
-	StagedAt  time.Time `json:"staged_at"`
+	Database  string     `json:"database"`
+	FileCount int        `json:"file_count"`
+	Bytes     int64      `json:"bytes"`
+	StagedAt  time.Time  `json:"staged_at"`
+	FailedAt  *time.Time `json:"failed_at,omitempty"`
+	Error     string     `json:"error,omitempty"`
+}
+
+var dumpSettingsToSkip = map[string]bool{
+	"transaction_timeout": true,
+}
+
+func keepDumpLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "SET ") {
+		return true
+	}
+	name := strings.TrimSpace(strings.SplitN(strings.TrimPrefix(trimmed, "SET "), "=", 2)[0])
+	return !dumpSettingsToSkip[strings.ToLower(name)]
+}
+
+func filterDump(dst io.Writer, src io.Reader) error {
+	scanner := bufio.NewScanner(src)
+	scanner.Buffer(make([]byte, 1024*1024), 64*1024*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !keepDumpLine(line) {
+			continue
+		}
+		if _, err := io.WriteString(dst, line+"\n"); err != nil {
+			return err
+		}
+	}
+	return scanner.Err()
 }
 
 var ErrNoPendingRestore = errors.New("no restore is staged")
@@ -153,7 +185,7 @@ func safeArchivePath(name string) (string, error) {
 			return "", fmt.Errorf("backup contains an unsafe path %q", name)
 		}
 	}
-	if cleaned == restorePendingDir || strings.HasPrefix(cleaned, restorePendingDir+"/") || cleaned == restoreSummaryFile {
+	if cleaned == restorePendingDir || strings.HasPrefix(cleaned, restorePendingDir+"/") || cleaned == restoreFailedDir || strings.HasPrefix(cleaned, restoreFailedDir+"/") || cleaned == restoreSummaryFile {
 		return "", fmt.Errorf("backup contains a reserved path %q", name)
 	}
 	return filepath.FromSlash(cleaned), nil
@@ -187,6 +219,49 @@ func CancelRestore(dataDir string) error {
 		return err
 	}
 	return os.RemoveAll(stagingPath(dataDir))
+}
+
+func failedPath(dataDir string) string {
+	return filepath.Join(filepath.Clean(dataDir), restoreFailedDir)
+}
+
+func FailRestore(dataDir string, cause error) (string, error) {
+	summary, err := PendingRestore(dataDir)
+	if err != nil {
+		return "", err
+	}
+	now := time.Now().UTC()
+	summary.FailedAt = &now
+	summary.Error = cause.Error()
+	staged := stagingPath(dataDir)
+	if err := writeRestoreSummary(staged, summary); err != nil {
+		return "", err
+	}
+	failed := failedPath(dataDir)
+	os.RemoveAll(failed)
+	if err := os.Rename(staged, failed); err != nil {
+		return "", fmt.Errorf("move failed restore aside: %w", err)
+	}
+	return failed, nil
+}
+
+func LastRestoreFailure(dataDir string) (*RestoreSummary, error) {
+	body, err := os.ReadFile(filepath.Join(failedPath(dataDir), restoreSummaryFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, ErrNoPendingRestore
+	}
+	if err != nil {
+		return nil, err
+	}
+	var summary RestoreSummary
+	if err := json.Unmarshal(body, &summary); err != nil {
+		return nil, fmt.Errorf("read failed restore summary: %w", err)
+	}
+	return &summary, nil
+}
+
+func ClearRestoreFailure(dataDir string) error {
+	return os.RemoveAll(failedPath(dataDir))
 }
 
 func ApplyPendingRestore(dataDir string, pg *Config) (*RestoreSummary, error) {
@@ -269,11 +344,22 @@ func applyPostgresRestore(cfg *Config, dumpPath string) error {
 		"PGPASSWORD="+cfg.Password,
 		"PGSSLMODE="+cfg.SSLMode,
 	)
-	cmd.Stdin = dump
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("psql stdin: %w", err)
+	}
 	stderr := &strings.Builder{}
 	cmd.Stderr = stderr
-	if err := cmd.Run(); err != nil {
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start psql: %w", err)
+	}
+	filterErr := filterDump(stdin, dump)
+	stdin.Close()
+	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("psql restore failed: %w (stderr: %s)", err, strings.TrimSpace(stderr.String()))
+	}
+	if filterErr != nil {
+		return fmt.Errorf("stream dump to psql: %w", filterErr)
 	}
 	return nil
 }

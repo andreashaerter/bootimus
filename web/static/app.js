@@ -1172,11 +1172,25 @@ function setRestorePendingNotice(pending) {
     if (notice) notice.style.display = pending ? 'flex' : 'none';
 }
 
+function setRestoreFailedNotice(failure) {
+    const notice = document.getElementById('restore-failed-notice');
+    const text = document.getElementById('restore-failed-text');
+    if (!notice || !text) return;
+    if (!failure) {
+        notice.style.display = 'none';
+        return;
+    }
+    const when = failure.failed_at ? new Date(failure.failed_at).toLocaleString() : '';
+    text.textContent = `The staged restore could not be applied${when ? ' on ' + when : ''}: ${failure.error || 'unknown error'}. Bootimus started with the current database; the archive was moved to .restore-failed in the data directory.`;
+    notice.style.display = 'flex';
+}
+
 async function loadRestoreStatus() {
     try {
         const res = await authFetch(`${API_BASE}/backup/import`);
         const data = await res.json();
         setRestorePendingNotice(!!(data.success && data.data && data.data.pending));
+        setRestoreFailedNotice(data.success && data.data ? data.data.last_failure : null);
     } catch (err) {
         console.error('Failed to load restore status:', err);
     }
@@ -1217,13 +1231,14 @@ async function uploadRestore() {
 }
 
 async function cancelRestore() {
-    if (!confirm('Discard the staged restore?')) return;
+    if (!confirm('Discard the staged or failed restore?')) return;
     try {
         const res = await authFetch(`${API_BASE}/backup/import`, { method: 'DELETE' });
         const data = await res.json();
         if (data.success) {
             setRestorePendingNotice(false);
-            showAlert('Staged restore cancelled', 'success');
+            setRestoreFailedNotice(null);
+            showAlert(data.message || 'Staged restore cancelled', 'success');
         } else {
             showAlert(data.error || 'Failed to cancel restore', 'error');
         }
@@ -9376,7 +9391,7 @@ function renderDiskJobs() {
                         <td style="white-space: nowrap;">${new Date(job.created_at).toLocaleString()}</td>
                         <td><code>${escapeHtml(job.client_mac)}</code>${job.client_name ? ' ' + escapeHtml(job.client_name) : ''}</td>
                         <td>${escapeHtml(job.kind)}</td>
-                        <td>${escapeHtml(job.disk_image ? job.disk_image.name : String(job.disk_image_id))}</td>
+                        <td>${job.disk_image ? escapeHtml(job.disk_image.name) : (job.disk_image_id ? '#' + job.disk_image_id : '<span style="color: var(--text-secondary);">Deleted image</span>')}</td>
                         <td>${escapeHtml(job.disk || '-')}</td>
                         <td>${diskJobStateBadge(job.state)}</td>
                         <td>${diskJobDuration(job)}</td>

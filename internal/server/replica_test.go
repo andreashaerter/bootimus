@@ -11,7 +11,7 @@ import (
 	"bootimus/internal/auth"
 	"bootimus/internal/models"
 	"bootimus/internal/replica"
-	"bootimus/internal/storage"
+	"bootimus/internal/storage/storagetest"
 )
 
 func newReplicaEnv(t *testing.T) (*accessEnv, *Server) {
@@ -22,14 +22,7 @@ func newReplicaEnv(t *testing.T) (*accessEnv, *Server) {
 	}))
 	t.Cleanup(primary.Close)
 
-	store, err := storage.NewSQLiteStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.AutoMigrate(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { store.Close() })
+	store := storagetest.New(t)
 	mgr, err := auth.NewManager(store, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -45,6 +38,7 @@ func newReplicaEnv(t *testing.T) (*accessEnv, *Server) {
 	srv := &Server{config: &Config{Storage: store, Auth: mgr, ServerAddr: "10.0.0.1", HTTPPort: 8080, DataDir: t.TempDir(), Replica: cfg}}
 	mux := http.NewServeMux()
 	srv.setupAdminInterface(mux)
+	t.Cleanup(srv.audit.wait)
 	t.Cleanup(func() {
 		if srv.replica != nil {
 			srv.replica.Stop()

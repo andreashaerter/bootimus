@@ -8,19 +8,13 @@ import (
 	"time"
 
 	"bootimus/internal/models"
-	"bootimus/internal/storage"
+	"bootimus/internal/storage/storagetest"
 	"bootimus/internal/tools"
 )
 
 func TestDownloadToolAcceptsCustomTools(t *testing.T) {
 	dataDir := t.TempDir()
-	store, err := storage.NewSQLiteStore(dataDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.AutoMigrate(); err != nil {
-		t.Fatal(err)
-	}
+	store := storagetest.New(t)
 	tm := tools.NewManager(store, dataDir)
 
 	origin := httptest.NewServer(http.NotFoundHandler())

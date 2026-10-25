@@ -54,6 +54,15 @@ We're building test coverage incrementally — there's no expectation that every
 
 If your PR changes behaviour in a tested package, ideally add a test that fails on the old behaviour and passes on the new. If that's hard without an invasive refactor, just call it out in the PR description.
 
+## PostgreSQL tests
+
+The storage, server and admin test suites run on SQLite by default. Set `BOOTIMUS_TEST_POSTGRES_DSN` to a PostgreSQL URL and the same tests run against PostgreSQL instead: every test gets its own schema (created and dropped around it), so a shared database is fine. `make test-postgres` does this end to end with a throwaway `postgres` container, picking the image tag that matches your local `pg_dump` so the dump format and the server agree. CI runs the same packages against PostgreSQL 16 on every pull request.
+
+Two things to know when adding storage code:
+
+- **Use the shared store helpers.** Inside `internal/storage` call `newTestStore(t)`; from other packages call `storagetest.New(t)`. Both return a migrated store on whichever backend the environment selects and clean up after the test. Tests that reach into SQLite specifics (for example a deliberately unmigrated database file) stay on `storage.NewSQLiteStore`.
+- **SQLite does not enforce foreign keys, PostgreSQL does.** A delete that works on SQLite can fail on PostgreSQL when rows still reference the deleted one, so detach or cascade explicitly. `TestPostgresBackupRoundTrip` also exercises `pg_dump` and `psql` through the backup export and staged restore; it skips without the DSN or the client tools.
+
 ## End-to-end boot test
 
 `make test-e2e` boots real virtual machines against a real bootimus. It builds the binary, starts it, and runs these stages, each of which writes its serial console and the server log under `.e2e/run/`:

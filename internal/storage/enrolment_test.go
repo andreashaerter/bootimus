@@ -8,7 +8,7 @@ import (
 )
 
 func TestEnrolmentRuleRoundTripAndApply(t *testing.T) {
-	store := newDeploymentStore(t)
+	store := newTestStore(t)
 	group := &models.ClientGroup{Name: "lab", Enabled: true}
 	if err := store.CreateClientGroup(group); err != nil {
 		t.Fatal(err)

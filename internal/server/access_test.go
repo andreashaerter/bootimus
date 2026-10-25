@@ -12,6 +12,7 @@ import (
 	"bootimus/internal/auth"
 	"bootimus/internal/models"
 	"bootimus/internal/storage"
+	"bootimus/internal/storage/storagetest"
 )
 
 var viewerReadRoutes = map[string]bool{
@@ -101,20 +102,14 @@ func registeredAPIRoutes(t *testing.T) []string {
 type accessEnv struct {
 	handler http.Handler
 	server  *Server
-	store   *storage.SQLiteStore
+	store   storage.Storage
 	admin   string
 	viewer  string
 }
 
 func newAccessEnv(t *testing.T) *accessEnv {
 	t.Helper()
-	store, err := storage.NewSQLiteStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.AutoMigrate(); err != nil {
-		t.Fatal(err)
-	}
+	store := storagetest.New(t)
 	mgr, err := auth.NewManager(store, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -130,6 +125,7 @@ func newAccessEnv(t *testing.T) *accessEnv {
 	srv := &Server{config: &Config{Storage: store, Auth: mgr, ServerAddr: "10.0.0.1", HTTPPort: 8080, DataDir: t.TempDir()}}
 	mux := http.NewServeMux()
 	srv.setupAdminInterface(mux)
+	t.Cleanup(srv.audit.wait)
 
 	adminTok, _ := mgr.GenerateToken("admin", true)
 	viewerTok, _ := mgr.GenerateToken("viewer", false)

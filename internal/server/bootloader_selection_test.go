@@ -10,6 +10,7 @@ import (
 
 	"bootimus/internal/models"
 	"bootimus/internal/storage"
+	"bootimus/internal/storage/storagetest"
 )
 
 type tftpCapture struct {
@@ -22,16 +23,9 @@ func (c *tftpCapture) SetSize(size int64) error {
 	return nil
 }
 
-func newBootloaderSelectionTestServer(t *testing.T) (*Server, *storage.SQLiteStore) {
+func newBootloaderSelectionTestServer(t *testing.T) (*Server, storage.Storage) {
 	t.Helper()
-	store, err := storage.NewSQLiteStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("NewSQLiteStore: %v", err)
-	}
-	if err := store.AutoMigrate(); err != nil {
-		t.Fatalf("AutoMigrate: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := storagetest.New(t)
 
 	bootDir := t.TempDir()
 	setDir := filepath.Join(bootDir, "se350")

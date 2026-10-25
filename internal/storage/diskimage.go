@@ -52,7 +52,12 @@ func deleteDiskImage(db *gorm.DB, id uint) error {
 	if active > 0 {
 		return ErrDiskImageInUse
 	}
-	return db.Delete(&models.DiskImage{}, id).Error
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.DiskJob{}).Where("disk_image_id = ?", id).Update("disk_image_id", nil).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&models.DiskImage{}, id).Error
+	})
 }
 
 func createDiskJob(db *gorm.DB, job *models.DiskJob) error {

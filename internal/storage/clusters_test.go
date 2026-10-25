@@ -9,7 +9,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func newTestCluster(t *testing.T, store *SQLiteStore, name string) *models.Cluster {
+func newTestCluster(t *testing.T, store *testStore, name string) *models.Cluster {
 	t.Helper()
 	cluster := &models.Cluster{Name: name, DefaultInstallDisk: "/dev/sda"}
 	if err := store.CreateCluster(cluster); err != nil {
@@ -18,7 +18,7 @@ func newTestCluster(t *testing.T, store *SQLiteStore, name string) *models.Clust
 	return cluster
 }
 
-func approveTestClient(t *testing.T, store *SQLiteStore, mac string, clusterID uint) {
+func approveTestClient(t *testing.T, store *testStore, mac string, clusterID uint) {
 	t.Helper()
 	if err := store.CreateClient(&models.Client{MACAddress: mac}); err != nil {
 		t.Fatalf("CreateClient: %v", err)

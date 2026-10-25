@@ -12,18 +12,12 @@ import (
 	"bootimus/internal/autoinstall"
 	"bootimus/internal/models"
 	"bootimus/internal/storage"
+	"bootimus/internal/storage/storagetest"
 )
 
-func newAutoInstallHandler(t *testing.T) (*Handler, *storage.SQLiteStore) {
+func newAutoInstallHandler(t *testing.T) (*Handler, storage.Storage) {
 	t.Helper()
-	store, err := storage.NewSQLiteStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.AutoMigrate(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { store.Close() })
+	store := storagetest.New(t)
 	lib, err := autoinstall.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

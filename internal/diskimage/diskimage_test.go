@@ -188,7 +188,7 @@ func TestCaptureFailureAndCancel(t *testing.T) {
 	if err := m.Report(job.Token, "failed", "", "ocs-sr_exit_1"); err != nil {
 		t.Fatal(err)
 	}
-	image, _ := store.GetDiskImage(job.DiskImageID)
+	image, _ := store.GetDiskImage(*job.DiskImageID)
 	if image.State != models.DiskImageStateFailed {
 		t.Fatalf("image state = %q", image.State)
 	}
