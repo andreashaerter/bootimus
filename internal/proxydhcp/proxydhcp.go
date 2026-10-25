@@ -1,6 +1,7 @@
 package proxydhcp
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -8,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 
 	"bootimus/internal/metrics"
 	"bootimus/internal/netbind"
@@ -82,7 +84,7 @@ func NewServer(cfg Config) (*Server, error) {
 func (s *Server) Start() error {
 	conn, err := netbind.ListenUDP(s.cfg.Interface, "udp4", "0.0.0.0:67")
 	if err != nil {
-		return fmt.Errorf("listen UDP/67: %w (needs root or CAP_NET_BIND_SERVICE)", err)
+		return fmt.Errorf("listen UDP/67: %w (%s)", err, bindHint(err, s.cfg.Interface))
 	}
 	if err := enableBroadcast(conn); err != nil {
 		conn.Close()
@@ -105,6 +107,16 @@ func (s *Server) Start() error {
 	go s.loop(conn, true)
 	go s.loop(conn4011, false)
 	return nil
+}
+
+func bindHint(err error, device string) string {
+	if errors.Is(err, syscall.EADDRINUSE) {
+		if device == "" {
+			return "another DHCP server such as dnsmasq or libvirt already listens on UDP/67; pass --bind-interface <nic> so Bootimus binds only your LAN interface, or stop the other server"
+		}
+		return "another DHCP server already listens on UDP/67 on " + device + " or on all interfaces; stop it or move it to its own interface"
+	}
+	return "needs root or CAP_NET_BIND_SERVICE"
 }
 
 func (s *Server) Shutdown() error {
