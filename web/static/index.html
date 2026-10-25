@@ -376,6 +376,58 @@
             </div>
         </div>
 
+        <div id="client-detail-tab" class="tab-content">
+            <div class="card">
+                <div class="toolbar" style="padding-top: 12px;">
+                    <button class="btn read-ok" type="button" onclick="closeClientDetail()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+                        All Clients
+                    </button>
+                    <button class="btn read-ok" type="button" onclick="refreshClientDetail()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                        Refresh
+                    </button>
+                    <span id="client-detail-power-result" style="font-size: 12px; color: var(--text-secondary);"></span>
+                </div>
+                <div id="client-detail-header" style="padding: 0 12px 12px;"></div>
+                <div id="client-detail-actions" class="toolbar"></div>
+            </div>
+            <div class="client-detail-grid">
+                <div class="card">
+                    <h2>Overview</h2>
+                    <div id="client-detail-overview" class="kv-grid"></div>
+                </div>
+                <div class="card">
+                    <h2>Provisioning</h2>
+                    <div id="client-detail-provisioning" class="kv-grid"></div>
+                </div>
+                <div class="card">
+                    <h2>Activity</h2>
+                    <div id="client-detail-activity" class="kv-grid"></div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="toolbar" style="padding-top: 12px; justify-content: space-between;">
+                    <h2 style="margin: 0; padding: 0;">Hardware</h2>
+                    <button class="btn btn-sm read-ok" type="button" id="client-detail-hw-toggle" onclick="toggleClientDetailInventoryHistory()">Show history</button>
+                </div>
+                <div id="client-detail-hardware" style="padding: 0 12px 12px;"></div>
+                <div id="client-detail-hardware-history" style="display: none; padding: 0 12px 12px;"></div>
+            </div>
+            <div class="card">
+                <h2>Installs</h2>
+                <div id="client-detail-installs" style="padding: 0 12px 12px;"></div>
+            </div>
+            <div class="card">
+                <h2>Timeline</h2>
+                <div id="client-detail-timeline" style="padding: 0 12px 12px;"></div>
+                <div class="toolbar">
+                    <button class="btn btn-sm read-ok" type="button" id="client-detail-timeline-more" onclick="loadMoreClientTimeline()" style="display: none;">Load more</button>
+                    <span id="client-detail-timeline-status" style="font-size: 12px; color: var(--text-secondary);"></span>
+                </div>
+            </div>
+        </div>
+
         <div id="clusters-tab" class="tab-content">
             <div class="card">
                 <h2>Node Images</h2>

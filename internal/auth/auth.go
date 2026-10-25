@@ -356,15 +356,24 @@ func (m *Manager) AuthenticateToken(tokenString string) (*Claims, error) {
 
 type contextKey string
 
-const usernameContextKey contextKey = "username"
+const (
+	usernameContextKey contextKey = "username"
+	adminContextKey    contextKey = "admin"
+)
 
-func withUsername(r *http.Request, username string) *http.Request {
-	return r.WithContext(context.WithValue(r.Context(), usernameContextKey, username))
+func withClaims(r *http.Request, claims *Claims) *http.Request {
+	ctx := context.WithValue(r.Context(), usernameContextKey, claims.Username)
+	return r.WithContext(context.WithValue(ctx, adminContextKey, claims.IsAdmin))
 }
 
 func UsernameFromContext(ctx context.Context) string {
 	username, _ := ctx.Value(usernameContextKey).(string)
 	return username
+}
+
+func IsAdminFromContext(ctx context.Context) bool {
+	admin, _ := ctx.Value(adminContextKey).(bool)
+	return admin
 }
 
 func (m *Manager) JWTMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -373,7 +382,7 @@ func (m *Manager) JWTMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		next(w, withUsername(r, claims.Username))
+		next(w, withClaims(r, claims))
 	}
 }
 
@@ -389,7 +398,7 @@ func (m *Manager) AdminMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Administrator privileges required"})
 			return
 		}
-		next(w, withUsername(r, claims.Username))
+		next(w, withClaims(r, claims))
 	}
 }
 

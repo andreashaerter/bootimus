@@ -1706,6 +1706,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/clients/inventory", readWrap(adminHandler.GetClientInventory))
 	mux.HandleFunc("/api/clients/inventory/history", readWrap(adminHandler.GetClientInventoryHistory))
 	mux.HandleFunc("/api/clients/installs", readWrap(s.handleClientInstalls))
+	mux.HandleFunc("/api/clients/timeline", readWrap(s.handleClientTimeline))
 	mux.HandleFunc("/api/installs", readWrap(s.handleRecentInstalls))
 
 	mux.HandleFunc("/api/bootloaders", readWrap(adminHandler.ListBootloaders))
