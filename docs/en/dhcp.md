@@ -521,6 +521,10 @@ Each row also shows the source address, the relay (`giaddr`) when a DHCP relay f
 
 If a client never appears on this page, its broadcasts are not reaching Bootimus at all: check the interface it is bound to (`--bind-interface`), VLANs and DHCP relay configuration. If it appears with a reply but still does not boot, the firmware is not accepting the offer; see the next section.
 
+### Address Already in Use on UDP/67
+
+`proxyDHCP: failed to start: listen UDP/67: bind: address already in use` means another DHCP server holds the port, typically dnsmasq run by libvirt (`virbr0`), NetworkManager connection sharing or Docker Desktop. Find it with `ss -lunp 'sport = :67'`. Bootimus binds the socket to one interface when `--bind-interface <nic>` (or `bind_interface` in the config, `BOOTIMUS_BIND_INTERFACE` in the environment) is set, and Linux lets two servers share the port when each is bound to a different interface, so point Bootimus at your LAN NIC and leave the other server alone. Stopping the other server (for example `virsh net-destroy default`) also works for a quick test.
+
 ### Client Not Receiving DHCP Offer
 
 ```bash

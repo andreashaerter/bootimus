@@ -2,6 +2,9 @@ package proxydhcp
 
 import (
 	"net"
+	"os"
+	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/insomniacslk/dhcp/dhcpv4"
@@ -318,5 +321,19 @@ func TestBootfileForPassesClientHardwareAddress(t *testing.T) {
 
 	if got := server.bootfileFor(request); got != "custom/client.efi" {
 		t.Fatalf("bootfileFor = %q, want custom/client.efi", got)
+	}
+}
+
+func TestBindHintExplainsAddressInUse(t *testing.T) {
+	hint := bindHint(&net.OpError{Err: &os.SyscallError{Err: syscall.EADDRINUSE}}, "")
+	if !strings.Contains(hint, "--bind-interface") {
+		t.Fatalf("hint for a wildcard bind should suggest --bind-interface, got %q", hint)
+	}
+	hint = bindHint(&net.OpError{Err: &os.SyscallError{Err: syscall.EADDRINUSE}}, "eth0")
+	if !strings.Contains(hint, "eth0") {
+		t.Fatalf("hint for a device bind should name the device, got %q", hint)
+	}
+	if hint := bindHint(syscall.EACCES, ""); !strings.Contains(hint, "CAP_NET_BIND_SERVICE") {
+		t.Fatalf("permission errors should keep the capability hint, got %q", hint)
 	}
 }

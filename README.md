@@ -425,6 +425,16 @@ docker run --cap-add NET_BIND_SERVICE ...
 ./bootimus serve --tftp-port 6969
 ```
 
+### Address Already in Use on Port 67
+
+Another DHCP server is already bound to UDP 67, most often dnsmasq started by libvirt, NetworkManager or Docker Desktop. Check with `ss -lunp 'sport = :67'`. Bind Bootimus to your LAN interface only and the two coexist:
+
+```bash
+./bootimus serve --proxy-dhcp --bind-interface enp2s0
+```
+
+The same setting is `bind_interface` in `bootimus.yaml` or `BOOTIMUS_BIND_INTERFACE`.
+
 ### Client Not Booting / No PXE Offer
 
 Most common first-time PXE failures:
