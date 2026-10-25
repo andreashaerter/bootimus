@@ -5,6 +5,7 @@ Complete guide for managing network boot clients with MAC-based access control.
 ##  Table of Contents
 
 - [Overview](#overview)
+- [Client Detail Page](#client-detail-page)
 - [Adding Clients](#adding-clients)
 - [Client Permissions](#client-permissions)
 - [Public vs Private Images](#public-vs-private-images)
@@ -56,6 +57,34 @@ Discovered clients appear in the clients table with a "Discovered" badge. You ca
 - Clients stored in PostgreSQL database
 - Image assignments use many-to-many relationship table
 - Better performance for large deployments
+
+## Client Detail Page
+
+Clicking a row in the client list opens that client's detail page rather than the edit form. The page is linkable (`#clients/<mac>` in the address bar) and the browser's back button returns to the list.
+
+The page shows:
+
+- **Header**: name, MAC address, static or discovered, enabled state, enrolment state, the last unattended install state, any pending next-boot action and the client group.
+- **Actions**: Edit (opens the usual edit form), Make Static, Wake, Next Boot, BMC power control with the live power state, Open Console, Preview Menu, Capture Disk, Deploy Image and Delete. Read-only users see the page without the buttons that change anything.
+- **Overview**: last boot, boot count, bootloader set, allowed images, SAN target, auto-install file, BMC settings and timestamps.
+- **Provisioning**: client group, pending next boot, install state and Kubernetes cluster membership.
+- **Activity**: counts of boots, unattended installs, disk imaging jobs and inventory submissions.
+- **Hardware**: the latest inventory with a history view that highlights values that changed between submissions.
+- **Installs**: the unattended install records with their state and messages.
+- **Timeline**: every recorded event for the client merged newest first: boot attempts, install progress, disk imaging jobs, proxyDHCP requests still held by the PXE Debug recorder and, for administrators, audit log entries about this client. **Load more** pages further back.
+
+The timeline is also available from the API:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8081/api/clients/timeline?mac=aa:bb:cc:dd:ee:ff&limit=50"
+
+# Next page using the cursor from the previous response
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8081/api/clients/timeline?mac=aa:bb:cc:dd:ee:ff&before=2026-10-25T09:00:00Z"
+```
+
+Each item has `time`, `kind` (`boot`, `install`, `disk`, `dhcp` or `audit`), `title`, `detail` and `status` (`ok`, `failed`, `pending` or `info`).
 
 ## Adding Clients
 

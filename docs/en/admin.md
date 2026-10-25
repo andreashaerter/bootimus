@@ -436,6 +436,7 @@ GET /api/stats
 | `DELETE` | `/api/clients?mac=<MAC>` | Delete client |
 | `POST` | `/api/assign-images` | Assign images to client |
 | `GET` | `/api/clients/menu-preview?mac=<MAC>` | Render the iPXE script a client would receive (no side effects; omit `mac` for the anonymous menu) |
+| `GET` | `/api/clients/timeline?mac=<MAC>&limit=50&before=<RFC 3339>` | Merged activity timeline for one client (boots, installs, disk imaging jobs, proxyDHCP requests and, for administrators, audit entries), newest first with `next_before` for paging |
 
 #### Images
 
