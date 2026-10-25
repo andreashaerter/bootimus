@@ -100,6 +100,13 @@ type Storage interface {
 	UpdateDeploymentProfile(id uint, profile *models.DeploymentProfile) error
 	DeleteDeploymentProfile(id uint) error
 	CountDeploymentProfileUsers(id uint) (int64, int64, error)
+	ListEnrolmentRules() ([]*models.EnrolmentRule, error)
+	GetEnrolmentRule(id uint) (*models.EnrolmentRule, error)
+	CreateEnrolmentRule(rule *models.EnrolmentRule) error
+	UpdateEnrolmentRule(id uint, rule *models.EnrolmentRule) error
+	DeleteEnrolmentRule(id uint) error
+	ApplyEnrolment(mac string, update EnrolmentUpdate) error
+	ListUnenrolledClients() ([]*models.Client, error)
 
 	GetWebhookConfig() (*models.WebhookConfig, error)
 	UpdateWebhookConfig(cfg *models.WebhookConfig) error

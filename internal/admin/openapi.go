@@ -102,6 +102,14 @@ var APISections = []APISection{
 		{Method: "PUT", Path: "/api/deployment-profiles", Summary: "Update a deployment profile.", Params: []APIParam{qID("Deployment profile ID")}, Body: "{name, description, image_filename, auto_install_file, san_target_id, boot_from_san, bootloader_set, disk_image_id, first_boot_action, show_public_images}"},
 		{Method: "DELETE", Path: "/api/deployment-profiles", Summary: "Delete a deployment profile and clear it from clients and groups.", Params: []APIParam{qID("Deployment profile ID")}},
 	}},
+	{Tag: "Enrolment Rules", Description: "Rules that place newly discovered clients into a group and deployment profile from their MAC, inventory and firmware.", Endpoints: []APIEndpoint{
+		{Method: "GET", Path: "/api/enrolment-rules", Summary: "List enrolment rules in priority order with match counts.", ReadOnly: true},
+		{Method: "POST", Path: "/api/enrolment-rules", Summary: "Create an enrolment rule.", Body: "{name, priority, enabled, mac_prefix, manufacturer_contains, product_contains, serial_pattern, uuid_prefix, firmware, client_group_id, profile_id, make_static, name_pattern}"},
+		{Method: "PUT", Path: "/api/enrolment-rules", Summary: "Update an enrolment rule.", Params: []APIParam{qID("Rule ID")}, Body: "{name, priority, enabled, mac_prefix, manufacturer_contains, product_contains, serial_pattern, uuid_prefix, firmware, client_group_id, profile_id, make_static, name_pattern}"},
+		{Method: "DELETE", Path: "/api/enrolment-rules", Summary: "Delete an enrolment rule.", Params: []APIParam{qID("Rule ID")}},
+		{Method: "POST", Path: "/api/enrolment-rules/test", Summary: "Dry run: which existing clients a rule would match, without applying it.", Body: "{mac_prefix, manufacturer_contains, product_contains, serial_pattern, uuid_prefix, firmware, name_pattern, ...}"},
+		{Method: "POST", Path: "/api/enrolment-rules/apply", Summary: "Run every enabled rule over discovered clients that have no group, profile or rule yet."},
+	}},
 	{Tag: "Client Groups", Endpoints: []APIEndpoint{
 		{Method: "GET", Path: "/api/client-groups", Summary: "List all client groups.", ReadOnly: true},
 		{Method: "POST", Path: "/api/client-groups", Summary: "Create a client group.", Body: "{name, description, ...}"},

@@ -34,7 +34,7 @@ export const docsNav: DocSection[] = [
       { slug: 'images',          title: 'Image Management', description: 'Upload ISOs, extract kernels, netboot support.' },
       { slug: 'clients',         title: 'Client Management', description: 'MAC ACLs, auto-discovery, next boot, WoL, SAN boot, remote console.' },
       { slug: 'disk-imaging',    title: 'Disk Imaging',      description: 'Capture a client disk with Clonezilla and deploy it to one client or a group.' },
-      { slug: 'deployment-profiles', title: 'Deployment Profiles', description: 'Image, auto-install, SAN and bootloader bundles assigned per client or group.' },
+      { slug: 'deployment-profiles', title: 'Deployment Profiles', description: 'Profiles that bundle image, auto-install, SAN and bootloader settings, and rules that enrol new machines into them.' },
       { slug: 'auto-install',    title: 'Auto-Install',     description: 'Unattended Windows / Ubuntu / Debian / kickstart installs.' },
       { slug: 'distro-profiles', title: 'Distro Profiles',  description: 'Data-driven distro detection and boot params.' },
     ],

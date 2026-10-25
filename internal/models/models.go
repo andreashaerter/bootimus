@@ -129,6 +129,8 @@ type Client struct {
 	ClientGroupID    *uint          `gorm:"index" json:"client_group_id,omitempty"`
 	ClientGroup      *ClientGroup   `gorm:"foreignKey:ClientGroupID" json:"client_group,omitempty"`
 	ProfileID        *uint          `gorm:"index" json:"profile_id,omitempty"`
+	EnrolledByRuleID *uint          `gorm:"index" json:"enrolled_by_rule_id,omitempty"`
+	EnrolledAt       *time.Time     `json:"enrolled_at,omitempty"`
 
 	BMCProtocol  string `json:"bmc_protocol,omitempty"`
 	IPMIHost     string `json:"ipmi_host,omitempty"`
@@ -225,6 +227,27 @@ type DeploymentProfile struct {
 	ShowPublicImages *bool     `json:"show_public_images,omitempty"`
 }
 
+type EnrolmentRule struct {
+	ID                   uint       `gorm:"primarykey" json:"id"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+	Name                 string     `gorm:"not null" json:"name"`
+	Priority             int        `gorm:"default:100;index" json:"priority"`
+	Enabled              bool       `gorm:"default:true" json:"enabled"`
+	MACPrefix            string     `json:"mac_prefix,omitempty"`
+	ManufacturerContains string     `json:"manufacturer_contains,omitempty"`
+	ProductContains      string     `json:"product_contains,omitempty"`
+	SerialPattern        string     `json:"serial_pattern,omitempty"`
+	UUIDPrefix           string     `json:"uuid_prefix,omitempty"`
+	Firmware             string     `json:"firmware,omitempty"`
+	ClientGroupID        *uint      `gorm:"index" json:"client_group_id,omitempty"`
+	ProfileID            *uint      `gorm:"index" json:"profile_id,omitempty"`
+	MakeStatic           bool       `gorm:"default:false" json:"make_static"`
+	NamePattern          string     `json:"name_pattern,omitempty"`
+	MatchCount           int        `gorm:"default:0" json:"match_count"`
+	LastMatchedAt        *time.Time `json:"last_matched_at,omitempty"`
+}
+
 const (
 	FirstBootActionNone    = ""
 	FirstBootActionInstall = "install"
@@ -261,6 +284,7 @@ type WebhookConfig struct {
 	OnAdminAction      bool      `gorm:"default:false" json:"on_admin_action"`
 	OnDiskImaging      bool      `gorm:"default:true" json:"on_disk_imaging"`
 	OnInstall          bool      `gorm:"default:true" json:"on_install"`
+	OnAutoEnrol        bool      `gorm:"default:true" json:"on_auto_enrol"`
 }
 
 const (

@@ -482,6 +482,19 @@ See the [Disk Imaging guide](disk-imaging.md) for the workflow.
 
 Clients and client groups take `profile_id` in their update bodies. See the [Deployment Profiles guide](deployment-profiles.md).
 
+#### Enrolment Rules
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/enrolment-rules` | List rules in priority order with match counts |
+| `POST` | `/api/enrolment-rules` | Create: `{name, priority, enabled, mac_prefix, manufacturer_contains, product_contains, serial_pattern, uuid_prefix, firmware, client_group_id, profile_id, make_static, name_pattern}` |
+| `PUT` | `/api/enrolment-rules?id=<id>` | Update a rule |
+| `DELETE` | `/api/enrolment-rules?id=<id>` | Delete a rule; clients it enrolled keep their settings |
+| `POST` | `/api/enrolment-rules/test` | Dry run a rule body against existing clients |
+| `POST` | `/api/enrolment-rules/apply` | Run all enabled rules over unmanaged discovered clients |
+
+See [Auto-enrolment rules](deployment-profiles.md#auto-enrolment-rules).
+
 #### Downloads
 
 | Method | Endpoint | Description |

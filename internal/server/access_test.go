@@ -52,6 +52,7 @@ var viewerReadRoutes = map[string]bool{
 	"/api/san-targets":               true,
 	"/api/deployment-profiles":       true,
 	"/api/clients/effective":         true,
+	"/api/enrolment-rules":           true,
 	"/api/theme":                     true,
 	"/api/usb":                       true,
 	"/api/usb/download":              true,

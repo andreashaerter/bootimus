@@ -14,17 +14,18 @@ import (
 )
 
 const (
-	EventBootStarted      = "boot.started"
-	EventClientDiscovered = "client.discovered"
-	EventInventoryUpdated = "client.inventory_updated"
-	EventNodeApproved     = "node.approved"
-	EventNodeRejected     = "node.rejected"
-	EventInstallStarted   = "node.install_started"
-	EventInstallCompleted = "node.install_completed"
-	EventAdminAction      = "admin.action"
-	EventDiskImaging      = "disk."
-	EventInstallDone      = "install.completed"
-	EventInstallFailed    = "install.failed"
+	EventBootStarted        = "boot.started"
+	EventClientDiscovered   = "client.discovered"
+	EventInventoryUpdated   = "client.inventory_updated"
+	EventNodeApproved       = "node.approved"
+	EventNodeRejected       = "node.rejected"
+	EventInstallStarted     = "node.install_started"
+	EventInstallCompleted   = "node.install_completed"
+	EventAdminAction        = "admin.action"
+	EventDiskImaging        = "disk."
+	EventInstallDone        = "install.completed"
+	EventInstallFailed      = "install.failed"
+	EventClientAutoEnrolled = "client.auto_enrolled"
 )
 
 type Event struct {
@@ -80,6 +81,8 @@ func eventEnabled(cfg *models.WebhookConfig, event string) bool {
 		return cfg.OnAdminAction
 	case EventInstallDone, EventInstallFailed:
 		return cfg.OnInstall
+	case EventClientAutoEnrolled:
+		return cfg.OnAutoEnrol
 	}
 	if strings.HasPrefix(event, EventDiskImaging) {
 		return cfg.OnDiskImaging

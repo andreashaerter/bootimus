@@ -34,7 +34,7 @@ func NewSQLiteStore(dataDir string) (*SQLiteStore, error) {
 }
 
 func (s *SQLiteStore) AutoMigrate() error {
-	if err := s.db.AutoMigrate(&models.User{}, &models.ClientGroup{}, &models.NodeImage{}, &models.Cluster{}, &models.Client{}, &models.ImageGroup{}, &models.Image{}, &models.BootLog{}, &models.CustomFile{}, &models.DriverPack{}, &models.MenuTheme{}, &models.BootTool{}, &models.HardwareInventory{}, &models.DistroProfile{}, &models.WebhookConfig{}, &models.ScheduledTask{}, &models.AuditLog{}, &models.HousekeepingSettings{}, &models.SANTarget{}, &models.DeploymentProfile{}, &models.DiskImage{}, &models.DiskJob{}, &models.APIToken{}, &models.InstallRecord{}, &models.ReplicaState{}); err != nil {
+	if err := s.db.AutoMigrate(&models.User{}, &models.ClientGroup{}, &models.NodeImage{}, &models.Cluster{}, &models.Client{}, &models.ImageGroup{}, &models.Image{}, &models.BootLog{}, &models.CustomFile{}, &models.DriverPack{}, &models.MenuTheme{}, &models.BootTool{}, &models.HardwareInventory{}, &models.DistroProfile{}, &models.WebhookConfig{}, &models.ScheduledTask{}, &models.AuditLog{}, &models.HousekeepingSettings{}, &models.SANTarget{}, &models.DeploymentProfile{}, &models.EnrolmentRule{}, &models.DiskImage{}, &models.DiskJob{}, &models.APIToken{}, &models.InstallRecord{}, &models.ReplicaState{}); err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 
@@ -843,7 +843,7 @@ func (s *SQLiteStore) RecordScheduledTaskRun(id uint, status, errorMsg string) e
 func (s *SQLiteStore) GetWebhookConfig() (*models.WebhookConfig, error) {
 	var cfg models.WebhookConfig
 	if err := s.db.First(&cfg, 1).Error; err != nil {
-		return &models.WebhookConfig{ID: 1, OnBootStarted: true, OnClientDiscovered: true, OnEnrollment: true, OnInstall: true}, nil
+		return &models.WebhookConfig{ID: 1, OnBootStarted: true, OnClientDiscovered: true, OnEnrollment: true, OnInstall: true, OnAutoEnrol: true}, nil
 	}
 	return &cfg, nil
 }
