@@ -1831,6 +1831,7 @@ async function refreshClientDetail() {
         renderClientDetailOverview(clientDetailClient);
         renderClientDetailProvisioning(clientDetailClient);
         await Promise.all([
+            loadClientDetailProvisioning(mac, clientDetailClient),
             loadClientDetailHardware(mac),
             loadClientInstallHistory(mac, 'client-detail-installs'),
             loadClientTimeline(mac, true),
@@ -1947,6 +1948,111 @@ function renderClientDetailProvisioning(client) {
         rows.push(['Kubernetes', `${escapeHtml(client.cluster && client.cluster.name ? client.cluster.name : '#' + client.cluster_id)}${client.cluster_role ? ' · ' + escapeHtml(client.cluster_role) : ''}`]);
     }
     document.getElementById('client-detail-provisioning').innerHTML = kvRows(rows) + '<div id="client-detail-provisioning-extra" style="grid-column: 1 / -1;"></div>';
+}
+
+const EFFECTIVE_SOURCE_LABELS = {
+    client: 'client',
+    profile: 'profile',
+    'group-profile': 'group profile',
+    group: 'group',
+    default: 'default',
+};
+
+function openDeploymentProfilesTab() {
+    clientDetailMac = null;
+    clientDetailClient = null;
+    if (location.hash.startsWith('#clients/')) history.pushState(null, '', location.pathname + location.search);
+    const nav = document.querySelector('.sidebar-nav .nav-item[data-tab="clients"]');
+    if (nav) nav.click();
+    switchClientsSubtab('deployment-profiles');
+}
+
+function effectiveSourceBadge(sources, key) {
+    const source = (sources || {})[key] || 'default';
+    return `<span class="badge badge-disabled" title="Where this value comes from">${escapeHtml(EFFECTIVE_SOURCE_LABELS[source] || source)}</span>`;
+}
+
+async function loadClientDetailProvisioning(mac, client) {
+    const container = document.getElementById('client-detail-provisioning-extra');
+    if (!container) return;
+    container.innerHTML = '<p style="color: var(--text-secondary); margin: 8px 0 0; font-size: 12px;">Loading…</p>';
+    try {
+        const [effRes] = await Promise.all([
+            authFetch(`${API_BASE}/clients/effective?mac=${encodeURIComponent(mac)}`),
+            enrolmentRulesLoaded ? Promise.resolve() : loadEnrolmentRules(true),
+        ]);
+        const effData = await effRes.json();
+        if (clientDetailMac !== mac) return;
+        if (!effData.success) {
+            container.innerHTML = `<p class="alert alert-error" style="margin: 8px 0 0;">${escapeHtml(effData.error || 'Failed to resolve effective settings')}</p>`;
+            return;
+        }
+        renderClientDetailProvisioningExtra(client, effData.data);
+    } catch (err) {
+        container.innerHTML = '<p class="alert alert-error" style="margin: 8px 0 0;">Failed to resolve effective settings</p>';
+    }
+}
+
+function renderClientDetailProvisioningExtra(client, eff) {
+    const container = document.getElementById('client-detail-provisioning-extra');
+    const profileLink = name => `<a href="#" onclick="openDeploymentProfilesTab(); return false;">${escapeHtml(name)}</a>`;
+    let profile;
+    if (eff.profile_name) {
+        profile = `${profileLink(eff.profile_name)} <span style="color: var(--text-muted); font-weight: 400;">(assigned to this client)</span>`;
+    } else if (eff.group_profile_name) {
+        profile = `${profileLink(eff.group_profile_name)} <span style="color: var(--text-muted); font-weight: 400;">(inherited from group ${escapeHtml(eff.group_name || '')})</span>`;
+    } else {
+        profile = kvText('', 'None');
+    }
+
+    let enrolment;
+    const canReevaluate = !client.static && !client.enrolled_by_rule_id && !client.profile_id && !client.client_group_id;
+    if (client.enrolled_by_rule_id) {
+        const rule = (enrolmentRules || []).find(r => r.id === client.enrolled_by_rule_id);
+        enrolment = `${escapeHtml(rule ? rule.name : 'rule #' + client.enrolled_by_rule_id)}${client.enrolled_at ? ` <span style="color: var(--text-muted); font-weight: 400;">${new Date(client.enrolled_at).toLocaleString()}</span>` : ''}`;
+    } else if (client.static) {
+        enrolment = kvText('', 'Manually added');
+    } else {
+        enrolment = `<span style="color: var(--text-muted);">Not enrolled</span>${canReevaluate ? ` <button class="btn btn-sm admin-only" type="button" onclick="reevaluateEnrolmentRules()" style="margin-left: 8px;">Re-evaluate rules</button>` : ''}`;
+    }
+
+    const sources = eff.sources || {};
+    const settings = [
+        ['Image', eff.image_filename ? escapeHtml(eff.image_name || eff.image_filename) : kvText('', 'None'), 'image_filename'],
+        ['Auto-install file', kvText(eff.auto_install_file, 'None'), 'auto_install_file'],
+        ['SAN target', eff.san_target_id ? `${escapeHtml(eff.san_target_name || '#' + eff.san_target_id)}${eff.boot_from_san ? ' <span class="badge badge-info">default</span>' : ''}` : kvText('', 'None'), 'san_target_id'],
+        ['Bootloader set', kvText(eff.bootloader_set, 'Default'), 'bootloader_set'],
+        ['Show public images', kvText(eff.show_public_images ? 'Yes' : 'No'), 'show_public_images'],
+        ['First-boot action', kvText(eff.first_boot_action === 'install' ? 'Install image' : (eff.first_boot_action === 'deploy' ? 'Deploy disk image' : ''), 'None'), 'first_boot_action'],
+        ['Disk image', eff.disk_image_id ? escapeHtml(eff.disk_image_name || '#' + eff.disk_image_id) : kvText('', 'None'), 'first_boot_action'],
+    ];
+
+    container.innerHTML = `
+        <div class="kv-grid" style="padding: 8px 0 0;">
+            ${kvRows([['Deployment profile', profile], ['Enrolled by', enrolment]])}
+        </div>
+        <h3 style="font-size: 13px; margin: 12px 0 6px; color: var(--text-secondary); font-weight: 500;">Effective settings</h3>
+        <div class="table-scroll"><table>
+            <thead><tr><th>Setting</th><th>Value</th><th>Source</th></tr></thead>
+            <tbody>${settings.map(([label, value, key]) => `<tr><td>${escapeHtml(label)}</td><td>${value}</td><td>${effectiveSourceBadge(sources, key)}</td></tr>`).join('')}</tbody>
+        </table></div>`;
+}
+
+async function reevaluateEnrolmentRules() {
+    const mac = clientDetailMac;
+    try {
+        const res = await authFetch(`${API_BASE}/enrolment-rules/apply`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Failed to run enrolment rules', 'error');
+            return;
+        }
+        const hit = ((data.data && data.data.enrolled) || []).find(e => e.mac_address === mac);
+        showAlert(hit ? `Enrolled by rule ${hit.rule}` : (data.message || 'No rule matched this client'), hit ? 'success' : 'info');
+        if (clientDetailMac === mac) await refreshClientDetail();
+    } catch (err) {
+        showAlert('Failed to run enrolment rules: ' + err.message, 'error');
+    }
 }
 
 function renderClientDetailActivity(counts) {

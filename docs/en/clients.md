@@ -68,7 +68,7 @@ The page shows:
 - **Header**: name, MAC address, static or discovered, enabled state, enrolment state, the last unattended install state, any pending next-boot action and the client group.
 - **Actions**: Edit (opens the usual edit form), Make Static, Wake, Next Boot, BMC power control with the live power state, Open Console, Preview Menu, Capture Disk, Deploy Image and Delete. Read-only users see the page without the buttons that change anything.
 - **Overview**: last boot, boot count, bootloader set, allowed images, SAN target, auto-install file, BMC settings and timestamps.
-- **Provisioning**: client group, pending next boot, install state and Kubernetes cluster membership.
+- **Provisioning**: client group, pending next boot, install state and Kubernetes cluster membership, followed by the deployment profile in force (the client's own or the one inherited from its group, linked to the Deployment Profiles tab), the enrolment rule that enrolled the client with the time it happened (or "manually added" for static clients), and an effective settings table listing the image, auto-install file, SAN target, bootloader set, public image visibility, first-boot action and disk image together with where each value comes from: the client itself, its profile, the group's profile, the group or the default. A discovered client that no rule or person has placed yet gets a **Re-evaluate rules** button for administrators, which runs the enabled enrolment rules again.
 - **Activity**: counts of boots, unattended installs, disk imaging jobs and inventory submissions.
 - **Hardware**: the latest inventory with a history view that highlights values that changed between submissions.
 - **Installs**: the unattended install records with their state and messages.
