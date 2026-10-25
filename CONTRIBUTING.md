@@ -79,6 +79,25 @@ unshare -rnm sh -c 'mount -t tmpfs tmpfs /run && mkdir -p /run/netns && ip link 
 
 You need `qemu-system-x86_64`, an OVMF firmware (the `ovmf` or `edk2-ovmf` package) and `bsdtar` (`libarchive-tools`), which bootimus uses to extract the ISO with full file names. KVM is used when `/dev/kvm` is accessible; without it the VMs run under TCG with longer timeouts. The Alpine files are cached under `~/.cache/bootimus-e2e` (override with `BOOTIMUS_E2E_CACHE`) and only downloaded once. Ports default to 8080 for boot HTTP and 18081 for the admin API; `BOOTIMUS_E2E_HTTP_PORT` and `BOOTIMUS_E2E_ADMIN_PORT` move them if they clash. CI uploads `.e2e/run/` as an artefact when the job fails.
 
+## UI smoke tests
+
+`make test-ui` drives the admin UI in a real browser with [Playwright](https://playwright.dev). It builds the binary, starts it with a temporary SQLite data directory on ports 16969 (TFTP), 18080 (boot HTTP) and 18081 (admin), sets a known admin password through `bootimus user set-password`, creates a read-only user over the API, runs the suite in headless Chromium and always stops the server afterwards.
+
+The tests live in `ui-tests/tests/` and stay at smoke level: signing in and out, every sidebar tab rendering without a page error or console error, creating a client and opening its detail page and menu preview, creating a deployment profile, an enrolment rule with its live match count and a SAN target, API tokens and two-factor set-up, housekeeping, backup export, the PXE Debug banner, the audit log and the read-only view. Each test is independent and uses random names and MAC addresses, so the suite can be re-run against the same server.
+
+To run it locally you need Node 22 or newer:
+
+```bash
+cd ui-tests && npm ci && npx playwright install chromium && cd ..
+make test-ui
+```
+
+`make test-ui -- tests/clients.spec.ts` style filtering is not supported; run `ui-tests/run.sh tests/clients.spec.ts` instead with `BOOTIMUS_UI_BINARY` pointing at a built binary, or `npx playwright test` inside `ui-tests/` against a server you started yourself with `BOOTIMUS_UI_URL`, `BOOTIMUS_UI_ADMIN_PASSWORD` and `BOOTIMUS_UI_VIEWER_PASSWORD` exported. The ports move with `BOOTIMUS_UI_ADMIN_PORT`, `BOOTIMUS_UI_HTTP_PORT` and `BOOTIMUS_UI_TFTP_PORT`, and `BOOTIMUS_UI_KEEP_DATA=1` keeps the data directory and server log after a run.
+
+On failure Playwright keeps a screenshot, a trace and a page snapshot under `ui-tests/test-results/`; open a trace with `npx playwright show-trace <file>.zip`. CI runs the suite on every pull request and uploads `ui-tests/playwright-report/` and `ui-tests/test-results/` when it fails.
+
+To add a test, create a `*.spec.ts` next to the others and import `test`, `expect` and the helpers from `./helpers`: `loginAsAdmin`, `loginAsViewer`, `openTab`, `openClientsSubtab`, `createClientViaUI`, `randomMAC` and `uniqueSuffix`. The `test` export auto-accepts confirm dialogs and fails any test whose page throws an uncaught exception. Prefer role, label and id selectors; add a `data-testid` only where nothing stable exists. Keep each test under a few seconds and independent of the others.
+
 ## Cross-platform code
 
 Bootimus builds for Linux (primary), macOS, and Windows. When a syscall, path, or API differs by OS:

@@ -110,3 +110,42 @@ jobs:
             VERSION=${{ steps.version.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  ui:
+    name: UI smoke in Playwright
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui-tests/package-lock.json
+
+      - name: Install the test runner
+        working-directory: ui-tests
+        run: npm ci
+
+      - name: Install Chromium
+        working-directory: ui-tests
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the UI smoke tests
+        run: make test-ui
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-smoke-report
+          path: |
+            ui-tests/playwright-report
+            ui-tests/test-results
+          if-no-files-found: ignore

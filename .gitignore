@@ -54,3 +54,9 @@ signing/
 
 # End-to-end QEMU test binary and run logs.
 /.e2e/
+
+# UI smoke test binary, dependencies and reports.
+/.ui-tests/
+ui-tests/node_modules/
+ui-tests/test-results/
+ui-tests/playwright-report/
