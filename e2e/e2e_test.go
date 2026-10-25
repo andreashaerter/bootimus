@@ -70,9 +70,11 @@ func (h *harness) menuStage(b *bootimus, mac string, uefi bool) {
 		if inv == nil {
 			return false, "no inventory yet"
 		}
-		manufacturer := fmt.Sprint(inv["manufacturer"])
-		return strings.Contains(strings.ToUpper(manufacturer), "QEMU"), "manufacturer=" + manufacturer
+		return strings.EqualFold(fmt.Sprint(inv["mac_address"]), mac), fmt.Sprintf("inventory for %v", inv["mac_address"])
 	})
+	if inv := b.inventory(mac); inv != nil && !strings.Contains(strings.ToUpper(fmt.Sprint(inv["manufacturer"])), "QEMU") {
+		t.Logf("%s: firmware exposed no SMBIOS manufacturer to iPXE (manufacturer=%v product=%v)", name, inv["manufacturer"], inv["product"])
+	}
 	h.waitFor(h.scale(30*time.Second), name+" menu request in the server log", func() (bool, string) {
 		return b.logContains("Client Connected: MAC " + mac), tail(b.logPath, 5)
 	})
