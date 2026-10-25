@@ -32,6 +32,7 @@ import (
 	_ "bootimus/internal/bmc/amt"
 	_ "bootimus/internal/bmc/redfish"
 	"bootimus/internal/catalogue"
+	"bootimus/internal/deployment"
 	"bootimus/internal/diskimage"
 	"bootimus/internal/housekeeping"
 	"bootimus/internal/imagescan"
@@ -537,10 +538,29 @@ func (s *Server) effectiveBootloaderSet(clientHWAddr net.HardwareAddr) (string, 
 	if setName := normaliseBootloaderSetName(clientSet); setName != "" {
 		return setName, true
 	}
+	if setName := normaliseBootloaderSetName(s.profileBootloaderSet(mac)); setName != "" {
+		return setName, true
+	}
 	if setName := normaliseBootloaderSetName(groupSet); setName != "" {
 		return setName, true
 	}
 	return globalSet, false
+}
+
+func (s *Server) profileBootloaderSet(mac string) string {
+	client, err := s.config.Storage.GetClient(mac)
+	if err != nil {
+		return ""
+	}
+	if client.ProfileID == nil && client.ClientGroupID == nil {
+		return ""
+	}
+	eff, _ := s.effectiveFor(client)
+	switch eff.Sources["bootloader_set"] {
+	case deployment.SourceProfile, deployment.SourceGroupProfile:
+		return eff.BootloaderSet
+	}
+	return ""
 }
 
 func cleanBootloaderPath(filename string) (string, bool) {
@@ -1904,6 +1924,8 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/disk-images/jobs", readWrap(adminHandler.DiskJobs))
 	mux.HandleFunc("/api/clients/console", s.handleClientConsole)
 	mux.HandleFunc("/api/san-targets", readWrap(adminHandler.SANTargets))
+	mux.HandleFunc("/api/deployment-profiles", readWrap(adminHandler.DeploymentProfiles))
+	mux.HandleFunc("/api/clients/effective", readWrap(s.handleClientEffective))
 
 	mux.HandleFunc("/api/theme", readWrap(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -2272,6 +2294,7 @@ type bootMenuRender struct {
 	ClientName    string `json:"client_name,omitempty"`
 	NextBootImage string `json:"next_boot_image,omitempty"`
 	DiskJob       string `json:"disk_job,omitempty"`
+	Profile       string `json:"profile,omitempty"`
 	Kind          string `json:"kind"`
 	Script        string `json:"script"`
 }
@@ -2285,6 +2308,21 @@ func normaliseMenuMAC(macAddress string) string {
 
 func (s *Server) renderBootMenu(macAddress, remoteAddr string, commit bool) bootMenuRender {
 	result := bootMenuRender{MAC: macAddress, Kind: "menu"}
+	var profileClient *models.Client
+	var profileGroup *models.ClientGroup
+	var eff deployment.Effective
+	if s.config.Storage != nil {
+		if c, err := s.config.Storage.GetClient(macAddress); err == nil {
+			profileClient = c
+			eff, profileGroup = s.effectiveFor(c)
+			if p := eff.ActiveProfile(); p != nil {
+				result.Profile = p.Name
+			}
+			if commit {
+				s.ensureFirstBootDeploy(c, eff)
+			}
+		}
+	}
 	if s.diskImages != nil {
 		if job := s.diskImages.ActiveJob(macAddress); job != nil && job.DiskImage != nil {
 			result.Kind = "imaging"
@@ -2370,6 +2408,7 @@ func (s *Server) renderBootMenu(macAddress, remoteAddr string, commit bool) boot
 		images = convertISOsToImages(isos)
 	}
 
+	images = s.applyProfileImages(images, profileClient, profileGroup, eff)
 	result.Script = s.generateIPXEMenuFor(images, macAddress, nextBootImageID, nextBootSANID)
 	return result
 }
@@ -2591,7 +2630,7 @@ func (s *Server) handleAutoInstallScript(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	script, scriptType, source, err := resolveAutoInstallSource(s.autoInstallLib, image, client, group)
+	script, scriptType, source, err := s.resolveAutoInstallScript(image, client)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -2645,10 +2684,15 @@ func (s *Server) clientGroupOf(client *models.Client) *models.ClientGroup {
 }
 
 func (s *Server) resolveAutoInstallScript(image *models.Image, client *models.Client) (string, string, string, error) {
-	return resolveAutoInstallSource(s.autoInstallLib, image, client, s.clientGroupOf(client))
+	eff, group := s.effectiveFor(client)
+	return resolveAutoInstallWithProfiles(s.autoInstallLib, image, client, group, eff.AutoInstallCandidates())
 }
 
 func resolveAutoInstallSource(lib *autoinstall.Library, image *models.Image, client *models.Client, group *models.ClientGroup) (string, string, string, error) {
+	return resolveAutoInstallWithProfiles(lib, image, client, group, nil)
+}
+
+func resolveAutoInstallWithProfiles(lib *autoinstall.Library, image *models.Image, client *models.Client, group *models.ClientGroup, profileFiles []deployment.Candidate) (string, string, string, error) {
 	if lib != nil {
 		tryFile := func(rel, src string) (string, string, string, error) {
 			content, err := lib.ReadPath(rel)
@@ -2660,6 +2704,11 @@ func resolveAutoInstallSource(lib *autoinstall.Library, image *models.Image, cli
 
 		if client != nil && client.AutoInstallFile != "" {
 			if c, t, src, err := tryFile(client.AutoInstallFile, "client:"+client.MACAddress); err == nil {
+				return c, t, src, nil
+			}
+		}
+		for _, candidate := range profileFiles {
+			if c, t, src, err := tryFile(candidate.Path, candidate.Source); err == nil {
 				return c, t, src, nil
 			}
 		}

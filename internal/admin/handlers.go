@@ -608,6 +608,20 @@ func (h *Handler) UpdateClient(w http.ResponseWriter, r *http.Request) {
 	if bootSAN, ok := updates["boot_from_san"].(bool); ok {
 		client.BootFromSAN = bootSAN
 	}
+	if profileID, ok := updates["profile_id"]; ok {
+		if profileID == nil {
+			client.ProfileID = nil
+		} else if id, ok := profileID.(float64); ok && id > 0 {
+			if _, err := h.storage.GetDeploymentProfile(uint(id)); err != nil {
+				h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Deployment profile not found"})
+				return
+			}
+			pid := uint(id)
+			client.ProfileID = &pid
+		} else {
+			client.ProfileID = nil
+		}
+	}
 	if groupID, ok := updates["client_group_id"]; ok {
 		if groupID == nil {
 			client.ClientGroupID = nil

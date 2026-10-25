@@ -49,6 +49,8 @@ var viewerReadRoutes = map[string]bool{
 	"/api/clients/installs":          true,
 	"/api/installs":                  true,
 	"/api/san-targets":               true,
+	"/api/deployment-profiles":       true,
+	"/api/clients/effective":         true,
 	"/api/theme":                     true,
 	"/api/usb":                       true,
 	"/api/usb/download":              true,

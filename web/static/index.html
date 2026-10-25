@@ -217,6 +217,7 @@
                     <button class="subtab active" data-subtab="clients" onclick="switchClientsSubtab('clients')">Clients</button>
                     <button class="subtab" data-subtab="client-groups" onclick="switchClientsSubtab('client-groups')">Client Groups</button>
                     <button class="subtab" data-subtab="san-targets" onclick="switchClientsSubtab('san-targets')">SAN Targets</button>
+                    <button class="subtab" data-subtab="deployment-profiles" onclick="switchClientsSubtab('deployment-profiles')">Deployment Profiles</button>
                 </div>
 
                 <div id="clients-subtab">
@@ -334,6 +335,23 @@
                     <div id="san-targets-table" class="loading">
                         <div class="spinner"></div>
                         Loading SAN targets...
+                    </div>
+                </div>
+                <div id="deployment-profiles-subtab" style="display: none;">
+                    <h2>Deployment Profiles</h2>
+                    <p style="color: var(--text-secondary); margin: 0 12px 8px; font-size: 13px;">
+                        A profile bundles an image, an auto-install file, a SAN target, a bootloader set and a first-boot action. Assign it to clients or client groups and it is applied every time they boot; a client's own settings always win over its profile, and a client's profile wins over its group's.
+                    </p>
+                    <div class="toolbar">
+                        <button class="btn admin-only" type="button" onclick="showDeploymentProfileModal()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            Add Deployment Profile
+                        </button>
+                        <input type="search" class="toolbar-filter" placeholder="Filter profiles…" oninput="applyTableFilter('deployment-profiles', this.value, renderDeploymentProfilesTable)">
+                    </div>
+                    <div id="deployment-profiles-table" class="loading">
+                        <div class="spinner"></div>
+                        Loading deployment profiles...
                     </div>
                 </div>
             </div>
@@ -1324,6 +1342,17 @@
                     <small style="color: var(--text-secondary);">Group overlay: inherits allowed images and participates in bulk actions.</small>
                 </div>
                 <div class="form-group">
+                    <label>Deployment Profile</label>
+                    <select name="profile_id" id="edit-client-profile-select">
+                        <option value="">(inherit from group, or none)</option>
+                    </select>
+                    <small style="color: var(--text-secondary);">Image, auto-install file, SAN target, bootloader set and first-boot action applied at boot. Settings filled in on this form override the profile.</small>
+                </div>
+                <div class="form-group">
+                    <label>Effective settings</label>
+                    <div id="edit-client-effective" style="font-size: 12px; color: var(--text-secondary); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px;">Loading…</div>
+                </div>
+                <div class="form-group">
                     <label>Auto-Install File</label>
                     <select name="auto_install_file" id="edit-client-autoinstall-select">
                         <option value="">(inherit from group or image)</option>
@@ -1537,6 +1566,72 @@
                 </div>
                 <button type="submit" class="btn btn-danger">Queue Deploy</button>
                 <button type="button" class="btn" onclick="closeModal('deploy-disk-modal')" style="margin-left: 8px;">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="deployment-profile-modal" class="modal">
+        <div class="modal-content" style="max-width: 600px;">
+            <div class="modal-header">
+                <h2 id="deployment-profile-modal-title">Add Deployment Profile</h2>
+            </div>
+            <form id="deployment-profile-form">
+                <input type="hidden" name="id">
+                <div class="form-group">
+                    <label>Name *</label>
+                    <input type="text" name="name" required placeholder="lab-ubuntu">
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <input type="text" name="description">
+                </div>
+                <div class="form-group">
+                    <label>Image</label>
+                    <select name="image_filename" id="dp-image-select"></select>
+                    <small style="color: var(--text-secondary);">Always offered in the menu of every client using this profile, even when it is private.</small>
+                </div>
+                <div class="form-group">
+                    <label>Auto-install file</label>
+                    <select name="auto_install_file" id="dp-autoinstall-select"></select>
+                    <small style="color: var(--text-secondary);">Used for images that have an unattended install unless the client sets its own file.</small>
+                </div>
+                <div class="form-group">
+                    <label>SAN Target</label>
+                    <select name="san_target_id" id="dp-san-select"></select>
+                </div>
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" name="boot_from_san" id="dp-boot-from-san">
+                    <label for="dp-boot-from-san">Boot from SAN by default</label>
+                </div>
+                <div class="form-group">
+                    <label>Bootloader set</label>
+                    <select name="bootloader_set" id="dp-bootloader-select"></select>
+                </div>
+                <div class="form-group">
+                    <label>Disk image</label>
+                    <select name="disk_image_id" id="dp-disk-image-select"></select>
+                    <small style="color: var(--text-secondary);">Clonezilla image to deploy when the first-boot action is "Deploy disk image".</small>
+                </div>
+                <div class="form-group">
+                    <label>First-boot action</label>
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <label style="font-weight: normal;"><input type="radio" name="first_boot_action" value="" checked> None, just offer the profile's image</label>
+                        <label style="font-weight: normal;"><input type="radio" name="first_boot_action" value="install"> Install the image unattended: it becomes the default menu entry until an install completes</label>
+                        <label style="font-weight: normal;"><input type="radio" name="first_boot_action" value="deploy"> Deploy the disk image with Clonezilla on the first boot</label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Public images</label>
+                    <select name="show_public_images" id="dp-show-public-select">
+                        <option value="">Leave as the client has it</option>
+                        <option value="true">Show public images</option>
+                        <option value="false">Hide public images</option>
+                    </select>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <button type="button" class="btn" onclick="closeModal('deployment-profile-modal')">Cancel</button>
+                </div>
             </form>
         </div>
     </div>
@@ -2489,6 +2584,13 @@
                     <div id="cg-variables" class="kv-editor"></div>
                     <button type="button" class="btn btn-sm" onclick="addVariableRow('cg-variables')" data-i18n="variables.add">Add variable</button>
                     <small style="color: var(--text-secondary); display: block; margin-top: 6px;" data-i18n="variables.hint_group">Defaults for every member, available in auto-install files as {{VAR.name}}. Clients can override individual values.</small>
+                </div>
+                <div class="form-group">
+                    <label>Deployment Profile</label>
+                    <select name="profile_id" id="cg-profile-select">
+                        <option value="">(none)</option>
+                    </select>
+                    <small style="color: var(--text-secondary);">Members without their own profile use this one.</small>
                 </div>
                 <div class="form-group">
                     <label>SAN Target</label>

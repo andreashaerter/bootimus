@@ -128,6 +128,7 @@ type Client struct {
 	Static           bool           `gorm:"default:false" json:"static"`
 	ClientGroupID    *uint          `gorm:"index" json:"client_group_id,omitempty"`
 	ClientGroup      *ClientGroup   `gorm:"foreignKey:ClientGroupID" json:"client_group,omitempty"`
+	ProfileID        *uint          `gorm:"index" json:"profile_id,omitempty"`
 
 	BMCProtocol  string `json:"bmc_protocol,omitempty"`
 	IPMIHost     string `json:"ipmi_host,omitempty"`
@@ -207,6 +208,28 @@ type Cluster struct {
 	WorkerConfig       string `gorm:"type:text" json:"-"`
 	ConfigSource       string `json:"config_source,omitempty"`
 }
+
+type DeploymentProfile struct {
+	ID               uint      `gorm:"primarykey" json:"id"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+	Name             string    `gorm:"uniqueIndex;not null" json:"name"`
+	Description      string    `json:"description"`
+	ImageFilename    string    `json:"image_filename,omitempty"`
+	AutoInstallFile  string    `json:"auto_install_file,omitempty"`
+	SANTargetID      *uint     `gorm:"index" json:"san_target_id,omitempty"`
+	BootFromSAN      bool      `gorm:"default:false" json:"boot_from_san"`
+	BootloaderSet    string    `json:"bootloader_set,omitempty"`
+	DiskImageID      *uint     `gorm:"index" json:"disk_image_id,omitempty"`
+	FirstBootAction  string    `json:"first_boot_action,omitempty"`
+	ShowPublicImages *bool     `json:"show_public_images,omitempty"`
+}
+
+const (
+	FirstBootActionNone    = ""
+	FirstBootActionInstall = "install"
+	FirstBootActionDeploy  = "deploy"
+)
 
 type ScheduledTask struct {
 	ID            uint           `gorm:"primarykey" json:"id"`
@@ -349,6 +372,7 @@ type ClientGroup struct {
 
 	SANTargetID *uint `gorm:"index" json:"san_target_id,omitempty"`
 	BootFromSAN bool  `gorm:"default:false" json:"boot_from_san"`
+	ProfileID   *uint `gorm:"index" json:"profile_id,omitempty"`
 }
 
 type SANTarget struct {

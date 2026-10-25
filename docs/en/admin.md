@@ -469,6 +469,18 @@ GET /api/stats
 
 See the [Disk Imaging guide](disk-imaging.md) for the workflow.
 
+#### Deployment Profiles
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/deployment-profiles` | List profiles with the number of clients and groups using each |
+| `POST` | `/api/deployment-profiles` | Create: `{name, description, image_filename, auto_install_file, san_target_id, boot_from_san, bootloader_set, disk_image_id, first_boot_action, show_public_images}` |
+| `PUT` | `/api/deployment-profiles?id=<id>` | Update a profile |
+| `DELETE` | `/api/deployment-profiles?id=<id>` | Delete a profile and clear it from clients and groups |
+| `GET` | `/api/clients/effective?mac=<MAC>` | The settings in force for a client and the source of each value |
+
+Clients and client groups take `profile_id` in their update bodies. See the [Deployment Profiles guide](deployment-profiles.md).
+
 #### Downloads
 
 | Method | Endpoint | Description |

@@ -28,6 +28,7 @@ I've used Claude CLI to help with some parts of this project - mostly making the
 - **WinPE and rescue media**: Boot Strelec, Active@ Boot Disk and other wimboot-compatible ISOs, choosing which WIM to load
 - **Checksums and update notices**: Downloads from the catalogue are verified against SHA-256 checksums, and images and tools show a badge when a newer release is available
 - **Per-client access control**: Assign specific images per MAC address, toggle public image visibility per client
+- **Deployment profiles**: Bundle an image, auto-install file, SAN target, bootloader set and a first-boot action, assign the bundle to clients or groups, and it is resolved at every boot
 - **Client auto-discovery**: Clients are automatically detected when they PXE boot, like DHCP leases - promote to static when ready
 - **Next boot action**: Set a one-time boot image for a client with optional Wake-on-LAN - auto-clears after use
 - **Disk capture and deploy**: Image a client's disk with the bundled Clonezilla and restore it to one client or a whole client group on their next PXE boot
@@ -145,6 +146,7 @@ $ systemctl start bootimus
 - **[Client Management](docs/en/clients.md)** - MAC-based access control, auto-discovery, next boot
 - **[Multi-Site](docs/en/multi-site.md)** - Read-only branch replicas that mirror a primary
 - **[Disk Imaging](docs/en/disk-imaging.md)** - Capture a client's disk with Clonezilla and deploy it to one client or a whole group
+- **[Deployment Profiles](docs/en/deployment-profiles.md)** - Bundle image, auto-install file, SAN target, bootloader set and first-boot action per client or group
 - **[Authentication](docs/en/authentication.md)** - JWT auth, LDAP/Active Directory and OIDC single sign-on setup
 - **[Distro Profiles](docs/en/distro-profiles.md)** - Data-driven distro detection and boot params
 

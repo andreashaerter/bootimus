@@ -508,7 +508,7 @@ function setupTabs() {
             if (matchingTab) matchingTab.classList.add('active');
 
             if (item.dataset.tab === 'images') loadGroups();
-            if (item.dataset.tab === 'clients') loadClientGroups();
+            if (item.dataset.tab === 'clients') { loadClientGroups(); loadDeploymentProfiles(true); }
             if (item.dataset.tab === 'tools') loadTools();
             if (item.dataset.tab === 'bootloaders') loadBootloaders();
             if (item.dataset.tab === 'profiles') loadProfiles();
@@ -1600,7 +1600,7 @@ function clientRowHTML(client, includeGroupCell) {
                     <tr class="row-clickable" onclick="editClient('${client.mac_address}')">
                         <td class="col-check" onclick="event.stopPropagation()"><input type="checkbox" ${selectedClientMacs.has(client.mac_address) ? 'checked' : ''} onchange="toggleClientSelection('${client.mac_address}', this.checked)"></td>
                         <td><code>${client.mac_address}</code></td>
-                        <td>${client.name || '-'}${client.enrollment_state ? ' ' + enrollmentStateBadge(client.enrollment_state) : ''}</td>
+                        <td>${client.name || '-'}${client.enrollment_state ? ' ' + enrollmentStateBadge(client.enrollment_state) : ''}${deploymentProfileBadge(client)}</td>
                         <td>
                             <span class="badge ${client.static ? 'badge-success' : 'badge-info'}">
                                 ${client.static ? 'Static' : 'Discovered'}
@@ -1788,6 +1788,8 @@ async function editClient(mac) {
             form.querySelector('[name="ipmi_insecure"]').checked = !!currentClient.ipmi_insecure;
             await populateSANTargetSelect('edit-client-san-select', currentClient.san_target_id, '(inherit from group, or none)');
             form.querySelector('[name="boot_from_san"]').checked = !!currentClient.boot_from_san;
+            await populateDeploymentProfileSelect('edit-client-profile-select', currentClient.profile_id, '(inherit from group, or none)');
+            loadClientEffective(currentClient.mac_address || mac);
             const powerResult = document.getElementById('power-client-result');
             if (powerResult) powerResult.textContent = '';
             const consoleBtn = document.getElementById('open-console-btn');
@@ -3168,6 +3170,7 @@ function setupForms() {
             auto_install_file: formData.get('auto_install_file') || '',
             san_target_id: formData.get('san_target_id') ? parseInt(formData.get('san_target_id'), 10) : null,
             boot_from_san: formData.get('boot_from_san') === 'on',
+            profile_id: formData.get('profile_id') ? parseInt(formData.get('profile_id'), 10) : null,
         };
         try {
             updates.variables = collectVariables('edit-client-variables');
@@ -6811,8 +6814,10 @@ function switchClientsSubtab(name) {
     document.getElementById('clients-subtab').style.display = name === 'clients' ? '' : 'none';
     document.getElementById('client-groups-subtab').style.display = name === 'client-groups' ? '' : 'none';
     document.getElementById('san-targets-subtab').style.display = name === 'san-targets' ? '' : 'none';
+    document.getElementById('deployment-profiles-subtab').style.display = name === 'deployment-profiles' ? '' : 'none';
     if (name === 'client-groups') loadClientGroups();
     if (name === 'san-targets') loadSANTargets();
+    if (name === 'deployment-profiles') loadDeploymentProfiles();
 }
 
 function switchImagesSubtab(name) {
@@ -6930,6 +6935,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 auto_install_file: fd.get('auto_install_file') || '',
                 san_target_id: fd.get('san_target_id') ? parseInt(fd.get('san_target_id'), 10) : null,
                 boot_from_san: fd.get('boot_from_san') === 'on',
+                profile_id: fd.get('profile_id') ? parseInt(fd.get('profile_id'), 10) : null,
             };
             try {
                 body.variables = collectVariables('cg-variables');
@@ -7085,6 +7091,7 @@ async function showEditClientGroupModal(id) {
         renderVariableRows('cg-variables', g.variables);
         await populateSANTargetSelect('cg-san-select', g.san_target_id, '(none)');
         form.elements.boot_from_san.checked = !!g.boot_from_san;
+        await populateDeploymentProfileSelect('cg-profile-select', g.profile_id, '(none)');
 
         if (!images || images.length === 0) await loadImages();
         const allowedSel = document.getElementById('cg-allowed-images');
@@ -9111,3 +9118,236 @@ async function runReplicaSync() {
         if (btn) btn.disabled = false;
     }
 }
+
+let deploymentProfiles = [];
+let deploymentProfilesLoaded = false;
+
+function deploymentProfileName(id) {
+    const p = deploymentProfiles.find(x => x.id === id);
+    return p ? p.name : ('#' + id);
+}
+
+function deploymentProfileBadge(client) {
+    if (!client.profile_id) return '';
+    return ` <span class="badge badge-info" title="Deployment profile">${escapeHtml(deploymentProfileName(client.profile_id))}</span>`;
+}
+
+async function loadDeploymentProfiles(quiet) {
+    try {
+        const res = await authFetch(`${API_BASE}/deployment-profiles`);
+        const data = await res.json();
+        if (!data.success) {
+            if (!quiet) document.getElementById('deployment-profiles-table').innerHTML = `<p class="alert alert-error">${escapeHtml(data.error || 'Failed to load deployment profiles')}</p>`;
+            return;
+        }
+        deploymentProfiles = data.data || [];
+        deploymentProfilesLoaded = true;
+        if (!quiet) renderDeploymentProfilesTable();
+    } catch (err) {
+        console.error('Failed to load deployment profiles:', err);
+    }
+}
+
+async function populateDeploymentProfileSelect(selectId, selectedId, emptyLabel) {
+    if (!deploymentProfilesLoaded) await loadDeploymentProfiles(true);
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    select.innerHTML = `<option value="">${escapeHtml(emptyLabel)}</option>` + deploymentProfiles.map(p =>
+        `<option value="${p.id}" ${selectedId === p.id ? 'selected' : ''}>${escapeHtml(p.name)}${p.description ? ' — ' + escapeHtml(p.description) : ''}</option>`
+    ).join('');
+}
+
+function firstBootActionLabel(action) {
+    if (action === 'install') return 'Install image';
+    if (action === 'deploy') return 'Deploy disk image';
+    return 'None';
+}
+
+function renderDeploymentProfilesTable() {
+    const container = document.getElementById('deployment-profiles-table');
+    container.classList.remove('loading');
+    if (deploymentProfiles.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-secondary); padding: 20px;">No deployment profiles yet. Click "Add Deployment Profile" to bundle an image, auto-install file and boot settings.</p>';
+        return;
+    }
+    const imageName = f => { const img = (images || []).find(i => i.filename === f); return img ? img.name : f; };
+    const sanName = id => { const t = sanTargets.find(x => x.id === id); return t ? t.name : ('#' + id); };
+    const rows = deploymentProfiles
+        .filter(p => rowMatchesFilter('deployment-profiles', [p.name, p.description, p.image_filename, p.auto_install_file, p.bootloader_set]))
+        .map(p => `
+        <tr>
+            <td><strong>${escapeHtml(p.name)}</strong>${p.description ? '<br><span style="color: var(--text-secondary); font-size: 12px;">' + escapeHtml(p.description) + '</span>' : ''}</td>
+            <td>${p.image_filename ? escapeHtml(imageName(p.image_filename)) : '<span style="color: var(--text-secondary);">—</span>'}</td>
+            <td>${p.auto_install_file ? '<code>' + escapeHtml(p.auto_install_file) + '</code>' : '<span style="color: var(--text-secondary);">—</span>'}</td>
+            <td>${p.san_target_id ? escapeHtml(sanName(p.san_target_id)) + (p.boot_from_san ? ' <span class="badge badge-info">default</span>' : '') : '<span style="color: var(--text-secondary);">—</span>'}</td>
+            <td>${p.bootloader_set ? escapeHtml(p.bootloader_set) : '<span style="color: var(--text-secondary);">Default</span>'}</td>
+            <td>${escapeHtml(firstBootActionLabel(p.first_boot_action))}</td>
+            <td>${p.client_count || 0} client${p.client_count === 1 ? '' : 's'}, ${p.group_count || 0} group${p.group_count === 1 ? '' : 's'}</td>
+            <td>
+                <button type="button" class="btn btn-sm admin-only" onclick="showDeploymentProfileModal(${p.id})">Edit</button>
+                <button type="button" class="btn btn-sm btn-danger admin-only" onclick="deleteDeploymentProfile(${p.id})">Delete</button>
+            </td>
+        </tr>`).join('');
+    container.innerHTML = `
+        <div class="table-scroll">
+        <table>
+            <thead><tr><th>Name</th><th>Image</th><th>Auto-install</th><th>SAN</th><th>Bootloader set</th><th>First boot</th><th>Used by</th><th>Actions</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>
+        </div>`;
+}
+
+async function populateDeploymentProfileModalSelects(profile) {
+    if (!images || images.length === 0) { try { await loadImages(); } catch (_) {} }
+    const imageSel = document.getElementById('dp-image-select');
+    imageSel.innerHTML = '<option value="">(none)</option>' + (images || []).map(img =>
+        `<option value="${escapeHtml(img.filename)}" ${profile && profile.image_filename === img.filename ? 'selected' : ''}>${escapeHtml(img.name)}${img.enabled ? '' : ' (disabled)'}</option>`
+    ).join('');
+
+    await populateAutoInstallFileDropdown('dp-autoinstall-select', profile ? profile.auto_install_file : '');
+    const aiFirst = document.getElementById('dp-autoinstall-select').options[0];
+    if (aiFirst) aiFirst.textContent = '(none)';
+
+    await populateSANTargetSelect('dp-san-select', profile ? profile.san_target_id : null, '(none)');
+
+    const blSel = document.getElementById('dp-bootloader-select');
+    blSel.innerHTML = '<option value="">Default (global or group setting)</option>';
+    try {
+        const blRes = await authFetch(`${API_BASE}/bootloaders`);
+        const blData = await blRes.json();
+        if (blData.success && blData.data && blData.data.sets) {
+            for (const set of blData.data.sets) {
+                blSel.innerHTML += `<option value="${escapeHtml(set.name)}" ${profile && profile.bootloader_set === set.name ? 'selected' : ''}>${escapeHtml(set.name)}</option>`;
+            }
+        }
+    } catch (_) {}
+
+    const diSel = document.getElementById('dp-disk-image-select');
+    diSel.innerHTML = '<option value="">(none)</option>';
+    try {
+        const res = await authFetch(`${API_BASE}/disk-images`);
+        const data = await res.json();
+        if (data.success) {
+            for (const di of (data.data.images || [])) {
+                diSel.innerHTML += `<option value="${di.id}" ${profile && profile.disk_image_id === di.id ? 'selected' : ''}>${escapeHtml(di.name)}${di.state !== 'ready' ? ' (' + escapeHtml(di.state) + ')' : ''}</option>`;
+            }
+        }
+    } catch (_) {}
+}
+
+async function showDeploymentProfileModal(id) {
+    const form = document.getElementById('deployment-profile-form');
+    form.reset();
+    const profile = id ? deploymentProfiles.find(p => p.id === id) : null;
+    form.elements.id.value = profile ? profile.id : '';
+    document.getElementById('deployment-profile-modal-title').textContent = profile ? 'Edit Deployment Profile' : 'Add Deployment Profile';
+    if (profile) {
+        form.elements.name.value = profile.name || '';
+        form.elements.description.value = profile.description || '';
+        form.elements.boot_from_san.checked = !!profile.boot_from_san;
+        const action = form.querySelector(`[name="first_boot_action"][value="${profile.first_boot_action || ''}"]`);
+        if (action) action.checked = true;
+        form.elements.show_public_images.value = profile.show_public_images === undefined || profile.show_public_images === null ? '' : String(profile.show_public_images);
+    }
+    await populateDeploymentProfileModalSelects(profile);
+    showModal('deployment-profile-modal');
+}
+
+async function saveDeploymentProfile(e) {
+    e.preventDefault();
+    const form = e.target;
+    const fd = new FormData(form);
+    const id = fd.get('id');
+    const showPublic = fd.get('show_public_images');
+    const body = {
+        name: fd.get('name') || '',
+        description: fd.get('description') || '',
+        image_filename: fd.get('image_filename') || '',
+        auto_install_file: fd.get('auto_install_file') || '',
+        san_target_id: fd.get('san_target_id') ? parseInt(fd.get('san_target_id'), 10) : null,
+        boot_from_san: fd.get('boot_from_san') === 'on',
+        bootloader_set: fd.get('bootloader_set') || '',
+        disk_image_id: fd.get('disk_image_id') ? parseInt(fd.get('disk_image_id'), 10) : null,
+        first_boot_action: fd.get('first_boot_action') || '',
+        show_public_images: showPublic === '' ? null : showPublic === 'true',
+    };
+    try {
+        const res = await authFetch(`${API_BASE}/deployment-profiles${id ? '?id=' + id : ''}`, {
+            method: id ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Failed to save deployment profile', 'error');
+            return;
+        }
+        closeModal('deployment-profile-modal');
+        showAlert(data.message || 'Deployment profile saved', 'success');
+        deploymentProfilesLoaded = false;
+        await loadDeploymentProfiles();
+    } catch (err) {
+        showAlert('Failed to save deployment profile: ' + err.message, 'error');
+    }
+}
+
+async function deleteDeploymentProfile(id) {
+    const profile = deploymentProfiles.find(p => p.id === id);
+    if (!profile) return;
+    const users = (profile.client_count || 0) + (profile.group_count || 0);
+    if (!confirm(`Delete deployment profile "${profile.name}"?` + (users ? ` It will be removed from ${users} client(s) and group(s).` : ''))) return;
+    try {
+        const res = await authFetch(`${API_BASE}/deployment-profiles?id=${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Failed to delete deployment profile', 'error');
+            return;
+        }
+        showAlert('Deployment profile deleted', 'success');
+        deploymentProfilesLoaded = false;
+        await loadDeploymentProfiles();
+        if (clients.length) loadClients();
+    } catch (err) {
+        showAlert('Failed to delete deployment profile: ' + err.message, 'error');
+    }
+}
+
+function effectiveSourceBadge(source) {
+    const labels = { client: 'client', profile: 'profile', 'group-profile': 'group profile', group: 'group', default: 'default' };
+    const cls = source === 'client' ? 'badge-success' : (source === 'default' ? 'badge-info' : 'badge-warning');
+    return `<span class="badge ${cls}" style="margin-left: 6px;">${escapeHtml(labels[source] || source)}</span>`;
+}
+
+async function loadClientEffective(mac) {
+    const box = document.getElementById('edit-client-effective');
+    if (!box) return;
+    box.textContent = 'Loading…';
+    try {
+        const res = await authFetch(`${API_BASE}/clients/effective?mac=${encodeURIComponent(mac)}`);
+        const data = await res.json();
+        if (!data.success) {
+            box.textContent = data.error || 'Could not resolve effective settings';
+            return;
+        }
+        const e = data.data;
+        const src = e.sources || {};
+        const row = (label, value, source) => `<div style="display: flex; justify-content: space-between; gap: 12px; padding: 2px 0;"><span>${label}</span><span>${value}${source ? effectiveSourceBadge(source) : ''}</span></div>`;
+        const none = '<span style="color: var(--text-muted);">none</span>';
+        let html = '';
+        html += row('Profile', e.profile_name ? escapeHtml(e.profile_name) : (e.group_profile_name ? escapeHtml(e.group_profile_name) + ' <span style="color: var(--text-muted);">(via group)</span>' : none));
+        html += row('Image', e.image_name ? escapeHtml(e.image_name) : none, e.image_filename ? src.image_filename : '');
+        html += row('Auto-install file', e.auto_install_file ? '<code>' + escapeHtml(e.auto_install_file) + '</code>' : none, e.auto_install_file ? src.auto_install_file : '');
+        html += row('SAN target', e.san_target_name ? escapeHtml(e.san_target_name) + (e.boot_from_san ? ' (default)' : '') : none, e.san_target_id ? src.san_target_id : '');
+        html += row('Bootloader set', e.bootloader_set ? escapeHtml(e.bootloader_set) : '<span style="color: var(--text-muted);">global</span>', e.bootloader_set ? src.bootloader_set : '');
+        html += row('Public images', e.show_public_images ? 'shown' : 'hidden', src.show_public_images);
+        html += row('First boot', escapeHtml(firstBootActionLabel(e.first_boot_action)) + (e.disk_image_name ? ': ' + escapeHtml(e.disk_image_name) : ''), e.first_boot_action ? src.first_boot_action : '');
+        box.innerHTML = html;
+    } catch (err) {
+        box.textContent = 'Could not resolve effective settings';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const form = document.getElementById('deployment-profile-form');
+    if (form) form.addEventListener('submit', saveDeploymentProfile);
+});

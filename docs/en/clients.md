@@ -13,6 +13,7 @@ Complete guide for managing network boot clients with MAC-based access control.
 - [Next Boot Action](#next-boot-action)
 - [Previewing a Client's Boot Menu](#previewing-a-clients-boot-menu)
 - [Booting from iSCSI or AoE](#booting-from-iscsi-or-aoe)
+- [Deployment Profiles](#deployment-profiles)
 - [Wake-on-LAN](#wake-on-lan)
 - [BMC Power Control](#bmc-power-control)
 - [Remote Console](#remote-console)
@@ -466,6 +467,10 @@ With LIO (`targetcli`) create a fileio or block backstore, an iqn, a LUN and a p
 - CHAP credentials are placed in the iPXE script, which is fetched over plain HTTP by the booting client. Treat the boot network as trusted, as you already do for auto-install answer files.
 - iPXE's `sanboot` requires a bootloader on the SAN disk; it does not install anything.
 - Read-only users see the targets but not the CHAP passwords.
+
+## Deployment Profiles
+
+When several clients should get the same image, auto-install file, SAN target or bootloader set, put those settings in a deployment profile and assign the profile to the clients or to their group instead of filling in each client. A client's own settings always win over its profile, and a client's profile wins over its group's. The client editor shows the **Effective settings** that result. See the [Deployment Profiles guide](deployment-profiles.md) for precedence, first-boot actions and examples.
 
 ## Wake-on-LAN
 

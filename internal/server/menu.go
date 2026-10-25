@@ -36,6 +36,7 @@ type MenuBuilder struct {
 	sanTarget         *models.SANTarget
 	sanDefault        bool
 	nextBootSAN       bool
+	profileImageID    uint
 }
 
 func (s *Server) generateIPXEMenuWithGroups(images []models.Image, macAddress string, nextBootImageID ...uint) string {
@@ -50,20 +51,9 @@ func (s *Server) resolveSANTarget(client *models.Client) (*models.SANTarget, boo
 	if client == nil || s.config.Storage == nil {
 		return nil, false
 	}
-	targetID := client.SANTargetID
-	bootDefault := client.BootFromSAN
-	var group *models.ClientGroup
-	if client.ClientGroupID != nil {
-		if g, err := s.config.Storage.GetClientGroup(*client.ClientGroupID); err == nil {
-			group = g
-		}
-	}
-	if targetID == nil && group != nil {
-		targetID = group.SANTargetID
-	}
-	if group != nil && group.BootFromSAN {
-		bootDefault = true
-	}
+	eff, _ := s.effectiveFor(client)
+	targetID := eff.SANTargetID
+	bootDefault := eff.BootFromSAN
 	if targetID == nil {
 		return nil, false
 	}
@@ -125,6 +115,12 @@ func (s *Server) generateIPXEMenuFor(images []models.Image, macAddress string, n
 		}
 	}
 
+	var profileImageID uint
+	if client != nil {
+		eff, _ := s.effectiveFor(client)
+		profileImageID = s.profileInstallImageID(client, eff, images)
+	}
+
 	autoInstallTypes := make(map[uint]string)
 	for i := range images {
 		if images[i].BootMethod != "kernel" {
@@ -152,6 +148,7 @@ func (s *Server) generateIPXEMenuFor(images []models.Image, macAddress string, n
 		sanTarget:         sanTarget,
 		sanDefault:        sanDefault,
 		nextBootSAN:       nextBootSAN,
+		profileImageID:    profileImageID,
 	}
 	mb.remoteBase, mb.remoteImages = s.remoteImages(images)
 
@@ -224,6 +221,9 @@ func (mb *MenuBuilder) resolveDefaultItem(visibleGroups []*models.ImageGroup, un
 	}
 	if mb.sanTarget != nil && (mb.nextBootSAN || mb.sanDefault) {
 		return "san"
+	}
+	if mb.hasEnabledImage(mb.profileImageID) {
+		return fmt.Sprintf("iso%d", mb.profileImageID)
 	}
 	if mb.forceLocalDefault {
 		return "local"
