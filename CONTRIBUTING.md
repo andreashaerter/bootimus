@@ -56,26 +56,28 @@ If your PR changes behaviour in a tested package, ideally add a test that fails 
 
 ## End-to-end boot test
 
-`make test-e2e` boots real virtual machines against a real bootimus. It builds the binary, starts it with QEMU's user-mode network as the boot network (the guest sees the host as 10.0.2.2), and runs these stages:
+`make test-e2e` boots real virtual machines against a real bootimus. It builds the binary, starts it, and runs these stages, each of which writes its serial console and the server log under `.e2e/run/`:
 
 | Stage | What it asserts |
 |-------|-----------------|
 | BIOS menu | SeaBIOS's iPXE ROM fetches `undionly.kpxe`, the embedded script chains `autoexec.ipxe`, the client is auto-discovered with hardware inventory, the menu is requested and its title appears on the serial console |
-| UEFI menu | The same through OVMF with `bootimus.efi`. If the installed OVMF has no PXE stack, iPXE is launched from a FAT volume instead and the test says so |
-| Alpine next boot | An Alpine ISO is downloaded through the admin API with SHA-256 verification, extracted, given Alpine's netboot initramfs as an initrd override, set as the client's next boot, and booted. The kernel and initrd are served over HTTP, an apkovl overlay fetches the install callback URL from the auto-install endpoint, reports completion and powers the VM off, and the install record ends up completed |
-| proxyDHCP | Only with `BOOTIMUS_E2E_PROXYDHCP=1`: a bridge, a tap device and a dnsmasq DHCP server in its own network namespace are created with `sudo`; bootimus answers with proxyDHCP on the bridge and the VM boots from it |
+| UEFI menu | The same through OVMF with `bootimus.efi`. If the firmware never reaches iPXE, the loader is launched from a FAT volume instead and the test says so |
+| Alpine next boot | An Alpine ISO is downloaded through the admin API with SHA-256 verification, extracted, given Alpine's netboot initramfs as an initrd override, set as the client's next boot, and booted. The kernel and initrd are served over HTTP, the modloop and apk repository come from the extracted ISO tree on the boot port, an apkovl overlay fetches the install callback URL from the auto-install endpoint, reports completion and powers the VM off, and the install record ends up completed |
+| proxyDHCP events | Bridge mode only: every booted MAC has a replied entry in the proxyDHCP request log |
 
-You need `qemu-system-x86_64`, an OVMF firmware (the `ovmf` or `edk2-ovmf` package) and, for the proxyDHCP stage, passwordless `sudo`, `iproute2` and `dnsmasq`. KVM is used when `/dev/kvm` is accessible; without it the VMs run under TCG with longer timeouts. The Alpine files are cached under `~/.cache/bootimus-e2e` (override with `BOOTIMUS_E2E_CACHE`) and only downloaded once.
+There are two network modes, chosen automatically:
 
-Bootimus must answer TFTP on UDP/69, because PXE firmware has no port option. If the test binary cannot bind it, the suite falls back to QEMU's built-in TFTP for the loader and `autoexec.ipxe` and logs that the TFTP stage was not exercised. To run the full path locally:
+- **Bridge** (needs root or passwordless `sudo`, plus `iproute2`): the suite creates a bridge, a tap device for the VMs and a veth pair into a private network namespace where a tiny DHCP server (`e2e/dhcpd`, built from the repo) hands out addresses with no PXE options. Bootimus runs with `--proxy-dhcp --bind-interface <bridge>` on UDP/67 and UDP/69, so the real proxyDHCP, TFTP and HTTP paths are exercised exactly as on a LAN. The binary therefore needs `cap_net_bind_service`. Interface names carry the test's pid, leftovers from earlier runs are removed first, and everything is torn down on cleanup even when a stage fails.
+- **User-mode** (`slirp`, no privileges): QEMU's own TFTP serves the loaders and a copy of `autoexec.ipxe`, and the guest reaches bootimus's HTTP ports at 10.0.2.2. Bootimus's TFTP and proxyDHCP are not exercised and the suite says so. Do not try to point the slirp guest at a TFTP server on the host: libslirp intercepts UDP/69 addressed to 10.0.2.2 and answers from its built-in server, so packets never reach the host and the client sees "Permission denied" when no `tftp=` directory is set.
+
+`BOOTIMUS_E2E_NETWORK=bridge|slirp` forces a mode and `BOOTIMUS_E2E_REQUIRE_BRIDGE=1` (set in CI) fails fast if bridge mode cannot be set up. Locally, bridge mode without `sudo` can run inside a user namespace, where the test is root for its own network stack:
 
 ```bash
 make e2e-binary
-sudo setcap cap_net_bind_service=+ep .e2e/bootimus
-BOOTIMUS_E2E_BINARY=$PWD/.e2e/bootimus BOOTIMUS_E2E_REQUIRE_TFTP=1 make test-e2e
+unshare -rnm sh -c 'mount -t tmpfs tmpfs /run && mkdir -p /run/netns && ip link set lo up && BOOTIMUS_E2E_BINARY=$PWD/.e2e/bootimus BOOTIMUS_E2E_NETWORK=bridge make test-e2e'
 ```
 
-`BOOTIMUS_E2E_REQUIRE_TFTP=1` turns the fallback into a failure, which is what CI uses. Ports default to 8080 for boot HTTP and 18081 for the admin API; `BOOTIMUS_E2E_HTTP_PORT` and `BOOTIMUS_E2E_ADMIN_PORT` move them if they clash. Every stage writes its serial console and the server log under `.e2e/run/`, which CI uploads as an artefact when the job fails.
+You need `qemu-system-x86_64`, an OVMF firmware (the `ovmf` or `edk2-ovmf` package) and `bsdtar` (`libarchive-tools`), which bootimus uses to extract the ISO with full file names. KVM is used when `/dev/kvm` is accessible; without it the VMs run under TCG with longer timeouts. The Alpine files are cached under `~/.cache/bootimus-e2e` (override with `BOOTIMUS_E2E_CACHE`) and only downloaded once. Ports default to 8080 for boot HTTP and 18081 for the admin API; `BOOTIMUS_E2E_HTTP_PORT` and `BOOTIMUS_E2E_ADMIN_PORT` move them if they clash. CI uploads `.e2e/run/` as an artefact when the job fails.
 
 ## Cross-platform code
 

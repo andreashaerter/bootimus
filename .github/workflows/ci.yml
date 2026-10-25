@@ -50,11 +50,10 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Install QEMU, OVMF and dnsmasq
+      - name: Install QEMU, OVMF and bsdtar
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf dnsmasq iproute2 libcap2-bin
-          sudo systemctl disable --now dnsmasq || true
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf iproute2 libcap2-bin libarchive-tools
 
       - name: Enable KVM for the runner user
         run: |
@@ -75,11 +74,10 @@ jobs:
       - name: Allow the binary to bind the TFTP and DHCP ports
         run: sudo setcap cap_net_bind_service=+ep .e2e/bootimus
 
-      - name: Boot virtual machines against it
+      - name: Boot virtual machines against it over a bridge
         env:
           BOOTIMUS_E2E_BINARY: ${{ github.workspace }}/.e2e/bootimus
-          BOOTIMUS_E2E_REQUIRE_TFTP: "1"
-          BOOTIMUS_E2E_PROXYDHCP: "1"
+          BOOTIMUS_E2E_REQUIRE_BRIDGE: "1"
         run: make test-e2e
 
       - name: Upload boot logs

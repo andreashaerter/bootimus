@@ -13,30 +13,20 @@ func TestE2E(t *testing.T) {
 	cfg := loadConfig(t)
 	h := &harness{t: t, cfg: cfg}
 	qemuBinary(t)
-
-	b := h.startBootimus(serverOptions{
-		name:       "primary",
-		serverAddr: guestServerAddr,
-		httpPort:   cfg.httpPort,
-		adminPort:  cfg.adminPort,
-		tftpPort:   cfg.tftpPort,
-	})
+	h.net = h.setupNetwork()
+	b := h.startBootimus()
 
 	t.Run("BIOSMenu", func(t *testing.T) {
-		sub := &harness{t: t, cfg: cfg}
-		sub.menuStage(b, macBIOS, false)
+		h.sub(t).menuStage(b, macBIOS, false)
 	})
 	t.Run("UEFIMenu", func(t *testing.T) {
-		sub := &harness{t: t, cfg: cfg}
-		sub.menuStage(b, macUEFI, true)
+		h.sub(t).menuStage(b, macUEFI, true)
 	})
 	t.Run("AlpineNextBoot", func(t *testing.T) {
-		sub := &harness{t: t, cfg: cfg}
-		sub.alpineStage(b)
+		h.sub(t).alpineStage(b)
 	})
-	t.Run("ProxyDHCP", func(t *testing.T) {
-		sub := &harness{t: t, cfg: cfg}
-		sub.proxyDHCPStage(b)
+	t.Run("ProxyDHCPEvents", func(t *testing.T) {
+		h.sub(t).proxyDHCPStage(b)
 	})
 }
 
@@ -54,16 +44,16 @@ func (h *harness) menuStage(b *bootimus, mac string, uefi bool) {
 	v := h.startVM(vmOptions{name: name, mac: mac, uefi: uefi, bootfile: bootfile, tftpDir: staging})
 
 	if uefi && h.cfg.uefiMode != "direct" {
-		h.waitFor(h.scale(60*time.Second), "firmware to attempt PXE or report no boot option", func() (bool, string) {
+		h.waitFor(h.scale(90*time.Second), "firmware PXE to reach iPXE or give up", func() (bool, string) {
 			return v.serialContains(serialBanner) || v.serialContains(serialNoBootUEFI) || v.serialContains(serialPXEFailed) || v.exited(), v.serialTail()
 		})
 	}
 	if uefi && !v.serialContains(serialBanner) {
 		if h.cfg.uefiMode == "pxe" {
-			t.Fatalf("firmware did not PXE boot and %s=pxe forbids the direct launch fallback:\n%s", envUEFIMode, v.serialTail())
+			t.Fatalf("firmware PXE did not reach iPXE and %s=pxe forbids the direct launch fallback:\n%s", envUEFIMode, v.serialTail())
 		}
 		v.stop()
-		t.Logf("firmware PXE did not reach iPXE (%s); launching %s directly from a FAT volume instead, so the firmware's own TFTP download is not exercised", strings.TrimSpace(truncate(v.serialTail(), 200)), loaderUEFI)
+		t.Logf("firmware PXE did not reach iPXE (%s); launching %s from a FAT volume instead, so the firmware's own download of the loader is not exercised", strings.TrimSpace(truncate(v.serialTail(), 200)), loaderUEFI)
 		fat := h.fatDirWith(name, h.cfg.repoRoot+"/bootloaders/default/"+loaderUEFI)
 		v = h.startVM(vmOptions{name: name + "-direct", mac: mac, uefi: true, tftpDir: staging, fatDir: fat})
 	}
@@ -89,7 +79,10 @@ func (h *harness) menuStage(b *bootimus, mac string, uefi bool) {
 	h.waitFor(h.scale(60*time.Second), name+" menu title on the serial console", func() (bool, string) {
 		return v.serialContains(serialMenuTitle), v.serialTail()
 	})
-	if !b.tftpByQEMU {
+	if h.net.mode == networkBridge {
+		h.waitFor(h.scale(15*time.Second), name+" proxyDHCP reply recorded", func() (bool, string) {
+			return b.proxyDHCPReplied(mac)
+		})
 		if !b.logContains("TFTP: Client requesting file: " + bootfile) {
 			t.Errorf("Bootimus TFTP never served %s; log tail:\n%s", bootfile, tail(b.logPath, 20))
 		}
@@ -98,6 +91,24 @@ func (h *harness) menuStage(b *bootimus, mac string, uefi bool) {
 		}
 	}
 	v.stop()
+}
+
+func (h *harness) proxyDHCPStage(b *bootimus) {
+	t := h.t
+	t.Helper()
+	b.t = t
+	if h.net.mode != networkBridge {
+		t.Skip("proxyDHCP is only exercised on the bridge network")
+	}
+	for _, mac := range []string{macBIOS, macUEFI, macAlpine} {
+		if ok, detail := b.proxyDHCPReplied(mac); !ok {
+			t.Errorf("%s", detail)
+		}
+	}
+	out := b.mustAPI(http.MethodGet, "/api/proxydhcp/events", nil)
+	if enabled, _ := out["enabled"].(bool); !enabled {
+		t.Errorf("proxyDHCP reports disabled: %v", out)
+	}
 }
 
 func httpGet(url string) ([]byte, error) {

@@ -27,6 +27,7 @@ const (
 	alpineRelease   = alpineMirror + "/releases/x86_64"
 	alpineNetboot   = alpineRelease + "/netboot-" + alpineVersion
 	alpineOverlay   = "e2e-apkovl.tar.gz"
+	alpineCacheDir  = "alpine-virt-" + alpineVersion + "-x86_64"
 )
 
 func (h *harness) cached(name, url, sha string) string {
@@ -89,7 +90,7 @@ func (h *harness) buildOverlay(b *bootimus) []byte {
 		"#!/bin/sh",
 		"MAC=$(cat /sys/class/net/eth0/address)",
 		`echo "BOOTIMUS-E2E overlay running for $MAC"`,
-		fmt.Sprintf(`URL=$(wget -qO- "http://%s:%d/autoinstall/%s?mac=$MAC" | grep -o 'http://[^ "]*install/callback[^ "]*' | head -1)`, b.serverAddr, b.httpPort, alpineISO),
+		fmt.Sprintf(`URL=$(wget -qO- "%s/autoinstall/%s?mac=$MAC" | grep -o 'http://[^ "]*install/callback[^ "]*' | head -1)`, b.guestURL, alpineISO),
 		`echo "BOOTIMUS-E2E callback $URL"`,
 		`wget -qO- "${URL}&status=completed&message=e2e-overlay"`,
 		"poweroff",
@@ -162,14 +163,20 @@ func (h *harness) alpineStage(b *bootimus) {
 	if fmt.Sprint(image["distro"]) != "alpine" {
 		t.Fatalf("expected the ISO to be detected as alpine, got %v", image["distro"])
 	}
-	bootDir := filepath.Join(b.dataDir, "isos", strings.TrimSuffix(alpineISO, ".iso"))
+	bootDir := filepath.Join(b.dataDir, "isos", alpineCacheDir)
 	if err := copyFile(initrd, filepath.Join(bootDir, "initramfs-netboot")); err != nil {
 		t.Fatal(err)
+	}
+	for _, rel := range []string{"iso/boot/modloop-virt", "iso/apks/x86_64/APKINDEX.tar.gz"} {
+		url := fmt.Sprintf("%s/boot/%s/%s", b.bootURL, alpineCacheDir, rel)
+		if resp, err := http.Head(url); err != nil || resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s is not served from the extracted ISO tree (install bsdtar, the libarchive-tools package, so extraction keeps full file names): %v", url, err)
+		}
 	}
 
 	overlay := h.buildOverlay(b)
 	b.upload("/api/files/upload", "file", alpineOverlay, overlay, map[string]string{"public": "true"})
-	if _, err := httpGet(fmt.Sprintf("http://127.0.0.1:%d/files/%s", b.httpPort, alpineOverlay)); err != nil {
+	if _, err := httpGet(b.bootURL + "/files/" + alpineOverlay); err != nil {
 		t.Fatalf("overlay is not served on the boot port: %v", err)
 	}
 
@@ -177,9 +184,9 @@ func (h *harness) alpineStage(b *bootimus) {
 		"modules=loop,squashfs,sd-mod,usb-storage",
 		"console=ttyS0,115200",
 		"ip=dhcp",
-		"modloop=" + strings.Replace(alpineNetboot, "https://", "http://", 1) + "/modloop-virt",
-		"alpine_repo=" + strings.Replace(alpineMirror, "https://", "http://", 1) + "/main",
-		fmt.Sprintf("apkovl=http://%s:%d/files/%s", b.serverAddr, b.httpPort, alpineOverlay),
+		fmt.Sprintf("modloop=%s/boot/%s/iso/boot/modloop-virt", b.guestURL, alpineCacheDir),
+		fmt.Sprintf("alpine_repo=%s/boot/%s/iso/apks", b.guestURL, alpineCacheDir),
+		fmt.Sprintf("apkovl=%s/files/%s", b.guestURL, alpineOverlay),
 	}, " ")
 	b.mustAPI(http.MethodPut, "/api/images?filename="+alpineISO, map[string]any{
 		"boot_params":     bootParams,
@@ -226,7 +233,7 @@ func (h *harness) alpineStage(b *bootimus) {
 		}
 		return false, fmt.Sprint(out)
 	})
-	if !b.logContains("install of " + strings.TrimSuffix(alpineISO, ".iso") + " completed") {
+	if !b.logContains("install of " + alpineCacheDir + " completed") {
 		t.Errorf("server log has no install completion line; tail:\n%s", tail(b.logPath, 20))
 	}
 	client := b.mustAPI(http.MethodGet, "/api/clients?mac="+macAlpine, nil)["data"].(map[string]any)

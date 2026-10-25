@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -66,7 +65,6 @@ type vmOptions struct {
 	mac      string
 	uefi     bool
 	bootfile string
-	netdev   string
 	tftpDir  string
 	fatDir   string
 	memory   string
@@ -115,17 +113,11 @@ func (h *harness) startVM(o vmOptions) *vm {
 	if h.cfg.kvm {
 		args = append(args, "-enable-kvm", "-cpu", "host")
 	}
-	netdev := o.netdev
-	if netdev == "" {
-		netdev = "user,id=n0,net=" + guestSubnet + ",tftp-server-name=" + guestServerAddr
-		if o.tftpDir != "" {
-			netdev += ",tftp=" + o.tftpDir
-		}
-		if o.bootfile != "" {
-			netdev += ",bootfile=" + o.bootfile
-		}
+	nic := "virtio-net-pci,netdev=n0,mac=" + o.mac
+	if o.fatDir == "" {
+		nic += ",bootindex=0"
 	}
-	args = append(args, "-netdev", netdev, "-device", "virtio-net-pci,netdev=n0,mac="+o.mac+",bootindex=0")
+	args = append(args, "-netdev", h.net.qemuNetdev(o.tftpDir, o.bootfile), "-device", nic)
 	if o.uefi {
 		fw, ok := findOVMF()
 		if !ok {
@@ -140,7 +132,10 @@ func (h *harness) startVM(o vmOptions) *vm {
 			"-drive", "if=pflash,format=raw,file="+vars,
 		)
 		if o.fatDir != "" {
-			args = append(args, "-drive", "file=fat:rw:"+o.fatDir+",format=raw,if=virtio")
+			args = append(args,
+				"-drive", "file=fat:rw:"+o.fatDir+",format=raw,if=none,id=fat",
+				"-device", "virtio-blk-pci,drive=fat,bootindex=0",
+			)
 		}
 	} else {
 		args = append(args, "-fw_cfg", "name=etc/sercon-port,file="+h.serconFile(), "-boot", "n")
@@ -222,7 +217,7 @@ func (h *harness) stagingDir(b *bootimus) string {
 			t.Fatal(err)
 		}
 	}
-	autoexec, err := httpGet(fmt.Sprintf("http://127.0.0.1:%d/autoexec.ipxe", b.httpPort))
+	autoexec, err := httpGet(b.bootURL + "/autoexec.ipxe")
 	if err != nil {
 		t.Fatalf("fetch autoexec.ipxe: %v", err)
 	}
