@@ -34,7 +34,7 @@ func NewSQLiteStore(dataDir string) (*SQLiteStore, error) {
 }
 
 func (s *SQLiteStore) AutoMigrate() error {
-	if err := s.db.AutoMigrate(&models.User{}, &models.ClientGroup{}, &models.NodeImage{}, &models.Cluster{}, &models.Client{}, &models.ImageGroup{}, &models.Image{}, &models.BootLog{}, &models.CustomFile{}, &models.DriverPack{}, &models.MenuTheme{}, &models.BootTool{}, &models.HardwareInventory{}, &models.DistroProfile{}, &models.WebhookConfig{}, &models.ScheduledTask{}, &models.AuditLog{}, &models.HousekeepingSettings{}, &models.SANTarget{}, &models.DiskImage{}, &models.DiskJob{}, &models.APIToken{}, &models.InstallRecord{}, &models.ReplicaState{}); err != nil {
+	if err := s.db.AutoMigrate(&models.User{}, &models.ClientGroup{}, &models.NodeImage{}, &models.Cluster{}, &models.Client{}, &models.ImageGroup{}, &models.Image{}, &models.BootLog{}, &models.CustomFile{}, &models.DriverPack{}, &models.MenuTheme{}, &models.BootTool{}, &models.HardwareInventory{}, &models.DistroProfile{}, &models.WebhookConfig{}, &models.ScheduledTask{}, &models.AuditLog{}, &models.HousekeepingSettings{}, &models.SANTarget{}, &models.DeploymentProfile{}, &models.DiskImage{}, &models.DiskJob{}, &models.APIToken{}, &models.InstallRecord{}, &models.ReplicaState{}); err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 
@@ -87,7 +87,7 @@ func (s *SQLiteStore) CreateClient(client *models.Client) error {
 func (s *SQLiteStore) UpdateClient(mac string, client *models.Client) error {
 	return s.db.Model(&models.Client{}).Where("mac_address = ?", mac).
 		Select("Name", "Description", "Enabled", "ShowPublicImages", "BootloaderSet", "Static", "ClientGroupID",
-			"BMCProtocol", "IPMIHost", "IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "Variables", "ProxyDHCPNoVendorOption", "SANTargetID", "BootFromSAN", "UpdatedAt").
+			"BMCProtocol", "IPMIHost", "IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "Variables", "ProxyDHCPNoVendorOption", "SANTargetID", "BootFromSAN", "ProfileID", "UpdatedAt").
 		Updates(client).Error
 }
 
@@ -900,7 +900,7 @@ func (s *SQLiteStore) CreateClientGroup(group *models.ClientGroup) error {
 func (s *SQLiteStore) UpdateClientGroup(id uint, group *models.ClientGroup) error {
 	return s.db.Model(&models.ClientGroup{}).Where("id = ?", id).
 		Select("Name", "Description", "Enabled", "AllowedImages", "BootloaderSet", "WOLBroadcastAddr", "StaggerDelayMillis",
-			"BMCProtocol", "IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "Variables", "SANTargetID", "BootFromSAN", "UpdatedAt").
+			"BMCProtocol", "IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "Variables", "SANTargetID", "BootFromSAN", "ProfileID", "UpdatedAt").
 		Updates(group).Error
 }
 

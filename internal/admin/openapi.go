@@ -83,6 +83,7 @@ var APISections = []APISection{
 		{Method: "GET", Path: "/api/clients/installs", Summary: "Unattended install history for a client, newest first.", Params: []APIParam{qMAC("MAC address of the client"), {Name: "limit", In: "query", Description: "Maximum entries, default 50"}}, ReadOnly: true},
 		{Method: "GET", Path: "/api/clients/timeline", Summary: "Merged activity timeline for a client: boots, installs, disk imaging jobs, proxyDHCP requests and, for administrators, audit entries.", Params: []APIParam{qMAC("MAC address of the client"), {Name: "limit", In: "query", Description: "Page size, default 50, maximum 500"}, {Name: "before", In: "query", Description: "RFC 3339 cursor from the previous page's next_before"}}, ReadOnly: true},
 		{Method: "GET", Path: "/api/installs", Summary: "Recent unattended installs across all clients, newest first.", Params: []APIParam{{Name: "limit", In: "query", Description: "Maximum entries, default 100"}}, ReadOnly: true},
+		{Method: "GET", Path: "/api/clients/effective", Summary: "Settings in force for a client after deployment profile and group precedence, with the source of each value.", Params: []APIParam{qMAC("MAC address of the client")}, ReadOnly: true},
 		{Method: "GET", Path: "/api/clients/menu-preview", Summary: "Render the iPXE script a client would receive, without side effects.", Params: []APIParam{{Name: "mac", In: "query", Description: "MAC address of the client; omit or use unknown for the anonymous menu"}}, ReadOnly: true},
 		{Method: "POST", Path: "/api/clients/power", Summary: "BMC (Redfish or Intel AMT) power control.", Params: []APIParam{qMAC("MAC address of the client"), {Name: "action", In: "query", Description: "On, ForceOff, ForceRestart, GracefulShutdown or GracefulRestart", Required: true}}},
 		{Method: "GET", Path: "/api/clients/power/status", Summary: "BMC (Redfish or Intel AMT) power status.", Params: []APIParam{qMAC("MAC address of the client")}, ReadOnly: true},
@@ -94,6 +95,12 @@ var APISections = []APISection{
 		{Method: "POST", Path: "/api/san-targets", Summary: "Create a SAN target.", Body: "{name, description, uri, initiator_iqn, chap_username, chap_password, reverse_chap_username, reverse_chap_password}"},
 		{Method: "PUT", Path: "/api/san-targets", Summary: "Update a SAN target.", Params: []APIParam{qID("SAN target ID")}, Body: "{name, description, uri, initiator_iqn, chap_username, chap_password, reverse_chap_username, reverse_chap_password}"},
 		{Method: "DELETE", Path: "/api/san-targets", Summary: "Delete a SAN target and clear it from clients and groups.", Params: []APIParam{qID("SAN target ID")}},
+	}},
+	{Tag: "Deployment Profiles", Description: "Named bundles of image, auto-install file, SAN target, bootloader set and first-boot action, resolved at boot time for the clients and groups they are assigned to.", Endpoints: []APIEndpoint{
+		{Method: "GET", Path: "/api/deployment-profiles", Summary: "List deployment profiles with the number of clients and groups using each.", ReadOnly: true},
+		{Method: "POST", Path: "/api/deployment-profiles", Summary: "Create a deployment profile.", Body: "{name, description, image_filename, auto_install_file, san_target_id, boot_from_san, bootloader_set, disk_image_id, first_boot_action, show_public_images}"},
+		{Method: "PUT", Path: "/api/deployment-profiles", Summary: "Update a deployment profile.", Params: []APIParam{qID("Deployment profile ID")}, Body: "{name, description, image_filename, auto_install_file, san_target_id, boot_from_san, bootloader_set, disk_image_id, first_boot_action, show_public_images}"},
+		{Method: "DELETE", Path: "/api/deployment-profiles", Summary: "Delete a deployment profile and clear it from clients and groups.", Params: []APIParam{qID("Deployment profile ID")}},
 	}},
 	{Tag: "Client Groups", Endpoints: []APIEndpoint{
 		{Method: "GET", Path: "/api/client-groups", Summary: "List all client groups.", ReadOnly: true},

@@ -94,6 +94,12 @@ type Storage interface {
 	UpdateSANTarget(id uint, target *models.SANTarget) error
 	DeleteSANTarget(id uint) error
 	CountSANTargetUsers(id uint) (int64, int64, error)
+	ListDeploymentProfiles() ([]*models.DeploymentProfile, error)
+	GetDeploymentProfile(id uint) (*models.DeploymentProfile, error)
+	CreateDeploymentProfile(profile *models.DeploymentProfile) error
+	UpdateDeploymentProfile(id uint, profile *models.DeploymentProfile) error
+	DeleteDeploymentProfile(id uint) error
+	CountDeploymentProfileUsers(id uint) (int64, int64, error)
 
 	GetWebhookConfig() (*models.WebhookConfig, error)
 	UpdateWebhookConfig(cfg *models.WebhookConfig) error
