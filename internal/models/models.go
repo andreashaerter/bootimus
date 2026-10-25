@@ -689,8 +689,8 @@ type DiskJob struct {
 	ClientMAC   string     `gorm:"index" json:"client_mac"`
 	ClientName  string     `json:"client_name,omitempty"`
 	Kind        string     `gorm:"not null" json:"kind"`
-	DiskImageID uint       `gorm:"index" json:"disk_image_id"`
-	DiskImage   *DiskImage `gorm:"foreignKey:DiskImageID" json:"disk_image,omitempty"`
+	DiskImageID *uint      `gorm:"index" json:"disk_image_id,omitempty"`
+	DiskImage   *DiskImage `gorm:"foreignKey:DiskImageID;constraint:OnDelete:SET NULL" json:"disk_image,omitempty"`
 	Disk        string     `json:"disk"`
 	State       string     `gorm:"index" json:"state"`
 	Token       string     `gorm:"uniqueIndex;not null" json:"-"`

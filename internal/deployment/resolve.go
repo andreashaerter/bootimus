@@ -205,7 +205,7 @@ func InstallCompletedFor(records []models.InstallRecord, imageFilename string) b
 
 func DeployJobExistsFor(jobs []*models.DiskJob, diskImageID uint) bool {
 	for _, job := range jobs {
-		if job.Kind == models.DiskJobKindDeploy && job.DiskImageID == diskImageID {
+		if job.Kind == models.DiskJobKindDeploy && job.DiskImageID != nil && *job.DiskImageID == diskImageID {
 			return true
 		}
 	}

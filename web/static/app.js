@@ -9391,7 +9391,7 @@ function renderDiskJobs() {
                         <td style="white-space: nowrap;">${new Date(job.created_at).toLocaleString()}</td>
                         <td><code>${escapeHtml(job.client_mac)}</code>${job.client_name ? ' ' + escapeHtml(job.client_name) : ''}</td>
                         <td>${escapeHtml(job.kind)}</td>
-                        <td>${escapeHtml(job.disk_image ? job.disk_image.name : String(job.disk_image_id))}</td>
+                        <td>${job.disk_image ? escapeHtml(job.disk_image.name) : (job.disk_image_id ? '#' + job.disk_image_id : '<span style="color: var(--text-secondary);">Deleted image</span>')}</td>
                         <td>${escapeHtml(job.disk || '-')}</td>
                         <td>${diskJobStateBadge(job.state)}</td>
                         <td>${diskJobDuration(job)}</td>

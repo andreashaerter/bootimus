@@ -12,21 +12,15 @@ import (
 
 	"bootimus/internal/models"
 	"bootimus/internal/storage"
+	"bootimus/internal/storage/storagetest"
 	"bootimus/internal/webhook"
 )
 
 const installTestMAC = "aa:bb:cc:dd:ee:10"
 
-func newInstallEnv(t *testing.T) (*Server, *storage.SQLiteStore) {
+func newInstallEnv(t *testing.T) (*Server, storage.Storage) {
 	t.Helper()
-	store, err := storage.NewSQLiteStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.AutoMigrate(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { store.Close() })
+	store := storagetest.New(t)
 	if err := store.CreateClient(&models.Client{MACAddress: installTestMAC, Name: "bench-1", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +31,7 @@ func newInstallEnv(t *testing.T) (*Server, *storage.SQLiteStore) {
 	return srv, store
 }
 
-func installTestImage(t *testing.T, store *storage.SQLiteStore, filename string, autoInstall bool) *models.Image {
+func installTestImage(t *testing.T, store storage.Storage, filename string, autoInstall bool) *models.Image {
 	t.Helper()
 	img := &models.Image{Filename: filename, Name: strings.TrimSuffix(filename, ".iso"), Enabled: true, BootMethod: "kernel", Distro: "rocky"}
 	if autoInstall {

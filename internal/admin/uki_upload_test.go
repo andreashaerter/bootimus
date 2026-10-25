@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"bootimus/internal/storage"
+	"bootimus/internal/storage/storagetest"
 	"bootimus/internal/uki/ukitest"
 )
 
@@ -32,15 +32,8 @@ func uploadImage(t *testing.T, h *Handler, filename string, content []byte) int 
 }
 
 func TestUploadUKI(t *testing.T) {
-	dataDir := t.TempDir()
 	isoDir := t.TempDir()
-	store, err := storage.NewSQLiteStore(dataDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.AutoMigrate(); err != nil {
-		t.Fatal(err)
-	}
+	store := storagetest.New(t)
 	h := &Handler{storage: store, isoDir: isoDir}
 
 	src := filepath.Join(t.TempDir(), "fedora-uki.efi")

@@ -7,21 +7,8 @@ import (
 	"bootimus/internal/models"
 )
 
-func newAuditTestStore(t *testing.T) *SQLiteStore {
-	t.Helper()
-	store, err := NewSQLiteStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.AutoMigrate(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { store.Close() })
-	return store
-}
-
 func TestAuditLogListFilters(t *testing.T) {
-	store := newAuditTestStore(t)
+	store := newTestStore(t)
 	entries := []models.AuditLog{
 		{Username: "alice", Method: "PUT", Path: "/api/clients", Query: "mac=aa", Status: 200, Summary: "Updated client aa"},
 		{Username: "bob", Method: "DELETE", Path: "/api/images", Status: 200, Summary: "Deleted image"},
@@ -78,7 +65,7 @@ func TestAuditLogListFilters(t *testing.T) {
 }
 
 func TestDeleteAuditLogsBefore(t *testing.T) {
-	store := newAuditTestStore(t)
+	store := newTestStore(t)
 	old := &models.AuditLog{Username: "alice", Method: "PUT", Path: "/api/clients", Status: 200}
 	if err := store.CreateAuditLog(old); err != nil {
 		t.Fatal(err)

@@ -7,21 +7,8 @@ import (
 	"bootimus/internal/models"
 )
 
-func newDeploymentStore(t *testing.T) *SQLiteStore {
-	t.Helper()
-	store, err := NewSQLiteStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.AutoMigrate(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { store.Close() })
-	return store
-}
-
 func TestDeploymentProfileRoundTripAndDeleteClearsReferences(t *testing.T) {
-	store := newDeploymentStore(t)
+	store := newTestStore(t)
 	san := &models.SANTarget{Name: "disk", URI: "iscsi:10.0.0.5::::iqn.2024-01.lan:disk0"}
 	if err := store.CreateSANTarget(san); err != nil {
 		t.Fatal(err)
@@ -107,7 +94,7 @@ func TestDeploymentProfileValidation(t *testing.T) {
 }
 
 func TestClientAndGroupUpdatesPersistProfile(t *testing.T) {
-	store := newDeploymentStore(t)
+	store := newTestStore(t)
 	profile := &models.DeploymentProfile{Name: "p"}
 	if err := store.CreateDeploymentProfile(profile); err != nil {
 		t.Fatal(err)

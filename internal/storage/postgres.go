@@ -12,18 +12,51 @@ import (
 
 	"bootimus/internal/models"
 
+	"github.com/jackc/pgx/v5"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
 type Config struct {
-	Host     string
-	Port     int
-	User     string
-	Password string
-	DBName   string
-	SSLMode  string
+	Host       string
+	Port       int
+	User       string
+	Password   string
+	DBName     string
+	SSLMode    string
+	SearchPath string
+}
+
+func (c *Config) dsn() string {
+	dsn := fmt.Sprintf(
+		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+		c.Host, c.Port, c.User, c.Password, c.DBName, c.SSLMode,
+	)
+	if c.SearchPath != "" {
+		dsn += " search_path=" + c.SearchPath
+	}
+	return dsn
+}
+
+func ParsePostgresDSN(raw string) (*Config, error) {
+	parsed, err := pgx.ParseConfig(raw)
+	if err != nil {
+		return nil, fmt.Errorf("parse PostgreSQL DSN: %w", err)
+	}
+	cfg := &Config{
+		Host:       parsed.Host,
+		Port:       int(parsed.Port),
+		User:       parsed.User,
+		Password:   parsed.Password,
+		DBName:     parsed.Database,
+		SSLMode:    "disable",
+		SearchPath: parsed.RuntimeParams["search_path"],
+	}
+	if parsed.TLSConfig != nil {
+		cfg.SSLMode = "require"
+	}
+	return cfg, nil
 }
 
 type PostgresStore struct {
@@ -32,12 +65,7 @@ type PostgresStore struct {
 }
 
 func NewPostgresStore(cfg *Config) (*PostgresStore, error) {
-	dsn := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.DBName, cfg.SSLMode,
-	)
-
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+	db, err := gorm.Open(postgres.Open(cfg.dsn()), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
@@ -221,7 +249,11 @@ func (s *PostgresStore) DeleteBootTool(name string) error {
 }
 
 func (s *PostgresStore) Close() error {
-	return nil
+	db, err := s.db.DB()
+	if err != nil {
+		return err
+	}
+	return db.Close()
 }
 
 func (s *PostgresStore) ListClients() ([]*models.Client, error) {

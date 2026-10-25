@@ -171,7 +171,8 @@ func TestInstallCompletedForAndDeployJobExists(t *testing.T) {
 	if !InstallCompletedFor(records, "b.iso") {
 		t.Error("expected b.iso to be completed")
 	}
-	jobs := []*models.DiskJob{{Kind: models.DiskJobKindCapture, DiskImageID: 7}, {Kind: models.DiskJobKindDeploy, DiskImageID: 8}}
+	seven, eight := uint(7), uint(8)
+	jobs := []*models.DiskJob{{Kind: models.DiskJobKindCapture, DiskImageID: &seven}, {Kind: models.DiskJobKindDeploy, DiskImageID: &eight}}
 	if DeployJobExistsFor(jobs, 7) {
 		t.Error("a capture job is not a deploy job")
 	}
