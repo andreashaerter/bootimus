@@ -30,6 +30,19 @@ test('PXE debug explains that proxyDHCP is off', async ({ page }) => {
   await expect(page.locator('#pxe-debug-disabled')).toContainText(/proxyDHCP/);
 });
 
+test('SMB guidance describes server startup configuration in every language', async ({ page }) => {
+  await loginAsAdmin(page);
+  const languages = await page.locator('#lang-select option').evaluateAll(options =>
+    options.map(option => (option as HTMLOptionElement).value));
+  expect(languages.length).toBeGreaterThan(1);
+  for (const language of languages) {
+    await page.selectOption('#lang-select', language);
+    const warning = page.locator('[data-i18n="props.warn.smb_disabled"]');
+    await expect(warning).toContainText('--windows-smb');
+    await expect(warning).toContainText('BOOTIMUS_WINDOWS_SMB_ENABLED=true');
+  }
+});
+
 test('audit log lists admin actions', async ({ page }) => {
   await loginAsAdmin(page);
   const mac = randomMAC();

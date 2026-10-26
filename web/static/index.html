@@ -2349,7 +2349,7 @@
                 <button type="button" class="btn btn-sm btn-warning" onclick="downloadNetbootFromProperties()" data-i18n="props.action.download_netboot">Download netboot files</button>
             </div>
             <div id="image-props-warn-smb-server" class="guide-warning" style="display:none;">
-                <span class="gw-text" data-i18n="props.warn.smb_disabled">Server SMB share is disabled. Windows installs need it. Enable Windows SMB in Settings.</span>
+                <span class="gw-text" data-i18n="props.warn.smb_disabled">Windows SMB is disabled. Enable it on the server with --windows-smb (Docker: BOOTIMUS_WINDOWS_SMB_ENABLED=true), then restart Bootimus.</span>
                 <button type="button" class="btn btn-sm btn-warning" onclick="navigateToSettings()" data-i18n="props.action.open_settings">Open Settings</button>
             </div>
             <div id="image-props-warn-wimlib" class="guide-warning" style="display:none;">
