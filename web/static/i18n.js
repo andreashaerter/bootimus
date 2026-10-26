@@ -197,7 +197,7 @@ const TRANSLATIONS = {
 
         'props.warn.not_extracted': "Not extracted yet. This OS likely won't boot reliably without extraction — kernel and initrd need to be served directly.",
         'props.warn.netboot_required': "Netboot files required. This Debian/Ubuntu DVD ISO ships an installer that needs a separate kernel/initrd bundle from the distro mirror — it can't boot directly from the ISO contents.",
-        'props.warn.smb_disabled': 'Server SMB share is disabled. Windows installs need it. Enable Windows SMB in Settings.',
+        'props.warn.smb_disabled': 'Windows SMB is disabled. Enable it on the server with --windows-smb (Docker: BOOTIMUS_WINDOWS_SMB_ENABLED=true), then restart Bootimus.',
         'props.warn.wimlib_missing': 'wimlib-imagex is not installed on the server. boot.wim cannot be patched without it. Install wimtools (or wimlib-imagex) on the host running bootimus, then restart.',
         'props.warn.repatch': 'Re-patch needed. Auto-install changed since boot.wim was last embedded — save and re-patch SMB so the change takes effect.',
 
@@ -402,7 +402,7 @@ const TRANSLATIONS = {
 
         'props.warn.not_extracted': 'Noch nicht extrahiert. Dieses Betriebssystem startet ohne Extraktion vermutlich nicht zuverlässig — Kernel und Initrd müssen direkt ausgeliefert werden.',
         'props.warn.netboot_required': 'Netboot-Dateien erforderlich. Diese Debian-/Ubuntu-DVD-ISO bringt einen Installer mit, der ein eigenes Kernel-/Initrd-Bundle vom Distro-Spiegel benötigt — sie kann nicht direkt aus dem ISO-Inhalt starten.',
-        'props.warn.smb_disabled': 'Die Server-SMB-Freigabe ist deaktiviert. Windows-Installationen benötigen sie. Aktivieren Sie Windows-SMB in den Einstellungen.',
+        'props.warn.smb_disabled': 'Windows-SMB ist deaktiviert. Aktivieren Sie es auf dem Server mit --windows-smb (Docker: BOOTIMUS_WINDOWS_SMB_ENABLED=true) und starten Sie Bootimus neu.',
         'props.warn.wimlib_missing': 'wimlib-imagex ist nicht auf dem Server installiert. boot.wim kann ohne dieses Werkzeug nicht gepatcht werden. Installieren Sie wimtools (oder wimlib-imagex) auf dem Bootimus-Host und starten Sie ihn neu.',
         'props.warn.repatch': 'Neuer Patch erforderlich. Die Auto-Installation hat sich seit dem letzten Einbetten in boot.wim geändert — speichern und SMB neu patchen, damit die Änderung wirksam wird.',
 
@@ -607,7 +607,7 @@ const TRANSLATIONS = {
 
         'props.warn.not_extracted': "Pas encore extraite. Sans extraction, ce système ne démarrera probablement pas correctement — le noyau et l'initrd doivent être servis directement.",
         'props.warn.netboot_required': "Fichiers netboot requis. Cette ISO DVD Debian/Ubuntu embarque un installeur qui nécessite un bundle noyau/initrd séparé depuis le miroir de la distribution — elle ne peut pas démarrer directement à partir du contenu de l'ISO.",
-        'props.warn.smb_disabled': "Le partage SMB du serveur est désactivé. Les installations Windows en ont besoin. Activez Windows SMB dans les paramètres.",
+        'props.warn.smb_disabled': 'SMB Windows est désactivé. Activez-le sur le serveur avec --windows-smb (Docker : BOOTIMUS_WINDOWS_SMB_ENABLED=true), puis redémarrez Bootimus.',
         'props.warn.wimlib_missing': "wimlib-imagex n'est pas installé sur le serveur. boot.wim ne peut pas être patché sans cet outil. Installez wimtools (ou wimlib-imagex) sur l'hôte exécutant bootimus, puis redémarrez.",
         'props.warn.repatch': "Re-patch nécessaire. L'installation auto a changé depuis le dernier patch de boot.wim — enregistrez et re-patchez SMB pour appliquer la modification.",
 
@@ -812,7 +812,7 @@ const TRANSLATIONS = {
 
         'props.warn.not_extracted': 'Aún no se ha extraído. Es probable que este sistema operativo no arranque de forma fiable sin extracción — el kernel y el initrd deben servirse directamente.',
         'props.warn.netboot_required': 'Se requieren archivos netboot. Esta ISO de DVD de Debian/Ubuntu incluye un instalador que necesita un paquete de kernel/initrd independiente del mirror de la distribución — no puede arrancar directamente desde el contenido de la ISO.',
-        'props.warn.smb_disabled': 'El recurso compartido SMB del servidor está desactivado. Las instalaciones de Windows lo necesitan. Active Windows SMB en Ajustes.',
+        'props.warn.smb_disabled': 'SMB de Windows está desactivado. Actívelo en el servidor con --windows-smb (Docker: BOOTIMUS_WINDOWS_SMB_ENABLED=true) y reinicie Bootimus.',
         'props.warn.wimlib_missing': 'wimlib-imagex no está instalado en el servidor. boot.wim no se puede parchear sin él. Instale wimtools (o wimlib-imagex) en el host que ejecuta bootimus y, a continuación, reinicie.',
         'props.warn.repatch': 'Es necesario volver a parchear. La instalación automática ha cambiado desde la última vez que se incrustó boot.wim — guarde y vuelva a parchear SMB para que el cambio surta efecto.',
 
@@ -1017,7 +1017,7 @@ const TRANSLATIONS = {
 
         'props.warn.not_extracted': "Non ancora estratta. Questo sistema operativo probabilmente non si avvierà in modo affidabile senza estrazione — kernel e initrd devono essere forniti direttamente.",
         'props.warn.netboot_required': "File netboot necessari. Questa ISO DVD di Debian/Ubuntu include un programma di installazione che richiede un pacchetto kernel/initrd separato dal mirror della distro — non può avviarsi direttamente dal contenuto della ISO.",
-        'props.warn.smb_disabled': 'La condivisione SMB del server è disabilitata. Le installazioni di Windows ne hanno bisogno. Abilita SMB per Windows nelle Impostazioni.',
+        'props.warn.smb_disabled': 'SMB per Windows è disabilitato. Abilitalo sul server con --windows-smb (Docker: BOOTIMUS_WINDOWS_SMB_ENABLED=true), poi riavvia Bootimus.',
         'props.warn.wimlib_missing': "wimlib-imagex non è installato sul server. Senza di esso non è possibile applicare la patch a boot.wim. Installa wimtools (o wimlib-imagex) sull'host che esegue bootimus, quindi riavvia.",
         'props.warn.repatch': "Patch da riapplicare. L'installazione automatica è cambiata dall'ultimo inserimento in boot.wim — salva e riapplica la patch SMB per rendere effettiva la modifica.",
 
@@ -1222,7 +1222,7 @@ const TRANSLATIONS = {
 
         'props.warn.not_extracted': 'Nog niet uitgepakt. Dit besturingssysteem boot waarschijnlijk niet betrouwbaar zonder uitpakken — kernel en initrd moeten rechtstreeks worden geleverd.',
         'props.warn.netboot_required': 'Netbootbestanden vereist. Deze Debian/Ubuntu-dvd-ISO bevat een installatieprogramma dat een aparte kernel/initrd-bundel van de distromirror nodig heeft — het kan niet rechtstreeks vanaf de inhoud van de ISO booten.',
-        'props.warn.smb_disabled': 'De SMB-share van de server is uitgeschakeld. Windows-installaties hebben deze nodig. Schakel Windows-SMB in via Instellingen.',
+        'props.warn.smb_disabled': 'Windows-SMB is uitgeschakeld. Schakel het op de server in met --windows-smb (Docker: BOOTIMUS_WINDOWS_SMB_ENABLED=true) en start Bootimus opnieuw.',
         'props.warn.wimlib_missing': 'wimlib-imagex is niet geïnstalleerd op de server. Zonder dit kan boot.wim niet worden gepatcht. Installeer wimtools (of wimlib-imagex) op de host waarop bootimus draait en start daarna opnieuw.',
         'props.warn.repatch': 'Opnieuw patchen nodig. De auto-installatie is gewijzigd sinds boot.wim voor het laatst is ingesloten — sla op en patch SMB opnieuw zodat de wijziging van kracht wordt.',
 
@@ -1427,7 +1427,7 @@ const TRANSLATIONS = {
 
         'props.warn.not_extracted': 'Образ ещё не извлечён. Без извлечения эта ОС, скорее всего, не загрузится надёжно — ядро и initrd должны выдаваться напрямую.',
         'props.warn.netboot_required': 'Требуются файлы netboot. Этот DVD-ISO Debian/Ubuntu содержит установщик, которому нужен отдельный комплект ядра/initrd с зеркала дистрибутива — он не может загрузиться непосредственно из содержимого ISO.',
-        'props.warn.smb_disabled': 'SMB-доступ сервера отключён. Для установки Windows он необходим. Включите Windows SMB в настройках.',
+        'props.warn.smb_disabled': 'Windows SMB отключён. Включите его на сервере с помощью --windows-smb (Docker: BOOTIMUS_WINDOWS_SMB_ENABLED=true), затем перезапустите Bootimus.',
         'props.warn.wimlib_missing': 'wimlib-imagex не установлен на сервере. Без него boot.wim не может быть пропатчен. Установите wimtools (или wimlib-imagex) на хост, где запущен bootimus, и перезапустите.',
         'props.warn.repatch': 'Требуется перепатч. Параметры автоустановки изменились с момента последнего встраивания в boot.wim — сохраните и перепатчите SMB, чтобы изменения вступили в силу.',
 
@@ -1632,7 +1632,7 @@ const TRANSLATIONS = {
 
         'props.warn.not_extracted': '此镜像尚未解包。未解包时该系统大多无法可靠引导 — 需要直接提供内核和 initrd。',
         'props.warn.netboot_required': '需要 netboot 文件。该 Debian/Ubuntu DVD ISO 含有安装程序,需要从发行版镜像源获取独立的内核 / initrd 套件 — 无法直接从 ISO 内容引导。',
-        'props.warn.smb_disabled': '服务器 SMB 已禁用。安装 Windows 时必须启用。请在设置中开启 Windows SMB。',
+        'props.warn.smb_disabled': 'Windows SMB 已禁用。请在服务器上使用 --windows-smb 启用（Docker：BOOTIMUS_WINDOWS_SMB_ENABLED=true），然后重启 Bootimus。',
         'props.warn.wimlib_missing': '服务器上未安装 wimlib-imagex。缺少它则无法为 boot.wim 打补丁。请在运行 bootimus 的主机上安装 wimtools(或 wimlib-imagex)后重启。',
         'props.warn.repatch': '需要重新打补丁。自上次将参数嵌入 boot.wim 以来,自动安装设置已更改 — 请保存并重新为 SMB 打补丁以使更改生效。',
 
