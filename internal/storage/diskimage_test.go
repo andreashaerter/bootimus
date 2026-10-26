@@ -40,7 +40,10 @@ func TestDiskJobsListingAndActiveLookup(t *testing.T) {
 	if _, err := store.ActiveDiskJobForClient("aa:bb:cc:dd:ee:03"); err == nil {
 		t.Fatal("no active job expected for unknown client")
 	}
-	if err := store.DeleteDiskImage(image.ID); err != ErrDiskImageInUse {
+	if err := store.DeleteDiskImage(image.ID, func() error {
+		t.Error("files removed while disk image is in use")
+		return nil
+	}); err != ErrDiskImageInUse {
 		t.Fatalf("DeleteDiskImage err = %v, want ErrDiskImageInUse", err)
 	}
 	for _, j := range all {
@@ -49,7 +52,7 @@ func TestDiskJobsListingAndActiveLookup(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := store.DeleteDiskImage(image.ID); err != nil {
+	if err := store.DeleteDiskImage(image.ID, nil); err != nil {
 		t.Fatal(err)
 	}
 	byToken, err := store.GetDiskJobByToken("t3")

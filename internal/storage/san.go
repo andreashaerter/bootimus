@@ -100,6 +100,9 @@ func updateSANTarget(db *gorm.DB, id uint, target *models.SANTarget) error {
 
 func deleteSANTarget(db *gorm.DB, id uint) error {
 	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.DeploymentProfile{}).Where("san_target_id = ?", id).Updates(map[string]interface{}{"san_target_id": nil, "boot_from_san": false}).Error; err != nil {
+			return err
+		}
 		if err := tx.Model(&models.Client{}).Where("san_target_id = ?", id).Updates(map[string]interface{}{"san_target_id": nil, "boot_from_san": false}).Error; err != nil {
 			return err
 		}
