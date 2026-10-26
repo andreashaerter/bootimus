@@ -1,7 +1,9 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"sort"
 	"strconv"
@@ -29,12 +31,41 @@ const (
 )
 
 type timelineItem struct {
-	Time     time.Time `json:"time"`
-	Kind     string    `json:"kind"`
-	Title    string    `json:"title"`
-	Detail   string    `json:"detail,omitempty"`
-	Status   string    `json:"status"`
-	SourceID string    `json:"source_id,omitempty"`
+	Time      time.Time `json:"time"`
+	Kind      string    `json:"kind"`
+	Title     string    `json:"title"`
+	Detail    string    `json:"detail,omitempty"`
+	Status    string    `json:"status"`
+	SourceID  string    `json:"source_id,omitempty"`
+	cursorKey string
+}
+
+type timelineCursor struct {
+	Time time.Time `json:"time"`
+	Key  string    `json:"key,omitempty"`
+}
+
+func parseTimelineCursor(raw string) (timelineCursor, error) {
+	if raw == "" {
+		return timelineCursor{}, nil
+	}
+	if before, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+		return timelineCursor{Time: before}, nil
+	}
+	invalid := errors.New("before must be a timeline cursor or RFC 3339 timestamp")
+	encoded, ok := strings.CutPrefix(raw, "v1.")
+	if !ok || len(encoded) > 512 {
+		return timelineCursor{}, invalid
+	}
+	data, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return timelineCursor{}, invalid
+	}
+	var cursor timelineCursor
+	if err := json.Unmarshal(data, &cursor); err != nil || cursor.Time.IsZero() || cursor.Key == "" {
+		return timelineCursor{}, invalid
+	}
+	return cursor, nil
 }
 
 type timelinePage struct {
@@ -43,7 +74,7 @@ type timelinePage struct {
 	HasMore    bool           `json:"has_more"`
 }
 
-func (s *Server) clientTimeline(mac string, before time.Time, limit int, includeAudit bool) (timelinePage, error) {
+func (s *Server) clientTimeline(mac string, before timelineCursor, limit int, includeAudit bool) (timelinePage, error) {
 	var items []timelineItem
 	store := s.config.Storage
 
@@ -80,11 +111,12 @@ func (s *Server) clientTimeline(mac string, before time.Time, limit int, include
 			status = timelineStatusFailed
 		}
 		items = append(items, timelineItem{
-			Time:   ev.Time,
-			Kind:   timelineKindDHCP,
-			Title:  "proxyDHCP " + ev.MessageType + " from " + ev.Source,
-			Detail: ev.Decision,
-			Status: status,
+			Time:      ev.Time,
+			Kind:      timelineKindDHCP,
+			Title:     "proxyDHCP " + ev.MessageType + " from " + ev.Source,
+			Detail:    ev.Decision,
+			Status:    status,
+			cursorKey: "dhcp:" + strconv.FormatUint(ev.Sequence, 10),
 		})
 	}
 	if includeAudit {
@@ -98,21 +130,28 @@ func (s *Server) clientTimeline(mac string, before time.Time, limit int, include
 				status = timelineStatusFailed
 			}
 			items = append(items, timelineItem{
-				Time:     e.CreatedAt,
-				Kind:     timelineKindAudit,
-				Title:    e.Summary,
-				Detail:   e.Username + " · " + e.Method + " " + e.Path + " → " + strconv.Itoa(e.Status),
-				Status:   status,
-				SourceID: "audit:" + strconv.FormatUint(uint64(e.ID), 10),
+				Time:      e.CreatedAt,
+				Kind:      timelineKindAudit,
+				Title:     e.Summary,
+				Detail:    e.Username + " · " + e.Method + " " + e.Path + " → " + strconv.Itoa(e.Status),
+				Status:    status,
+				SourceID:  "audit:" + strconv.FormatUint(uint64(e.ID), 10),
+				cursorKey: "audit:" + strconv.FormatUint(uint64(e.ID), 10),
 			})
 		}
 	}
 
-	sort.SliceStable(items, func(i, j int) bool { return items[i].Time.After(items[j].Time) })
+	sort.Slice(items, func(left, right int) bool {
+		if items[left].Time.Equal(items[right].Time) {
+			return items[left].cursorKey < items[right].cursorKey
+		}
+		return items[left].Time.After(items[right].Time)
+	})
 
 	filtered := items[:0]
 	for _, it := range items {
-		if before.IsZero() || it.Time.Before(before) {
+		if before.Time.IsZero() || it.Time.Before(before.Time) ||
+			(it.Time.Equal(before.Time) && before.Key != "" && it.cursorKey > before.Key) {
 			filtered = append(filtered, it)
 		}
 	}
@@ -120,7 +159,12 @@ func (s *Server) clientTimeline(mac string, before time.Time, limit int, include
 	if len(filtered) > limit {
 		page.Items = filtered[:limit]
 		page.HasMore = true
-		page.NextBefore = page.Items[limit-1].Time.Format(time.RFC3339Nano)
+		last := page.Items[limit-1]
+		cursor, err := json.Marshal(timelineCursor{Time: last.Time.UTC(), Key: last.cursorKey})
+		if err != nil {
+			return timelinePage{}, err
+		}
+		page.NextBefore = "v1." + base64.RawURLEncoding.EncodeToString(cursor)
 	} else {
 		page.Items = filtered
 	}
@@ -140,14 +184,15 @@ func bootLogItem(l models.BootLog) timelineItem {
 	if l.ImageName == "" {
 		title = "Boot attempt"
 	}
-	return timelineItem{Time: l.CreatedAt, Kind: timelineKindBoot, Title: title, Detail: detail, Status: status, SourceID: "boot:" + strconv.FormatUint(uint64(l.ID), 10)}
+	sourceID := "boot:" + strconv.FormatUint(uint64(l.ID), 10)
+	return timelineItem{Time: l.CreatedAt, Kind: timelineKindBoot, Title: title, Detail: detail, Status: status, SourceID: sourceID, cursorKey: sourceID}
 }
 
 func installItems(r models.InstallRecord) []timelineItem {
 	id := "install:" + strconv.FormatUint(uint64(r.ID), 10)
-	out := []timelineItem{{Time: r.BootedAt, Kind: timelineKindInstall, Title: "Install boot of " + r.ImageName, Status: timelineStatusInfo, SourceID: id}}
+	out := []timelineItem{{Time: r.BootedAt, Kind: timelineKindInstall, Title: "Install boot of " + r.ImageName, Status: timelineStatusInfo, SourceID: id, cursorKey: id + ":boot"}}
 	if r.InstallingAt != nil {
-		out = append(out, timelineItem{Time: *r.InstallingAt, Kind: timelineKindInstall, Title: "Install started: " + r.ImageName, Detail: "auto-install file fetched", Status: timelineStatusPending, SourceID: id})
+		out = append(out, timelineItem{Time: *r.InstallingAt, Kind: timelineKindInstall, Title: "Install started: " + r.ImageName, Detail: "auto-install file fetched", Status: timelineStatusPending, SourceID: id, cursorKey: id + ":started"})
 	}
 	if r.FinishedAt != nil {
 		status := timelineStatusOK
@@ -156,7 +201,7 @@ func installItems(r models.InstallRecord) []timelineItem {
 			status = timelineStatusFailed
 			title = "Install failed: " + r.ImageName
 		}
-		out = append(out, timelineItem{Time: *r.FinishedAt, Kind: timelineKindInstall, Title: title, Detail: r.Message, Status: status, SourceID: id})
+		out = append(out, timelineItem{Time: *r.FinishedAt, Kind: timelineKindInstall, Title: title, Detail: r.Message, Status: status, SourceID: id, cursorKey: id + ":finished"})
 	}
 	return out
 }
@@ -186,7 +231,8 @@ func diskJobItem(j *models.DiskJob) timelineItem {
 	if j.Message != "" {
 		detail += " · " + j.Message
 	}
-	return timelineItem{Time: when, Kind: timelineKindDisk, Title: title, Detail: detail, Status: status, SourceID: "disk:" + strconv.FormatUint(uint64(j.ID), 10)}
+	sourceID := "disk:" + strconv.FormatUint(uint64(j.ID), 10)
+	return timelineItem{Time: when, Kind: timelineKindDisk, Title: title, Detail: detail, Status: status, SourceID: sourceID, cursorKey: sourceID}
 }
 
 func (s *Server) handleClientTimeline(w http.ResponseWriter, r *http.Request) {
@@ -216,15 +262,11 @@ func (s *Server) handleClientTimeline(w http.ResponseWriter, r *http.Request) {
 	if limit > 500 {
 		limit = 500
 	}
-	var before time.Time
-	if raw := r.URL.Query().Get("before"); raw != "" {
-		t, err := time.Parse(time.RFC3339Nano, raw)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "before must be an RFC 3339 timestamp"})
-			return
-		}
-		before = t
+	before, err := parseTimelineCursor(r.URL.Query().Get("before"))
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
 	}
 	includeAudit := s.config.Auth == nil || auth.IsAdminFromContext(r.Context())
 	page, err := s.clientTimeline(mac, before, limit, includeAudit)
