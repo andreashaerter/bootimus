@@ -134,6 +134,8 @@ There's one example config, [bootimus.example.yaml](bootimus.example.yaml). Rath
 
 [distro-profiles.json](distro-profiles.json) and [tools-profiles.json](tools-profiles.json) are the source of truth for boot behaviour. Please bump the `version` field when you change them so caches invalidate cleanly.
 
+For app releases, `make bump NEW_VERSION=X.Y.Z` updates `VERSION`, the profile versions and `docs/openapi.json`. It uses the Go toolchain to regenerate the API document.
+
 ## Before opening a PR
 
 - [ ] `gofmt -l .` is clean
