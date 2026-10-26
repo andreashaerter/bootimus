@@ -460,7 +460,7 @@ func (s *SQLiteStore) CreateImageGroup(group *models.ImageGroup) error {
 		group.ID = existing.ID
 		return nil
 	}
-	return s.db.Create(group).Error
+	return createKeepingZeroValues(s.db, group, "Enabled")
 }
 
 func (s *SQLiteStore) UpdateImageGroup(id uint, group *models.ImageGroup) error {
@@ -817,7 +817,7 @@ func (s *SQLiteStore) GetScheduledTask(id uint) (*models.ScheduledTask, error) {
 }
 
 func (s *SQLiteStore) CreateScheduledTask(task *models.ScheduledTask) error {
-	return s.db.Create(task).Error
+	return createKeepingZeroValues(s.db, task, "Enabled")
 }
 
 func (s *SQLiteStore) UpdateScheduledTask(id uint, task *models.ScheduledTask) error {
@@ -850,7 +850,7 @@ func (s *SQLiteStore) GetWebhookConfig() (*models.WebhookConfig, error) {
 
 func (s *SQLiteStore) UpdateWebhookConfig(cfg *models.WebhookConfig) error {
 	cfg.ID = 1
-	return s.db.Save(cfg).Error
+	return saveKeepingZeroValues(s.db, cfg, "OnBootStarted", "OnClientDiscovered", "OnEnrollment", "OnDiskImaging", "OnInstall", "OnAutoEnrol")
 }
 
 func (s *SQLiteStore) ListClientGroups() ([]*models.ClientGroup, error) {
@@ -894,7 +894,7 @@ func (s *SQLiteStore) CreateClientGroup(group *models.ClientGroup) error {
 		group.ID = existing.ID
 		return nil
 	}
-	return s.db.Create(group).Error
+	return createKeepingZeroValues(s.db, group, "Enabled")
 }
 
 func (s *SQLiteStore) UpdateClientGroup(id uint, group *models.ClientGroup) error {
