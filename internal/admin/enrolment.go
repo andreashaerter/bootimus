@@ -50,6 +50,10 @@ func (h *Handler) checkEnrolmentRuleReferences(rule *models.EnrolmentRule) error
 
 func (h *Handler) decodeEnrolmentRule(w http.ResponseWriter, r *http.Request) (*models.EnrolmentRule, bool) {
 	var rule models.EnrolmentRule
+	if r.Method == http.MethodPost {
+		rule.Enabled = true
+		rule.Priority = 100
+	}
 	if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
 		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Invalid request body"})
 		return nil, false
