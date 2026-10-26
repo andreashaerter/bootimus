@@ -184,7 +184,7 @@ type Storage interface {
 	GetDiskImageByName(name string) (*models.DiskImage, error)
 	ListDiskImages() ([]*models.DiskImage, error)
 	UpdateDiskImage(image *models.DiskImage) error
-	DeleteDiskImage(id uint) error
+	DeleteDiskImage(id uint, removeFiles func() error) error
 	CreateDiskJob(job *models.DiskJob) error
 	GetDiskJob(id uint) (*models.DiskJob, error)
 	GetDiskJobByToken(token string) (*models.DiskJob, error)

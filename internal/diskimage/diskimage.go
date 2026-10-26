@@ -61,7 +61,7 @@ type Store interface {
 	GetDiskImageByName(name string) (*models.DiskImage, error)
 	ListDiskImages() ([]*models.DiskImage, error)
 	UpdateDiskImage(image *models.DiskImage) error
-	DeleteDiskImage(id uint) error
+	DeleteDiskImage(id uint, removeFiles func() error) error
 	CreateDiskJob(job *models.DiskJob) error
 	GetDiskJob(id uint) (*models.DiskJob, error)
 	GetDiskJobByToken(token string) (*models.DiskJob, error)
@@ -282,6 +282,9 @@ func (m *Manager) Deploy(req DeployRequest) (*models.DiskJob, error) {
 	if err != nil {
 		return nil, ErrClientUnknown
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	image, err := m.store.GetDiskImage(req.ImageID)
 	if err != nil {
 		return nil, fmt.Errorf("disk image not found")
@@ -289,9 +292,6 @@ func (m *Manager) Deploy(req DeployRequest) (*models.DiskJob, error) {
 	if image.State != models.DiskImageStateReady {
 		return nil, ErrImageNotReady
 	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	if existing, err := m.store.ActiveDiskJobForClient(mac); err == nil && existing != nil {
 		return nil, ErrJobActive
@@ -341,7 +341,7 @@ func (m *Manager) Cancel(jobID uint) error {
 	if job.Kind == models.DiskJobKindCapture {
 		os.RemoveAll(m.stagingPath(job.Token))
 		if job.DiskImage != nil && job.DiskImage.State == models.DiskImageStateCapturing {
-			if err := m.store.DeleteDiskImage(job.DiskImage.ID); err != nil {
+			if err := m.store.DeleteDiskImage(job.DiskImage.ID, nil); err != nil {
 				log.Printf("Disk imaging: failed to remove unfinished image %d: %v", job.DiskImage.ID, err)
 			}
 		}
@@ -351,15 +351,20 @@ func (m *Manager) Cancel(jobID uint) error {
 }
 
 func (m *Manager) DeleteImage(id uint) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	image, err := m.store.GetDiskImage(id)
 	if err != nil {
 		return err
 	}
-	if err := m.store.DeleteDiskImage(id); err != nil {
+	if err := m.store.DeleteDiskImage(id, func() error {
+		if err := os.RemoveAll(m.imagePath(image.Name)); err != nil {
+			return fmt.Errorf("remove image directory: %w", err)
+		}
+		return nil
+	}); err != nil {
 		return err
-	}
-	if err := os.RemoveAll(m.imagePath(image.Name)); err != nil {
-		return fmt.Errorf("remove image directory: %w", err)
 	}
 	log.Printf("Disk imaging: image %s deleted", image.Name)
 	return nil

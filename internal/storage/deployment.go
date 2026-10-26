@@ -91,6 +91,14 @@ func updateDeploymentProfile(db *gorm.DB, id uint, profile *models.DeploymentPro
 
 func deleteDeploymentProfile(db *gorm.DB, id uint) error {
 	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.EnrolmentRule{}).
+			Where("profile_id = ? AND client_group_id IS NULL AND make_static = ? AND TRIM(COALESCE(name_pattern, '')) = ?", id, false, "").
+			Update("enabled", false).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&models.EnrolmentRule{}).Where("profile_id = ?", id).Update("profile_id", nil).Error; err != nil {
+			return err
+		}
 		if err := tx.Model(&models.Client{}).Where("profile_id = ?", id).Update("profile_id", nil).Error; err != nil {
 			return err
 		}

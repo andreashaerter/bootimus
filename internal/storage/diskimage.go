@@ -42,21 +42,34 @@ func updateDiskImage(db *gorm.DB, image *models.DiskImage) error {
 	return db.Save(image).Error
 }
 
-func deleteDiskImage(db *gorm.DB, id uint) error {
-	var active int64
-	if err := db.Model(&models.DiskJob{}).
-		Where("disk_image_id = ? AND state IN ?", id, []string{models.DiskJobStatePending, models.DiskJobStateRunning}).
-		Count(&active).Error; err != nil {
-		return err
-	}
-	if active > 0 {
-		return ErrDiskImageInUse
-	}
+func deleteDiskImage(db *gorm.DB, id uint, removeFiles func() error) error {
 	return db.Transaction(func(tx *gorm.DB) error {
+		var active int64
+		if err := tx.Model(&models.DiskJob{}).
+			Where("disk_image_id = ? AND state IN ?", id, []string{models.DiskJobStatePending, models.DiskJobStateRunning}).
+			Count(&active).Error; err != nil {
+			return err
+		}
+		if active > 0 {
+			return ErrDiskImageInUse
+		}
+		if err := tx.Model(&models.DeploymentProfile{}).Where("disk_image_id = ?", id).
+			Updates(map[string]interface{}{
+				"disk_image_id":     nil,
+				"first_boot_action": gorm.Expr("CASE WHEN first_boot_action = ? THEN ? ELSE first_boot_action END", models.FirstBootActionDeploy, models.FirstBootActionNone),
+			}).Error; err != nil {
+			return err
+		}
 		if err := tx.Model(&models.DiskJob{}).Where("disk_image_id = ?", id).Update("disk_image_id", nil).Error; err != nil {
 			return err
 		}
-		return tx.Delete(&models.DiskImage{}, id).Error
+		if err := tx.Delete(&models.DiskImage{}, id).Error; err != nil {
+			return err
+		}
+		if removeFiles != nil {
+			return removeFiles()
+		}
+		return nil
 	})
 }
 
@@ -123,7 +136,9 @@ func (s *SQLiteStore) ListDiskImages() ([]*models.DiskImage, error) { return lis
 func (s *SQLiteStore) UpdateDiskImage(image *models.DiskImage) error {
 	return updateDiskImage(s.db, image)
 }
-func (s *SQLiteStore) DeleteDiskImage(id uint) error               { return deleteDiskImage(s.db, id) }
+func (s *SQLiteStore) DeleteDiskImage(id uint, removeFiles func() error) error {
+	return deleteDiskImage(s.db, id, removeFiles)
+}
 func (s *SQLiteStore) CreateDiskJob(job *models.DiskJob) error     { return createDiskJob(s.db, job) }
 func (s *SQLiteStore) GetDiskJob(id uint) (*models.DiskJob, error) { return getDiskJob(s.db, id) }
 func (s *SQLiteStore) GetDiskJobByToken(token string) (*models.DiskJob, error) {
@@ -150,7 +165,9 @@ func (s *PostgresStore) ListDiskImages() ([]*models.DiskImage, error) { return l
 func (s *PostgresStore) UpdateDiskImage(image *models.DiskImage) error {
 	return updateDiskImage(s.db, image)
 }
-func (s *PostgresStore) DeleteDiskImage(id uint) error               { return deleteDiskImage(s.db, id) }
+func (s *PostgresStore) DeleteDiskImage(id uint, removeFiles func() error) error {
+	return deleteDiskImage(s.db, id, removeFiles)
+}
 func (s *PostgresStore) CreateDiskJob(job *models.DiskJob) error     { return createDiskJob(s.db, job) }
 func (s *PostgresStore) GetDiskJob(id uint) (*models.DiskJob, error) { return getDiskJob(s.db, id) }
 func (s *PostgresStore) GetDiskJobByToken(token string) (*models.DiskJob, error) {
