@@ -68,7 +68,7 @@ help:
 	@echo "  make deploy-website   - Push + roll Cloud Run service '$(CLOUDRUN_SERVICE)' to the new image"
 	@echo ""
 	@echo "Versioning:"
-	@echo "  make bump NEW_VERSION=X.Y.Z  - Bump VERSION + sync into both *-profiles.json"
+	@echo "  make bump NEW_VERSION=X.Y.Z  - Update VERSION, profile versions and the OpenAPI document"
 	@echo ""
 	@echo "Override version:  VERSION=1.0.0 make build"
 
@@ -162,7 +162,8 @@ bump:
 	@test -n "$(NEW_VERSION)" || (echo "Usage: make bump NEW_VERSION=X.Y.Z" && exit 1)
 	@echo "$(NEW_VERSION)" > VERSION
 	@$(MAKE) --no-print-directory sync-profiles VERSION=$(NEW_VERSION)
-	@echo "Bumped to $(NEW_VERSION) — VERSION + both *-profiles.json (root + internal copies)"
+	@$(MAKE) --no-print-directory openapi VERSION=$(NEW_VERSION)
+	@echo "Bumped to $(NEW_VERSION): VERSION, profile versions and docs/openapi.json"
 
 build: sync-profiles
 	@echo "Building bootimus $(VERSION)..."
