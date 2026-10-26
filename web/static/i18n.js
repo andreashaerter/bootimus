@@ -67,6 +67,7 @@ const TRANSLATIONS = {
         'server.field.runtime_mode': 'Runtime Mode',
         'server.field.os': 'OS',
         'server.field.arch': 'Arch',
+        'server.field.windows_smb': 'Windows SMB',
 
         'server.metric.cpu': 'CPU Usage',
         'server.metric.memory': 'Memory',
@@ -272,6 +273,7 @@ const TRANSLATIONS = {
         'server.field.runtime_mode': 'Laufzeitmodus',
         'server.field.os': 'Betriebssystem',
         'server.field.arch': 'Architektur',
+        'server.field.windows_smb': 'Windows-SMB',
 
         'server.metric.cpu': 'CPU-Auslastung',
         'server.metric.memory': 'Arbeitsspeicher',
@@ -477,6 +479,7 @@ const TRANSLATIONS = {
         'server.field.runtime_mode': "Mode d'exécution",
         'server.field.os': 'OS',
         'server.field.arch': 'Architecture',
+        'server.field.windows_smb': 'SMB Windows',
 
         'server.metric.cpu': 'Utilisation du processeur',
         'server.metric.memory': 'Mémoire',
@@ -682,6 +685,7 @@ const TRANSLATIONS = {
         'server.field.runtime_mode': 'Modo de ejecución',
         'server.field.os': 'SO',
         'server.field.arch': 'Arquitectura',
+        'server.field.windows_smb': 'SMB de Windows',
 
         'server.metric.cpu': 'Uso de CPU',
         'server.metric.memory': 'Memoria',
@@ -887,6 +891,7 @@ const TRANSLATIONS = {
         'server.field.runtime_mode': 'Modalità di esecuzione',
         'server.field.os': 'Sistema operativo',
         'server.field.arch': 'Architettura',
+        'server.field.windows_smb': 'SMB per Windows',
 
         'server.metric.cpu': 'Utilizzo CPU',
         'server.metric.memory': 'Memoria',
@@ -1092,6 +1097,7 @@ const TRANSLATIONS = {
         'server.field.runtime_mode': 'Uitvoeringsmodus',
         'server.field.os': 'Besturingssysteem',
         'server.field.arch': 'Architectuur',
+        'server.field.windows_smb': 'Windows-SMB',
 
         'server.metric.cpu': 'CPU-gebruik',
         'server.metric.memory': 'Geheugen',
@@ -1297,6 +1303,7 @@ const TRANSLATIONS = {
         'server.field.runtime_mode': 'Режим выполнения',
         'server.field.os': 'ОС',
         'server.field.arch': 'Архитектура',
+        'server.field.windows_smb': 'Windows SMB',
 
         'server.metric.cpu': 'Загрузка ЦП',
         'server.metric.memory': 'Память',
@@ -1502,6 +1509,7 @@ const TRANSLATIONS = {
         'server.field.runtime_mode': '运行模式',
         'server.field.os': '操作系统',
         'server.field.arch': '架构',
+        'server.field.windows_smb': 'Windows SMB',
 
         'server.metric.cpu': 'CPU 使用率',
         'server.metric.memory': '内存',
