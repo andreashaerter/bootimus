@@ -880,7 +880,10 @@ func (s *Server) preloadSMBShares(mgr *smb.Manager) {
 		if _, err := os.Stat(sharePath); err != nil {
 			continue
 		}
-		mgr.AddShare(smb.SanitiseShareName(isoBase), sharePath)
+		if err := mgr.AddShare(smb.ShareName(img.Filename), sharePath); err != nil {
+			log.Printf("windows smb: cannot preload share for %s: %v", img.Filename, err)
+			continue
+		}
 		added++
 	}
 	if added > 0 {
