@@ -232,8 +232,8 @@ type EnrolmentRule struct {
 	CreatedAt            time.Time  `json:"created_at"`
 	UpdatedAt            time.Time  `json:"updated_at"`
 	Name                 string     `gorm:"not null" json:"name"`
-	Priority             int        `gorm:"default:100;index" json:"priority"`
-	Enabled              bool       `gorm:"default:true" json:"enabled"`
+	Priority             int        `gorm:"index" json:"priority"`
+	Enabled              bool       `json:"enabled"`
 	MACPrefix            string     `json:"mac_prefix,omitempty"`
 	ManufacturerContains string     `json:"manufacturer_contains,omitempty"`
 	ProductContains      string     `json:"product_contains,omitempty"`
