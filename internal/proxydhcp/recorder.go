@@ -14,6 +14,7 @@ const (
 )
 
 type Event struct {
+	Sequence            uint64    `json:"-"`
 	Time                time.Time `json:"time"`
 	Port                int       `json:"port"`
 	Source              string    `json:"source"`
@@ -34,10 +35,11 @@ type Event struct {
 }
 
 type Recorder struct {
-	mu          sync.RWMutex
-	events      []Event
-	max         int
-	subscribers map[chan Event]bool
+	mu           sync.RWMutex
+	events       []Event
+	max          int
+	subscribers  map[chan Event]bool
+	nextSequence uint64
 }
 
 func NewRecorder(size int) *Recorder {
@@ -57,6 +59,8 @@ func (r *Recorder) Record(ev Event) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.nextSequence++
+	ev.Sequence = r.nextSequence
 	r.events = append(r.events, ev)
 	if len(r.events) > r.max {
 		r.events = r.events[len(r.events)-r.max:]

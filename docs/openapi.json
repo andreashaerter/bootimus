@@ -1761,7 +1761,7 @@
           {
             "name": "before",
             "in": "query",
-            "description": "RFC 3339 cursor from the previous page's next_before",
+            "description": "Opaque cursor from the previous page's next_before; RFC 3339 timestamps are also accepted as exclusive time bounds",
             "schema": {
               "type": "string"
             }
