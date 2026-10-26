@@ -2,6 +2,7 @@ package smb
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"log"
@@ -76,10 +77,19 @@ func localIPs() []net.IP {
 	return ips
 }
 
-func (m *Manager) AddShare(name, path string) {
+func (m *Manager) AddShare(name, path string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	for existingName, existingPath := range m.shares {
+		if strings.EqualFold(existingName, name) {
+			if filepath.Clean(existingPath) != filepath.Clean(path) {
+				return fmt.Errorf("smb share %q already refers to another image", name)
+			}
+			return nil
+		}
+	}
 	m.shares[name] = path
+	return nil
 }
 
 func (m *Manager) RemoveShare(name string) {
@@ -244,21 +254,23 @@ func (m *Manager) Stop() {
 	}
 }
 
-func SanitiseShareName(isoBase string) string {
+func ShareName(isoFilename string) string {
+	isoBase := strings.TrimSuffix(isoFilename, filepath.Ext(isoFilename))
 	var sb strings.Builder
-	for _, r := range isoBase {
+	for _, character := range strings.ToLower(isoBase) {
 		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
-			sb.WriteRune(r)
+		case character >= 'a' && character <= 'z', character >= '0' && character <= '9', character == '-', character == '_':
+			sb.WriteRune(character)
 		default:
 			sb.WriteRune('_')
 		}
 	}
 	result := sb.String()
-	if len(result) > 80 {
-		result = result[:80]
+	if len(result) > 63 {
+		result = result[:63]
 	}
-	return result
+	digest := sha256.Sum256([]byte(isoFilename))
+	return fmt.Sprintf("%s-%x", result, digest[:8])
 }
 
 func (m *Manager) smbDir() string     { return filepath.Join(m.dataDir, "smb") }

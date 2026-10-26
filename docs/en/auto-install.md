@@ -524,6 +524,8 @@ curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/installs?limit
 
 ## Windows Notes
 
+SMB share names include a hash of the full ISO filename to distinguish punctuation, case and long names. After upgrading from a version with unhashed share names, use **Images → Patch SMB** for each Windows image before booting it. This updates the share path embedded in `boot.wim`; the image properties mark old patches as needing a repatch.
+
 Windows images boot through [wimboot](https://ipxe.org/wimboot), which injects every extra `initrd` file in the iPXE script into the WinPE RAM disk. Bootimus uses that to deliver the auto-install file per client:
 
 1. When the booting client resolves to an autounattend file (through the usual [resolution order](#resolution-order): client, then group, then image), the generated iPXE boot section adds `initrd http://<server>:<port>/autoinstall/<iso>?mac=<mac> AutoUnattend.xml` before `boot.wim`.

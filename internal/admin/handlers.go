@@ -121,6 +121,7 @@ func (h *Handler) computeSMBPatchFingerprint(img *models.Image) string {
 		autoInstallContent = h.resolveImageAutoInstallContent(img)
 	}
 	hasher := sha256.New()
+	fmt.Fprintf(hasher, "share=%s\n", smb.ShareName(img.Filename))
 	fmt.Fprintf(hasher, "addr=%s\nfile=%s\nai_enabled=%v\nai_file=%s\nai_content=", h.serverAddr, img.Filename, img.AutoInstallEnabled, img.AutoInstallFile)
 	hasher.Write([]byte(autoInstallContent))
 	return hex.EncodeToString(hasher.Sum(nil))
@@ -167,7 +168,11 @@ func (h *Handler) patchWindowsBootWim(isoFilename string) bool {
 		}
 	}
 
-	shareName := smb.SanitiseShareName(isoBase)
+	shareName := smb.ShareName(isoFilename)
+	if err := h.smbManager.AddShare(shareName, sharePath); err != nil {
+		log.Printf("windows smb: cannot register share: %v", err)
+		return false
+	}
 	autoInstall := false
 	if img, err := h.storage.GetImage(isoFilename); err == nil && img != nil && img.AutoInstallEnabled {
 		if content := h.resolveImageAutoInstallContent(img); content != "" {
@@ -186,7 +191,6 @@ func (h *Handler) patchWindowsBootWim(isoFilename string) bool {
 		return false
 	}
 
-	h.smbManager.AddShare(shareName, sharePath)
 	if err := h.smbManager.Reload(); err != nil {
 		log.Printf("Windows SMB: failed to reload smbd after adding share %q: %v", shareName, err)
 	}
@@ -929,7 +933,7 @@ func (h *Handler) ListImages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, img := range images {
-		if img.SMBInstallEnabled && img.SMBPatchFingerprint != "" {
+		if img.SMBInstallEnabled {
 			img.SMBNeedsRepatch = h.computeSMBPatchFingerprint(img) != img.SMBPatchFingerprint
 		}
 		if img.SMBInstallEnabled {
@@ -962,7 +966,7 @@ func (h *Handler) GetImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if image.SMBInstallEnabled && image.SMBPatchFingerprint != "" {
+	if image.SMBInstallEnabled {
 		image.SMBNeedsRepatch = h.computeSMBPatchFingerprint(image) != image.SMBPatchFingerprint
 	}
 	if image.SMBInstallEnabled {
@@ -1189,8 +1193,7 @@ func (h *Handler) DeleteImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.smbManager != nil {
-		isoBase := strings.TrimSuffix(filename, filepath.Ext(filename))
-		shareName := smb.SanitiseShareName(isoBase)
+		shareName := smb.ShareName(filename)
 		if h.smbManager.HasShare(shareName) {
 			h.smbManager.RemoveShare(shareName)
 			if err := h.smbManager.Reload(); err != nil {
@@ -1724,7 +1727,7 @@ func (h *Handler) UnpatchImageSMB(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.smbManager != nil {
-		shareName := smb.SanitiseShareName(isoBase)
+		shareName := smb.ShareName(filename)
 		if h.smbManager.HasShare(shareName) {
 			h.smbManager.RemoveShare(shareName)
 			if err := h.smbManager.Reload(); err != nil {
