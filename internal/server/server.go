@@ -702,6 +702,26 @@ func (as *ActiveSessions) GetAll() []ActiveSession {
 }
 
 func (s *Server) Start() error {
+	if err := s.prepareAdminTLS(); err != nil {
+		return fmt.Errorf("admin TLS: %w", err)
+	}
+	tftpConn, err := netbind.ListenUDP(s.config.BindInterface, "udp", fmt.Sprintf(":%d", s.config.TFTPPort))
+	if err != nil {
+		return fmt.Errorf("listen TFTP: %w", err)
+	}
+	httpListener, err := netbind.Listen(s.config.BindInterface, "tcp", fmt.Sprintf(":%d", s.config.HTTPPort))
+	if err != nil {
+		tftpConn.Close()
+		return fmt.Errorf("listen boot HTTP: %w", err)
+	}
+	adminListener, err := netbind.Listen(s.config.BindInterface, "tcp", fmt.Sprintf(":%d", s.config.AdminPort))
+	if err != nil {
+		httpListener.Close()
+		tftpConn.Close()
+		return fmt.Errorf("listen admin HTTP: %w", err)
+	}
+	s.tftpServer = s.newTFTPServer()
+
 	log.Printf("Starting Bootimus - PXE/HTTP Boot Server")
 	log.Printf("Boot directory: %s", s.config.BootDir)
 	log.Printf("Data directory: %s", s.config.DataDir)
@@ -749,7 +769,7 @@ func (s *Server) Start() error {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		if err := s.startTFTPServer(); err != nil {
+		if err := s.startTFTPServer(tftpConn); err != nil {
 			log.Printf("TFTP server error: %v", err)
 		}
 	}()
@@ -757,7 +777,7 @@ func (s *Server) Start() error {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		if err := s.startHTTPServer(); err != nil {
+		if err := s.startHTTPServer(httpListener); err != nil {
 			log.Printf("HTTP server error: %v", err)
 		}
 	}()
@@ -765,7 +785,7 @@ func (s *Server) Start() error {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		if err := s.startAdminServer(); err != nil {
+		if err := s.startAdminServer(adminListener); err != nil {
 			log.Printf("Admin server error: %v", err)
 		}
 	}()
@@ -1171,9 +1191,7 @@ goto dhcp
 	return fmt.Errorf("file not found: %s", filename)
 }
 
-func (s *Server) startTFTPServer() error {
-	log.Printf("Starting TFTP server on port %d...", s.config.TFTPPort)
-
+func (s *Server) newTFTPServer() *tftp.Server {
 	server := tftp.NewServer(s.serveTFTPFile, nil)
 
 	server.SetTimeout(5 * time.Second)
@@ -1189,19 +1207,21 @@ func (s *Server) startTFTPServer() error {
 		server.EnableSinglePort()
 	}
 
-	addr := fmt.Sprintf(":%d", s.config.TFTPPort)
-	conn, err := netbind.ListenUDP(s.config.BindInterface, "udp", addr)
-	if err != nil {
-		return fmt.Errorf("TFTP server failed: %w", err)
-	}
-	if err := server.Serve(conn); err != nil {
+	return server
+}
+
+func (s *Server) startTFTPServer(conn *net.UDPConn) error {
+	log.Printf("starting TFTP server on port %d", s.config.TFTPPort)
+	defer conn.Close()
+	if err := s.tftpServer.Serve(conn); err != nil {
 		return fmt.Errorf("TFTP server failed: %w", err)
 	}
 
 	return nil
 }
 
-func (s *Server) startHTTPServer() error {
+func (s *Server) startHTTPServer(listener net.Listener) error {
+	defer listener.Close()
 	log.Printf("Starting HTTP server on port %d...", s.config.HTTPPort)
 
 	mux := http.NewServeMux()
@@ -1402,11 +1422,7 @@ func (s *Server) startHTTPServer() error {
 		Handler: mux,
 	}
 
-	ln, err := netbind.Listen(s.config.BindInterface, "tcp", addr)
-	if err != nil {
-		return fmt.Errorf("HTTP server failed: %w", err)
-	}
-	if err := s.httpServer.Serve(ln); err != nil && err != http.ErrServerClosed {
+	if err := s.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("HTTP server failed: %w", err)
 	}
 
@@ -1500,10 +1516,8 @@ func (s *Server) startAdminRedirectServer() {
 	}()
 }
 
-func (s *Server) startAdminServer() error {
-	if err := s.prepareAdminTLS(); err != nil {
-		return fmt.Errorf("Admin TLS: %w", err)
-	}
+func (s *Server) startAdminServer(listener net.Listener) error {
+	defer listener.Close()
 	if s.adminTLS != nil {
 		log.Printf("Starting Admin server on port %d (HTTPS)...", s.config.AdminPort)
 	} else {
@@ -1528,19 +1542,15 @@ func (s *Server) startAdminServer() error {
 		Handler: panicRecoveryMiddleware(mux),
 	}
 
-	ln, err := netbind.Listen(s.config.BindInterface, "tcp", addr)
-	if err != nil {
-		return fmt.Errorf("Admin server failed: %w", err)
-	}
 	if s.adminTLS != nil {
 		s.adminServer.TLSConfig = s.adminTLS.Config()
 		s.startAdminRedirectServer()
-		if err := s.adminServer.ServeTLS(ln, "", ""); err != nil && err != http.ErrServerClosed {
+		if err := s.adminServer.ServeTLS(listener, "", ""); err != nil && err != http.ErrServerClosed {
 			return fmt.Errorf("Admin server failed: %w", err)
 		}
 		return nil
 	}
-	if err := s.adminServer.Serve(ln); err != nil && err != http.ErrServerClosed {
+	if err := s.adminServer.Serve(listener); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("Admin server failed: %w", err)
 	}
 
