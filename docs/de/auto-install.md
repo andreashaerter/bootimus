@@ -173,13 +173,17 @@ Die eingebauten Platzhalter decken die Identität des Clients ab, aber die meist
 Gesetzt werden sie im UI unter **Clients** → Client öffnen → **Auto-Installations-Variablen** oder **Gruppen** → Gruppe öffnen → **Auto-Installations-Variablen**: Jede Zeile ist ein Name und ein Wert, mit **Variable hinzufügen** und einem Entfernen-Button pro Zeile. Über die API ist `variables` ein Objekt aus Strings sowohl im Client- als auch im Gruppen-Payload:
 
 ```bash
+TOKEN=$(curl -fsS -X POST http://localhost:8081/api/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"your-password"}' | jq -er '.data.token')
+
 # Gruppen-Defaults
-curl -u admin:pw -X PUT "http://localhost:8081/api/client-groups/update?id=3" \
+curl -H "Authorization: Bearer $TOKEN" -X PUT "http://localhost:8081/api/client-groups/update?id=3" \
   -H "Content-Type: application/json" \
   -d '{"name":"lab-3","variables":{"role":"worker","rack":"3","disk":"/dev/sda"}}'
 
 # Eine Maschine überschreibt einen einzelnen Wert
-curl -u admin:pw -X PUT "http://localhost:8081/api/clients?mac=b4:2e:99:01:5f:a3" \
+curl -H "Authorization: Bearer $TOKEN" -X PUT "http://localhost:8081/api/clients?mac=b4:2e:99:01:5f:a3" \
   -H "Content-Type: application/json" \
   -d '{"variables":{"role":"control-plane"}}'
 ```
@@ -205,7 +209,7 @@ Der Editor unter **Auto-Install** hat eine **Vorschau**-Aktion für jede gespeic
 Dasselbe Rendering gibt es über die API:
 
 ```bash
-curl -u admin:pw "http://localhost:8081/api/autoinstall-files/render?distro=ubuntu&filename=default.yaml&mac=b4:2e:99:01:5f:a3&image=ubuntu-24.04-live-server-amd64.iso"
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/autoinstall-files/render?distro=ubuntu&filename=default.yaml&mac=b4:2e:99:01:5f:a3&image=ubuntu-24.04-live-server-amd64.iso"
 ```
 
 ```json
@@ -548,45 +552,49 @@ Ohne autounattend-Datei auf irgendeiner Ebene läuft Setup wie gehabt interaktiv
 Alles im UI ist auch ein REST-Aufruf.
 
 ```bash
+TOKEN=$(curl -fsS -X POST http://localhost:8081/api/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"your-password"}' | jq -er '.data.token')
+
 # Alle Auto-Install-Dateien auflisten
-curl -u admin:pw http://localhost:8081/api/autoinstall-files
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/autoinstall-files
 
 # Datei lesen
-curl -u admin:pw "http://localhost:8081/api/autoinstall-files/get?distro=ubuntu&filename=default.yaml"
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/autoinstall-files/get?distro=ubuntu&filename=default.yaml"
 
 # Datei anlegen oder überschreiben (antwortet 400 bei fehlerhaftem YAML, XML oder JSON; "force":true speichert trotzdem)
-curl -u admin:pw -X POST http://localhost:8081/api/autoinstall-files/save \
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/autoinstall-files/save \
   -H "Content-Type: application/json" \
   -d '{"distro":"ubuntu","filename":"default.yaml","content":"#cloud-config\n..."}'
 
 # Datei für einen Client und ein Image rendern, unaufgelöste Platzhalter auflisten
-curl -u admin:pw "http://localhost:8081/api/autoinstall-files/render?distro=ubuntu&filename=default.yaml&mac=b4:2e:99:01:5f:a3&image=ubuntu-24.04-live-server-amd64.iso"
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/autoinstall-files/render?distro=ubuntu&filename=default.yaml&mac=b4:2e:99:01:5f:a3&image=ubuntu-24.04-live-server-amd64.iso"
 
 # Datei hochladen
-curl -u admin:pw -X POST http://localhost:8081/api/autoinstall-files/upload \
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/autoinstall-files/upload \
   -F "distro=windows" \
   -F "filename=kiosk.xml" \
   -F "file=@./kiosk.xml"
 
 # Herunterladen
-curl -u admin:pw "http://localhost:8081/api/autoinstall-files/download?distro=ubuntu&filename=default.yaml" -o default.yaml
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/autoinstall-files/download?distro=ubuntu&filename=default.yaml" -o default.yaml
 
 # Löschen
-curl -u admin:pw -X POST "http://localhost:8081/api/autoinstall-files/delete?distro=ubuntu&filename=default.yaml"
+curl -H "Authorization: Bearer $TOKEN" -X DELETE "http://localhost:8081/api/autoinstall-files/delete?distro=ubuntu&filename=default.yaml"
 ```
 
 Datei an ein Image anhängen:
 
 ```bash
-curl -u admin:pw -X PUT http://localhost:8081/api/images/update \
+curl -H "Authorization: Bearer $TOKEN" -X PUT "http://localhost:8081/api/images?filename=ubuntu-24.04-live-server-amd64.iso" \
   -H "Content-Type: application/json" \
-  -d '{"filename":"ubuntu-24.04-live-server-amd64.iso","auto_install_file":"ubuntu/default.yaml"}'
+  -d '{"auto_install_file":"ubuntu/default.yaml"}'
 ```
 
 Datei an einen Client anhängen:
 
 ```bash
-curl -u admin:pw -X PUT http://localhost:8081/api/clients/b4:2e:99:01:5f:a3 \
+curl -H "Authorization: Bearer $TOKEN" -X PUT http://localhost:8081/api/clients?mac=b4:2e:99:01:5f:a3 \
   -H "Content-Type: application/json" \
   -d '{"auto_install_file":"ubuntu/lab-bench.yaml"}'
 ```

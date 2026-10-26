@@ -173,13 +173,17 @@ Served auto-install script for ubuntu-24.04-live-server-amd64.iso \
 Задаются они в UI: **Clients** → открыть клиента → **Переменные автоустановки**, либо **Groups** → открыть группу → **Переменные автоустановки**: каждая строка — это имя и значение, есть кнопка **Добавить переменную** и кнопка удаления у каждой строки. Через API `variables` — это объект строк и в payload клиента, и в payload группы:
 
 ```bash
+TOKEN=$(curl -fsS -X POST http://localhost:8081/api/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"your-password"}' | jq -er '.data.token')
+
 # Значения по умолчанию группы
-curl -u admin:pw -X PUT "http://localhost:8081/api/client-groups/update?id=3" \
+curl -H "Authorization: Bearer $TOKEN" -X PUT "http://localhost:8081/api/client-groups/update?id=3" \
   -H "Content-Type: application/json" \
   -d '{"name":"lab-3","variables":{"role":"worker","rack":"3","disk":"/dev/sda"}}'
 
 # Одна машина переопределяет одно значение
-curl -u admin:pw -X PUT "http://localhost:8081/api/clients?mac=b4:2e:99:01:5f:a3" \
+curl -H "Authorization: Bearer $TOKEN" -X PUT "http://localhost:8081/api/clients?mac=b4:2e:99:01:5f:a3" \
   -H "Content-Type: application/json" \
   -d '{"variables":{"role":"control-plane"}}'
 ```
@@ -205,7 +209,7 @@ echo "{{VAR.role}} in rack {{VAR.rack}} ({{CLIENT_GROUP}})" > /etc/machine-role
 Тот же рендеринг доступен через API:
 
 ```bash
-curl -u admin:pw "http://localhost:8081/api/autoinstall-files/render?distro=ubuntu&filename=default.yaml&mac=b4:2e:99:01:5f:a3&image=ubuntu-24.04-live-server-amd64.iso"
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/autoinstall-files/render?distro=ubuntu&filename=default.yaml&mac=b4:2e:99:01:5f:a3&image=ubuntu-24.04-live-server-amd64.iso"
 ```
 
 ```json
@@ -548,45 +552,49 @@ curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/installs?limit
 Всё, что есть в UI, — это также REST-вызов.
 
 ```bash
+TOKEN=$(curl -fsS -X POST http://localhost:8081/api/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"your-password"}' | jq -er '.data.token')
+
 # Список всех файлов автоустановки
-curl -u admin:pw http://localhost:8081/api/autoinstall-files
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/autoinstall-files
 
 # Прочитать файл
-curl -u admin:pw "http://localhost:8081/api/autoinstall-files/get?distro=ubuntu&filename=default.yaml"
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/autoinstall-files/get?distro=ubuntu&filename=default.yaml"
 
 # Создать или перезаписать файл (отвечает 400 при некорректном YAML, XML или JSON; "force":true сохраняет всё равно)
-curl -u admin:pw -X POST http://localhost:8081/api/autoinstall-files/save \
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/autoinstall-files/save \
   -H "Content-Type: application/json" \
   -d '{"distro":"ubuntu","filename":"default.yaml","content":"#cloud-config\n..."}'
 
 # Отрендерить файл для клиента и образа, перечислив неразрешённые плейсхолдеры
-curl -u admin:pw "http://localhost:8081/api/autoinstall-files/render?distro=ubuntu&filename=default.yaml&mac=b4:2e:99:01:5f:a3&image=ubuntu-24.04-live-server-amd64.iso"
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/autoinstall-files/render?distro=ubuntu&filename=default.yaml&mac=b4:2e:99:01:5f:a3&image=ubuntu-24.04-live-server-amd64.iso"
 
 # Загрузить файл
-curl -u admin:pw -X POST http://localhost:8081/api/autoinstall-files/upload \
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/autoinstall-files/upload \
   -F "distro=windows" \
   -F "filename=kiosk.xml" \
   -F "file=@./kiosk.xml"
 
 # Скачать
-curl -u admin:pw "http://localhost:8081/api/autoinstall-files/download?distro=ubuntu&filename=default.yaml" -o default.yaml
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/autoinstall-files/download?distro=ubuntu&filename=default.yaml" -o default.yaml
 
 # Удалить
-curl -u admin:pw -X POST "http://localhost:8081/api/autoinstall-files/delete?distro=ubuntu&filename=default.yaml"
+curl -H "Authorization: Bearer $TOKEN" -X DELETE "http://localhost:8081/api/autoinstall-files/delete?distro=ubuntu&filename=default.yaml"
 ```
 
 Прикрепить файл к образу:
 
 ```bash
-curl -u admin:pw -X PUT http://localhost:8081/api/images/update \
+curl -H "Authorization: Bearer $TOKEN" -X PUT "http://localhost:8081/api/images?filename=ubuntu-24.04-live-server-amd64.iso" \
   -H "Content-Type: application/json" \
-  -d '{"filename":"ubuntu-24.04-live-server-amd64.iso","auto_install_file":"ubuntu/default.yaml"}'
+  -d '{"auto_install_file":"ubuntu/default.yaml"}'
 ```
 
 Прикрепить файл к клиенту:
 
 ```bash
-curl -u admin:pw -X PUT http://localhost:8081/api/clients/b4:2e:99:01:5f:a3 \
+curl -H "Authorization: Bearer $TOKEN" -X PUT http://localhost:8081/api/clients?mac=b4:2e:99:01:5f:a3 \
   -H "Content-Type: application/json" \
   -d '{"auto_install_file":"ubuntu/lab-bench.yaml"}'
 ```
