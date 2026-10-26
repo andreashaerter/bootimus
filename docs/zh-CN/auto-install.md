@@ -173,13 +173,17 @@ Served auto-install script for ubuntu-24.04-live-server-amd64.iso \
 在 UI 中设置:**Clients** → 打开客户端 → **自动安装变量**,或 **Groups** → 打开组 → **自动安装变量**:每行是一个名称和一个值,有 **添加变量** 按钮和每行的删除按钮。通过 API,`variables` 在客户端和组的 payload 中都是一个字符串对象:
 
 ```bash
+TOKEN=$(curl -fsS -X POST http://localhost:8081/api/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"your-password"}' | jq -er '.data.token')
+
 # 组默认值
-curl -u admin:pw -X PUT "http://localhost:8081/api/client-groups/update?id=3" \
+curl -H "Authorization: Bearer $TOKEN" -X PUT "http://localhost:8081/api/client-groups/update?id=3" \
   -H "Content-Type: application/json" \
   -d '{"name":"lab-3","variables":{"role":"worker","rack":"3","disk":"/dev/sda"}}'
 
 # 某台机器覆盖单个值
-curl -u admin:pw -X PUT "http://localhost:8081/api/clients?mac=b4:2e:99:01:5f:a3" \
+curl -H "Authorization: Bearer $TOKEN" -X PUT "http://localhost:8081/api/clients?mac=b4:2e:99:01:5f:a3" \
   -H "Content-Type: application/json" \
   -d '{"variables":{"role":"control-plane"}}'
 ```
@@ -205,7 +209,7 @@ echo "{{VAR.role}} in rack {{VAR.rack}} ({{CLIENT_GROUP}})" > /etc/machine-role
 同样的渲染也可以通过 API 获得:
 
 ```bash
-curl -u admin:pw "http://localhost:8081/api/autoinstall-files/render?distro=ubuntu&filename=default.yaml&mac=b4:2e:99:01:5f:a3&image=ubuntu-24.04-live-server-amd64.iso"
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/autoinstall-files/render?distro=ubuntu&filename=default.yaml&mac=b4:2e:99:01:5f:a3&image=ubuntu-24.04-live-server-amd64.iso"
 ```
 
 ```json
@@ -548,45 +552,49 @@ Windows 镜像通过 [wimboot](https://ipxe.org/wimboot) 引导,它会把 iPXE �
 UI 里的每件事也都是一次 REST 调用。
 
 ```bash
+TOKEN=$(curl -fsS -X POST http://localhost:8081/api/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"your-password"}' | jq -er '.data.token')
+
 # List all auto-install files
-curl -u admin:pw http://localhost:8081/api/autoinstall-files
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/autoinstall-files
 
 # Read a file
-curl -u admin:pw "http://localhost:8081/api/autoinstall-files/get?distro=ubuntu&filename=default.yaml"
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/autoinstall-files/get?distro=ubuntu&filename=default.yaml"
 
 # 创建或覆盖文件(YAML、XML 或 JSON 格式错误时返回 400;加上 "force":true 可仍然保存)
-curl -u admin:pw -X POST http://localhost:8081/api/autoinstall-files/save \
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/autoinstall-files/save \
   -H "Content-Type: application/json" \
   -d '{"distro":"ubuntu","filename":"default.yaml","content":"#cloud-config\n..."}'
 
 # 为某个客户端和镜像渲染文件,并列出未解析的占位符
-curl -u admin:pw "http://localhost:8081/api/autoinstall-files/render?distro=ubuntu&filename=default.yaml&mac=b4:2e:99:01:5f:a3&image=ubuntu-24.04-live-server-amd64.iso"
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/autoinstall-files/render?distro=ubuntu&filename=default.yaml&mac=b4:2e:99:01:5f:a3&image=ubuntu-24.04-live-server-amd64.iso"
 
 # Upload a file
-curl -u admin:pw -X POST http://localhost:8081/api/autoinstall-files/upload \
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8081/api/autoinstall-files/upload \
   -F "distro=windows" \
   -F "filename=kiosk.xml" \
   -F "file=@./kiosk.xml"
 
 # Download
-curl -u admin:pw "http://localhost:8081/api/autoinstall-files/download?distro=ubuntu&filename=default.yaml" -o default.yaml
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8081/api/autoinstall-files/download?distro=ubuntu&filename=default.yaml" -o default.yaml
 
 # Delete
-curl -u admin:pw -X POST "http://localhost:8081/api/autoinstall-files/delete?distro=ubuntu&filename=default.yaml"
+curl -H "Authorization: Bearer $TOKEN" -X DELETE "http://localhost:8081/api/autoinstall-files/delete?distro=ubuntu&filename=default.yaml"
 ```
 
 将文件挂载到镜像:
 
 ```bash
-curl -u admin:pw -X PUT http://localhost:8081/api/images/update \
+curl -H "Authorization: Bearer $TOKEN" -X PUT "http://localhost:8081/api/images?filename=ubuntu-24.04-live-server-amd64.iso" \
   -H "Content-Type: application/json" \
-  -d '{"filename":"ubuntu-24.04-live-server-amd64.iso","auto_install_file":"ubuntu/default.yaml"}'
+  -d '{"auto_install_file":"ubuntu/default.yaml"}'
 ```
 
 将文件挂载到客户端:
 
 ```bash
-curl -u admin:pw -X PUT http://localhost:8081/api/clients/b4:2e:99:01:5f:a3 \
+curl -H "Authorization: Bearer $TOKEN" -X PUT http://localhost:8081/api/clients?mac=b4:2e:99:01:5f:a3 \
   -H "Content-Type: application/json" \
   -d '{"auto_install_file":"ubuntu/lab-bench.yaml"}'
 ```
