@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"testing"
 	"time"
 
@@ -91,7 +92,7 @@ func TestClientTimelinePaginatesByCursor(t *testing.T) {
 	if len(first.Items) != 3 || !first.HasMore || first.NextBefore == "" {
 		t.Fatalf("first page = %+v", first)
 	}
-	second := timelineResponse(t, env, "/api/clients/timeline?mac="+mac+"&limit=100&before="+first.NextBefore, env.admin)
+	second := timelineResponse(t, env, "/api/clients/timeline?mac="+mac+"&limit=100&before="+url.QueryEscape(first.NextBefore), env.admin)
 	if len(first.Items)+len(second.Items) != len(all.Items) {
 		t.Fatalf("pages do not add up: %d + %d != %d", len(first.Items), len(second.Items), len(all.Items))
 	}
