@@ -660,6 +660,8 @@ func (mb *MenuBuilder) buildFooter() string {
 
 	sb.WriteString(`:local
 echo Booting from local disk...
+set localboot 1
+iseq ${platform} pcbios && sanboot --no-describe --drive 0x80 ||
 exit
 
 :shell
@@ -781,3 +783,12 @@ func (mb *MenuBuilder) assetBase(img *models.Image) string {
 	}
 	return fmt.Sprintf("http://%s:%d", mb.serverAddr, mb.httpPort)
 }
+
+const ipxeLocalBootCheck = "isset ${localboot} && goto localboot ||\n"
+
+const ipxeLocalBootTail = `
+:localboot
+isset ${bootimus-embed} && exit ||
+echo Returning to the firmware boot order...
+exit 1
+`

@@ -28,6 +28,12 @@ func TestE2E(t *testing.T) {
 	t.Run("ProxyDHCPEvents", func(t *testing.T) {
 		h.sub(t).proxyDHCPStage(b)
 	})
+	t.Run("BIOSLocalDisk", func(t *testing.T) {
+		h.sub(t).localDiskStage(b, macBIOSLocal, false)
+	})
+	t.Run("UEFILocalDisk", func(t *testing.T) {
+		h.sub(t).localDiskStage(b, macUEFILocal, true)
+	})
 }
 
 func (h *harness) menuStage(b *bootimus, mac string, uefi bool) {

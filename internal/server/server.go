@@ -1083,7 +1083,7 @@ func (s *Server) serveTFTPFile(filename string, rf io.ReaderFrom) error {
 :dhcp
 dhcp
 chain http://%s:%d/inventory?mac=${net0/mac}&cpu=${cpuid/0}&memsize=${memsize}&platform=${platform}&buildarch=${buildarch}&product=${product}&manufacturer=${manufacturer}&serial=${serial}&asset=${asset}&uuid=${uuid}&nic_chip=${net0/chip} || chain http://%s:%d/menu.ipxe?mac=${net0/mac} || goto failed
-
+%s
 :failed
 echo Failed to load boot menu
 echo Server: ${next-server}
@@ -1091,7 +1091,7 @@ echo MAC: ${net0/mac}
 echo Press any key to retry...
 prompt
 goto dhcp
-`, serverAddr, s.config.HTTPPort, serverAddr, s.config.HTTPPort)
+%s`, serverAddr, s.config.HTTPPort, serverAddr, s.config.HTTPPort, ipxeLocalBootCheck, ipxeLocalBootTail)
 		data := []byte(script)
 		log.Printf("TFTP: Serving dynamic autoexec.ipxe (HTTP port: %d)", s.config.HTTPPort)
 
@@ -2030,7 +2030,7 @@ func (s *Server) handleAutoexec(w http.ResponseWriter, r *http.Request) {
 	script := fmt.Sprintf(`#!ipxe
 dhcp
 chain http://%s:%d/inventory?mac=%s&cpu=${cpuid/0}&memsize=${memsize}&platform=${platform}&buildarch=${buildarch}&product=${product}&manufacturer=${manufacturer}&serial=${serial}&asset=${asset}&uuid=${uuid}&nic_chip=${net0/chip} || chain http://%s:%d/menu.ipxe?mac=%s
-`, s.config.ServerAddr, s.config.HTTPPort, macAddress, s.config.ServerAddr, s.config.HTTPPort, macAddress)
+%s%s`, s.config.ServerAddr, s.config.HTTPPort, macAddress, s.config.ServerAddr, s.config.HTTPPort, macAddress, ipxeLocalBootCheck, ipxeLocalBootTail)
 
 	w.Header().Set("Content-Type", "text/plain")
 	w.Write([]byte(script))

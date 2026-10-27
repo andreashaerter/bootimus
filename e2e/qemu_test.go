@@ -61,13 +61,14 @@ func qemuBinary(t *testing.T) string {
 }
 
 type vmOptions struct {
-	name     string
-	mac      string
-	uefi     bool
-	bootfile string
-	tftpDir  string
-	fatDir   string
-	memory   string
+	name      string
+	mac       string
+	uefi      bool
+	bootfile  string
+	tftpDir   string
+	fatDir    string
+	localDisk string
+	memory    string
 }
 
 type vm struct {
@@ -140,6 +141,16 @@ func (h *harness) startVM(o vmOptions) *vm {
 	} else {
 		args = append(args, "-fw_cfg", "name=etc/sercon-port,file="+h.serconFile(), "-boot", "n")
 	}
+	if o.localDisk != "" {
+		file := o.localDisk
+		if info, err := os.Stat(file); err == nil && info.IsDir() {
+			file = "fat:rw:" + file
+		}
+		args = append(args,
+			"-drive", "file="+file+",format=raw,if=none,id=local",
+			"-device", "virtio-blk-pci,drive=local,bootindex=1",
+		)
+	}
 	stdout, err := os.Create(filepath.Join(dir, "qemu.log"))
 	if err != nil {
 		t.Fatal(err)
@@ -193,6 +204,14 @@ func (v *vm) exited() bool {
 
 func (v *vm) serialContains(substr string) bool {
 	return fileContains(v.serialPath, substr)
+}
+
+func (v *vm) serialCount(substr string) int {
+	data, err := os.ReadFile(v.serialPath)
+	if err != nil {
+		return 0
+	}
+	return strings.Count(string(data), substr)
 }
 
 func (v *vm) serialTail() string {

@@ -632,6 +632,17 @@ curl -H "Authorization: Bearer $TOKEN" -X PUT "http://localhost:8081/api/images?
   -d '{"public":true,"enabled":true}'
 ```
 
+### Boot from Local Disk Returns to the Menu or Stops
+
+**Symptoms**: Choosing **Boot from Local Disk** (or letting the menu time out on it) shows "Network setup failed", returns to the menu, or leaves the machine at a firmware prompt instead of starting the operating system on the disk.
+
+**How it works**: iPXE cannot start a local operating system directly on UEFI, so Bootimus hands control back to the firmware. On BIOS clients the menu first tries `sanboot --drive 0x80`, which starts the first hard disk directly. On UEFI clients iPXE exits with a failure status so the firmware moves on to the next entry in its boot order. Clients that chain the Bootimus bootloaders released before this behaviour was introduced need the updated `bootimus.efi`, `ipxe.efi` or `undionly.kpxe`; Bootimus serves them automatically over TFTP and HTTP.
+
+**Checklist**:
+1. Put the network boot entry first and the local disk second in the firmware boot order. Firmware only continues to the disk when another entry follows PXE.
+2. On UEFI, make sure the disk has a boot entry (for example `EFI/BOOT/BOOTX64.EFI` or a registered Windows Boot Manager entry). Some firmware stops at a setup screen when iPXE returns and nothing else is bootable.
+3. If you serve your own iPXE build rather than the bundled bootloaders, add the same handling to the script that chains `menu.ipxe`: after the chain returns, test `isset ${localboot}` and `exit 1`.
+
 ### MAC Address Not Detected
 
 **Symptoms**: Boot logs show "unknown" MAC address
