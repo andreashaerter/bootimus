@@ -2,6 +2,7 @@
 
 echo Bootimus iPXE bootloader
 echo
+set bootimus-embed 1
 
 :netup
 ifstat
@@ -16,7 +17,13 @@ isset ${boot-server} || set boot-server ${next-server}
 
 isset ${boot-server} || goto manual
 echo Bootimus server: ${boot-server}
-chain tftp://${boot-server}/autoexec.ipxe || chain http://${boot-server}/menu.ipxe?mac=${net0/mac} || chain http://${boot-server}:8080/menu.ipxe?mac=${net0/mac} || goto manual
+chain tftp://${boot-server}/autoexec.ipxe ||
+isset ${localboot} && goto localboot ||
+chain http://${boot-server}/menu.ipxe?mac=${net0/mac} ||
+isset ${localboot} && goto localboot ||
+chain http://${boot-server}:8080/menu.ipxe?mac=${net0/mac} ||
+isset ${localboot} && goto localboot ||
+goto manual
 
 :netfail
 echo
@@ -33,7 +40,11 @@ echo
 echo Enter server (IP or host[:port]), blank for iPXE shell:
 read server
 isset ${server} || goto fallback_shell
-chain http://${server}/menu.ipxe?mac=${net0/mac} || chain http://${server}:8080/menu.ipxe?mac=${net0/mac} || goto manual
+chain http://${server}/menu.ipxe?mac=${net0/mac} ||
+isset ${localboot} && goto localboot ||
+chain http://${server}:8080/menu.ipxe?mac=${net0/mac} ||
+isset ${localboot} && goto localboot ||
+goto manual
 
 :pause_then_manual
 prompt --timeout 5000 Press any key to enter manual mode...
@@ -42,3 +53,7 @@ goto manual
 :fallback_shell
 shell
 goto manual
+
+:localboot
+echo Returning to the firmware boot order...
+exit 1

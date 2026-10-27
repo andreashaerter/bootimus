@@ -30,7 +30,7 @@ func getClientBootloaderSets(db *gorm.DB, mac string) (clientSet, groupSet strin
 var ErrClientExists = errors.New("client already exists")
 
 func createClient(db *gorm.DB, client *models.Client) error {
-	err := db.Create(client).Error
+	err := createKeepingZeroValues(db, client, "ShowPublicImages")
 	if err == nil {
 		return nil
 	}

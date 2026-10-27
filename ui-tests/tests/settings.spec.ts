@@ -52,3 +52,11 @@ test('audit log lists admin actions', async ({ page }) => {
   await expect(page.locator('#audit-table')).toContainText('POST');
   await expect(page.locator('#audit-status')).toContainText(/Showing \d+ of \d+/);
 });
+
+test('running status reports the Windows SMB state', async ({ page }) => {
+  await loginAsAdmin(page);
+  await openTab(page, 'server');
+  const row = page.locator('.rs-metric', { hasText: 'Windows SMB' });
+  await expect(row).toBeVisible();
+  await expect(row.locator('.badge')).toHaveText(/Enabled|Disabled|Requested/);
+});

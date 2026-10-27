@@ -287,6 +287,9 @@ func (s *Server) evaluate(req *dhcpv4.DHCPv4) (*dhcpv4.DHCPv4, Event, bool) {
 		return nil, ev, false
 	}
 	resp.YourIPAddr = net.IPv4zero
+	if gw := req.GatewayIPAddr; gw != nil && !gw.IsUnspecified() {
+		resp.SetBroadcast()
+	}
 	if guid := req.GetOneOption(dhcpv4.OptionClientMachineIdentifier); guid != nil {
 		resp.UpdateOption(dhcpv4.OptGeneric(dhcpv4.OptionClientMachineIdentifier, guid))
 	}

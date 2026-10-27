@@ -491,7 +491,7 @@ func (h *Handler) CreateClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var client models.Client
+	client := models.Client{ShowPublicImages: true}
 	if err := json.NewDecoder(r.Body).Decode(&client); err != nil {
 		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Invalid request body"})
 		return
@@ -4549,7 +4549,7 @@ func (h *Handler) CreateImageGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var group models.ImageGroup
+	group := models.ImageGroup{Enabled: true}
 	if err := json.NewDecoder(r.Body).Decode(&group); err != nil {
 		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Invalid request body"})
 		return
@@ -4800,7 +4800,7 @@ func (h *Handler) CreateScheduledTask(w http.ResponseWriter, r *http.Request) {
 		h.sendJSON(w, http.StatusMethodNotAllowed, Response{Success: false, Error: "Method not allowed"})
 		return
 	}
-	var t models.ScheduledTask
+	t := models.ScheduledTask{Enabled: true}
 	if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
 		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Invalid body"})
 		return
@@ -4905,7 +4905,7 @@ func (h *Handler) UpdateWebhookConfig(w http.ResponseWriter, r *http.Request) {
 		h.sendJSON(w, http.StatusMethodNotAllowed, Response{Success: false, Error: "Method not allowed"})
 		return
 	}
-	var cfg models.WebhookConfig
+	cfg := models.WebhookConfig{OnBootStarted: true, OnClientDiscovered: true, OnEnrollment: true, OnDiskImaging: true, OnInstall: true, OnAutoEnrol: true}
 	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
 		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Invalid body"})
 		return
@@ -5421,7 +5421,7 @@ func (h *Handler) CreateClientGroup(w http.ResponseWriter, r *http.Request) {
 		h.sendJSON(w, http.StatusMethodNotAllowed, Response{Success: false, Error: "Method not allowed"})
 		return
 	}
-	var group models.ClientGroup
+	group := models.ClientGroup{Enabled: true}
 	if err := json.NewDecoder(r.Body).Decode(&group); err != nil {
 		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Invalid request body"})
 		return

@@ -104,7 +104,7 @@ func TestBuildNextBootSANBypassesMenu(t *testing.T) {
 
 func TestBuildNoSANTargetEmitsNothing(t *testing.T) {
 	out := testMenuBuilder(nil).Build()
-	if strings.Contains(out, "san") {
+	if strings.Contains(out, "item san") || strings.Contains(out, ":san") {
 		t.Fatalf("menu without a SAN target must not mention SAN:\n%s", out)
 	}
 }

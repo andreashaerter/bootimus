@@ -1318,6 +1318,14 @@ function renderServerInfo(info) {
     if (info.configuration && info.configuration.runtime_mode) {
         statusCards += `<div class="rs-metric"><span class="rs-label">${t('server.field.runtime_mode')}</span><span class="rs-value"><span class="badge ${info.configuration.runtime_mode === 'Docker' ? 'badge-info' : 'badge-success'}">${info.configuration.runtime_mode}</span></span></div>`;
     }
+    if (info.configuration && info.configuration.windows_smb) {
+        const smb = info.configuration.windows_smb;
+        const split = smb.search(/ \(|: /);
+        const state = split >= 0 ? smb.slice(0, split) : smb;
+        const detail = split >= 0 ? smb.slice(split).replace(/^[ :(]+|\)$/g, '') : '';
+        const badge = smb.startsWith('Enabled') ? 'badge-success' : (smb.startsWith('Disabled') ? 'badge-disabled' : 'badge-warning');
+        statusCards += `<div class="rs-metric"><span class="rs-label">${t('server.field.windows_smb')}</span><span class="rs-value"><span class="badge ${badge}">${escapeHtml(state)}</span>${detail ? ' <span style="color: var(--text-secondary); font-size: 12px;">' + escapeHtml(detail) + '</span>' : ''}</span></div>`;
+    }
     if (sysStats.host) {
         const os = sysStats.host.platform ? `${sysStats.host.platform} ${sysStats.host.platform_version || ''}`.trim() : (sysStats.host.os || '');
         if (os) statusCards += `<div class="rs-metric"><span class="rs-label">${t('server.field.os')}</span><span class="rs-value">${os}</span></div>`;
