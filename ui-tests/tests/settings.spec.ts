@@ -55,7 +55,7 @@ test('audit log lists admin actions', async ({ page }) => {
 
 test('running status reports the Windows SMB state', async ({ page }) => {
   await loginAsAdmin(page);
-  await openTab(page, 'settings');
+  await openTab(page, 'server');
   const row = page.locator('.rs-metric', { hasText: 'Windows SMB' });
   await expect(row).toBeVisible();
   await expect(row.locator('.badge')).toHaveText(/Enabled|Disabled|Requested/);
