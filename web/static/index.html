@@ -973,7 +973,7 @@
                         <input type="password" id="theme-boot-password" autocomplete="new-password">
                         <small id="theme-boot-password-status"></small>
                         <small>Leave blank to keep the current password. Requires admin HTTPS and a compatible bootloader that trusts its certificate. Local boot stays available; image downloads are not protected.</small>
-                        <label><input type="checkbox" id="theme-remove-boot-password"> Remove the boot menu password</label>
+                        <label class="checkbox-group"><input type="checkbox" id="theme-remove-boot-password"> Remove the boot menu password</label>
                     </div>
                     <div class="form-group">
                         <label>Menu Timeout (seconds)</label>
@@ -2476,7 +2476,7 @@
                     <input type="password" id="image-props-boot-password" autocomplete="new-password">
                     <small id="image-props-boot-password-status"></small>
                     <small>Leave blank to keep the current password. Checked separately from the menu password, including automatic boots. Direct image downloads remain accessible.</small>
-                    <label><input type="checkbox" id="image-props-remove-boot-password"> Remove the image password</label>
+                    <label class="checkbox-group"><input type="checkbox" id="image-props-remove-boot-password"> Remove the image password</label>
                 </div>
             </div>
 
