@@ -1881,6 +1881,14 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 	mux.HandleFunc("/api/webhook/test", adminWrap(adminHandler.TestWebhook))
 
 	mux.HandleFunc("/api/sync/manifest", readWrap(adminHandler.SyncManifest))
+	mux.HandleFunc("/api/sync/boot-verifiers", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		if !useAuth {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		adminWrap(adminHandler.SyncBootVerifiers)(w, r)
+	})
 	mux.HandleFunc("/api/sync/tool-files", readWrap(adminHandler.SyncToolFiles))
 	mux.HandleFunc("/api/sync/asset", readWrap(adminHandler.SyncAsset))
 	mux.HandleFunc("/api/replica/status", readWrap(adminHandler.ReplicaStatus))

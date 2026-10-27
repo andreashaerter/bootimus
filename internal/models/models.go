@@ -469,6 +469,8 @@ type Image struct {
 	Public                bool           `gorm:"default:false" json:"public"`
 	BootPasswordRequired  bool           `gorm:"default:false" json:"boot_password_required"`
 	BootPasswordHash      string         `json:"-"`
+	BootPasswordRevision  string         `json:"boot_password_revision,omitempty"`
+	BootPasswordSourceAt  time.Time      `json:"-"`
 	BootCount             int            `gorm:"default:0" json:"boot_count"`
 	LastBooted            *time.Time     `json:"last_booted,omitempty"`
 	Clients               []Client       `gorm:"many2many:client_images;" json:"clients,omitempty"`
@@ -625,11 +627,13 @@ type MenuTheme struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 
-	Title                string `gorm:"default:Bootimus - Boot Menu" json:"title"`
-	MenuTimeout          int    `gorm:"default:30" json:"menu_timeout"` // seconds, 0 = no timeout (wait forever)
-	DefaultMenuItem      string `gorm:"default:local" json:"default_menu_item"`
-	BootPasswordRequired bool   `gorm:"default:false" json:"boot_password_required"`
-	BootPasswordHash     string `json:"-"`
+	Title                string    `gorm:"default:Bootimus - Boot Menu" json:"title"`
+	MenuTimeout          int       `gorm:"default:30" json:"menu_timeout"` // seconds, 0 = no timeout (wait forever)
+	DefaultMenuItem      string    `gorm:"default:local" json:"default_menu_item"`
+	BootPasswordRequired bool      `gorm:"default:false" json:"boot_password_required"`
+	BootPasswordHash     string    `json:"-"`
+	BootPasswordRevision string    `json:"boot_password_revision,omitempty"`
+	BootPasswordSourceAt time.Time `json:"-"`
 }
 
 type BootTool struct {

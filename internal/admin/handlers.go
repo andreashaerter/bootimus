@@ -1030,7 +1030,7 @@ func (h *Handler) UpdateImage(w http.ResponseWriter, r *http.Request) {
 			h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "boot_password must be a string"})
 			return
 		}
-		if err := h.updateBootPassword(r, &password, &image.BootPasswordHash, &image.BootPasswordRequired); err != nil {
+		if err := h.updateBootPassword(r, &password, &image.BootPasswordHash, &image.BootPasswordRequired, &image.BootPasswordRevision); err != nil {
 			h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: err.Error()})
 			return
 		}
@@ -5678,8 +5678,8 @@ func (h *Handler) UpdateMenuTheme(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	theme := updates.MenuTheme
-	theme.BootPasswordHash, theme.BootPasswordRequired = previous.BootPasswordHash, previous.BootPasswordRequired
-	if err := h.updateBootPassword(r, updates.BootPassword, &theme.BootPasswordHash, &theme.BootPasswordRequired); err != nil {
+	theme.BootPasswordHash, theme.BootPasswordRequired, theme.BootPasswordRevision = previous.BootPasswordHash, previous.BootPasswordRequired, previous.BootPasswordRevision
+	if err := h.updateBootPassword(r, updates.BootPassword, &theme.BootPasswordHash, &theme.BootPasswordRequired, &theme.BootPasswordRevision); err != nil {
 		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: err.Error()})
 		return
 	}

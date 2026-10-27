@@ -23,7 +23,7 @@ func TestBootPasswordUpgradeDefaultsToDisabled(test *testing.T) {
 		test.Fatal(err)
 	}
 	for _, model := range []any{&models.Image{}, &models.MenuTheme{}} {
-		for _, column := range []string{"BootPasswordHash", "BootPasswordRequired"} {
+		for _, column := range []string{"BootPasswordHash", "BootPasswordRequired", "BootPasswordRevision", "BootPasswordSourceAt"} {
 			if err := store.db.Migrator().DropColumn(model, column); err != nil {
 				test.Fatal(err)
 			}
@@ -31,6 +31,14 @@ func TestBootPasswordUpgradeDefaultsToDisabled(test *testing.T) {
 	}
 	if err := store.AutoMigrate(); err != nil {
 		test.Fatal(err)
+	}
+	if store.postgres() {
+		fresh, err := NewPostgresStore(store.cfg)
+		if err != nil {
+			test.Fatal(err)
+		}
+		test.Cleanup(func() { fresh.Close() })
+		store.Storage, store.db = fresh, fresh.db
 	}
 	image, err = store.GetImage("existing.iso")
 	if err != nil {
@@ -43,7 +51,7 @@ func TestBootPasswordUpgradeDefaultsToDisabled(test *testing.T) {
 	if image.Name != "Existing image" || !image.Enabled || !image.Public || theme.Title != "Existing menu" || theme.MenuTimeout != 17 {
 		test.Fatal("upgrade changed existing image or menu settings")
 	}
-	if image.BootPasswordRequired || image.BootPasswordHash != "" || theme.BootPasswordRequired || theme.BootPasswordHash != "" {
+	if image.BootPasswordRequired || image.BootPasswordHash != "" || image.BootPasswordRevision != "" || !image.BootPasswordSourceAt.IsZero() || theme.BootPasswordRequired || theme.BootPasswordHash != "" || theme.BootPasswordRevision != "" || !theme.BootPasswordSourceAt.IsZero() {
 		test.Fatal("upgrade unexpectedly enabled password protection")
 	}
 }
