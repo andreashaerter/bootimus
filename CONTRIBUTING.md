@@ -65,6 +65,8 @@ Two things to know when adding storage code:
 
 ## End-to-end boot test
 
+When updating iPXE, test BIOS and UEFI, network and USB boot, and USB keyboard input. Check menu navigation, cancellation and keyboard input after chaining into another bootloader, such as GRUB. Include affected physical hardware: passing QEMU/OVMF tests does not establish compatibility with vendor firmware.
+
 `make test-e2e` boots real virtual machines against a real bootimus. It builds the binary, starts it, and runs these stages, each of which writes its serial console and the server log under `.e2e/run/`:
 
 | Stage | What it asserts |

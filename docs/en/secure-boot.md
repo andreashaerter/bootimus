@@ -13,7 +13,7 @@ How to netboot machines that have UEFI Secure Boot enabled, without touching the
 
 ## How it works
 
-Bootimus ships a built-in bootloader set called `secureboot-official`. It contains only officially signed release binaries, so every link in the boot chain is verified against keys stock firmware already trusts — no certificate enrolment, no firmware changes on clients:
+Bootimus ships a built-in bootloader set called `secureboot-official`. It contains only officially signed release binaries, so the bootloaders form a verified chain rooted in keys stock firmware already trusts. Clients need no certificate enrolment or firmware changes:
 
 ```
 Firmware (Secure Boot on, stock Microsoft keys)
@@ -23,6 +23,8 @@ Firmware (Secure Boot on, stock Microsoft keys)
       → autoexec.ipxe    fetched over TFTP; Bootimus generates it per client
         → boot menu      as normal
 ```
+
+Secure Boot verifies signed executables. It does not authenticate `autoexec.ipxe` fetched over TFTP or menus fetched over HTTP. Enabling HTTPS for the admin interface does not secure boot traffic. Keep boot services on a trusted provisioning network.
 
 When you boot an extracted image, the generated menu entry loads the kernel and initrd, then chain-loads the **distro's own Microsoft-signed shim** out of the extracted ISO with iPXE's `shim` command. That shim verifies the distro kernel's signature, completing the chain:
 
