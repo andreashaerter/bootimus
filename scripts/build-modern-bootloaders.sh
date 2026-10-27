@@ -3,6 +3,11 @@ set -euo pipefail
 
 scripts_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 engine="${CONTAINER_ENGINE:-docker}"
+secure_boot="${IPXE_SECURE_BOOT:-0}"
+if [[ "$secure_boot" != 0 && "$secure_boot" != 1 ]]; then
+    echo "IPXE_SECURE_BOOT must be 0 or 1" >&2
+    exit 2
+fi
 if [[ $# -lt 2 ]]; then
     echo "Usage: $0 OUTPUT_DIRECTORY TRUST_CERTIFICATE [TRUST_CERTIFICATE ...]" >&2
     exit 2
@@ -41,8 +46,12 @@ for certificate in "$@"; do
     trust_files+=("/build/$target")
 done
 (IFS=,; printf '%s\n' "${trust_files[*]}") > "$build_context/trust.list"
-cp "$scripts_dir/../bootloaders/default/embed.ipxe" "$scripts_dir/ipxe-http-range.patch" "$build_context/"
-"$engine" build --iidfile "$build_context/image.id" --label "org.bootimus.build=$(basename "$build_context")" -f "$scripts_dir/Dockerfile.ipxe-modern" "$build_context"
+{
+    printf '%s\n' '#!ipxe' 'imgfree autoexec.ipxe ||'
+    tail -n +2 "$scripts_dir/../bootloaders/default/embed.ipxe"
+} > "$build_context/embed.ipxe"
+cp "$scripts_dir/ipxe-http-range.patch" "$build_context/"
+"$engine" build --iidfile "$build_context/image.id" --label "org.bootimus.build=$(basename "$build_context")" --build-arg "SECURE_BOOT=$secure_boot" -f "$scripts_dir/Dockerfile.ipxe-modern" "$build_context"
 image_id="$(cat "$build_context/image.id")"
 container_id="$("$engine" create "$image_id")"
 mkdir -p -- "$(dirname "$output_dir")"
@@ -54,3 +63,6 @@ cp "$scripts_dir/../bootloaders/default/wimboot" "$output_dir/wimboot"
     sha256sum ./*.kpxe ./*.efi ./*.usb ./wimboot > SHA256SUMS
 )
 printf 'Built unsigned, opt-in loaders in %s. Existing bundled loaders are unchanged.\n' "$output_dir"
+if [[ "$secure_boot" == 1 ]]; then
+    printf 'UEFI binaries use restricted Secure Boot targets. Sign and enrol before use; the USB image is still unsigned.\n'
+fi
