@@ -24,6 +24,21 @@ Renewing a leaf certificate under the same trusted CA does not require new loade
 
 ## Secure Boot and scope
 
-These custom loaders are unsigned. They cannot replace `secureboot-official` on clients that enforce Secure Boot. Keep that signed set unchanged; a custom build needs a separate signing and enrolment procedure, followed by testing of the complete boot chain.
+All builder output is unsigned. For deployments that manage their own signing keys, opt into iPXE's restricted Secure Boot targets:
+
+```sh
+IPXE_SECURE_BOOT=1 CONTAINER_ENGINE=podman bash scripts/build-modern-bootloaders.sh /tmp/bootimus-secure /path/to/ca.pem
+```
+
+This produces a `modern-secureboot` set. Sign its UEFI executables outside the container with your deployment's signing key, then enrol the public signing certificate through your firmware's documented procedure. For example, using `sbsigntool`:
+
+```sh
+sbsign --key /path/to/signing.key --cert /path/to/signing.pem --output /tmp/bootimus-secure/bootimus-signed.efi /tmp/bootimus-secure/bootimus.efi
+sbverify --cert /path/to/signing.pem /tmp/bootimus-secure/bootimus-signed.efi
+```
+
+Deploy signed copies under the filenames in `manifest.json` and regenerate `SHA256SUMS` after signing. Signing a standalone EFI file does not update the copy inside `bootimus.usb`; that USB image remains unsigned. Do not sign the ordinary, unrestricted build as a substitute. Test the subsequent shim, bootloader and kernel with Secure Boot enforced, including rejection of unsigned executables. See [iPXE's Secure Boot guide](https://ipxe.org/secboot).
+
+Keep `secureboot-official` unchanged. Custom signing does not confer Microsoft trust. The official signed iPXE v2.0.0 boots with Secure Boot enabled, but its POST encoding corrupts `+` in passwords; it is not suitable for these password checks. The pinned newer revision preserves it. Physical keyboard compatibility remains unverified.
 
 HTTPS certificate trust and Secure Boot signing trust are separate. The embedded script still discovers Bootimus over DHCP and fetches its bootstrap over TFTP/HTTP, so this setup assumes a trusted provisioning network. It does not authenticate that bootstrap or protect image downloads. A loader that cannot complete password authentication must stop at the protected menu or image, not fall back to an unprotected boot.
