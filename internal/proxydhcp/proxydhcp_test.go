@@ -249,6 +249,32 @@ func TestReplyAddr(t *testing.T) {
 	}
 }
 
+func TestRelayedRepliesAskTheRelayToBroadcast(t *testing.T) {
+	s := testServer(t)
+
+	direct := discover(t, "aa:bb:cc:dd:ee:ff", "PXEClient:Arch:00007")
+	resp, _, ok := s.buildReply(direct)
+	if !ok {
+		t.Fatal("direct discover was not answered")
+	}
+	if resp.IsBroadcast() {
+		t.Error("a reply on the client's own segment must keep the client's unicast flag")
+	}
+
+	relayed := discover(t, "aa:bb:cc:dd:ee:ff", "PXEClient:Arch:00007")
+	relayed.GatewayIPAddr = net.ParseIP("10.0.5.1").To4()
+	resp, _, ok = s.buildReply(relayed)
+	if !ok {
+		t.Fatal("relayed discover was not answered")
+	}
+	if !resp.IsBroadcast() {
+		t.Error("a relayed reply offers no client address, so it must ask the relay to broadcast it")
+	}
+	if !resp.GatewayIPAddr.Equal(relayed.GatewayIPAddr) {
+		t.Errorf("relayed reply giaddr = %v, want %v", resp.GatewayIPAddr, relayed.GatewayIPAddr)
+	}
+}
+
 func TestVendorOptionCanBeOmitted(t *testing.T) {
 	uefi := func() *dhcpv4.DHCPv4 {
 		return discover(t, "00:23:24:c2:9f:c8", "PXEClient:Arch:00007:UNDI:003016",
