@@ -20,7 +20,7 @@ In **Boot Menu**, set the optional global password. In an image's properties, se
 - Defaults, next-boot images and deployment-profile selections use the same image check. Cancelling or failing authentication does not consume a protected next-boot selection.
 - Cancelling returns to the menu. Authentication or TLS failure never starts a protected image. A source address gets up to five password attempts per minute.
 
-Passwords are stored as bcrypt hashes and are never returned by the API or included in boot scripts. The maximum length is 72 bytes. Test punctuation and your keyboard layout on real clients before deployment.
+Passwords are stored as bcrypt hashes and are never returned by ordinary read APIs or included in boot scripts. A separate admin-authorised HTTPS sync endpoint supplies verifiers to replicas. The maximum length is 72 bytes. Test punctuation and your keyboard layout on real clients before deployment.
 
 Image-authentication requests use a five-minute menu token, scoped to the client MAC and source address. Changing the global password or restarting the server invalidates it. MAC addresses are not device identities. Use **Lock network-boot menu** to leave the menu or authenticate again after expiry; expiry does not hide an already displayed menu.
 
@@ -28,10 +28,10 @@ The checks apply to ISO images and the global network-boot menu. There are no se
 
 ## API
 
-`PUT /api/theme` and `PUT /api/images?filename=...` accept `boot_password`. Omit it to preserve the password, supply a non-empty string to set it, or `""` to remove it. Responses contain `boot_password_required`, never the password or hash. Changing that status field directly has no effect.
+`PUT /api/theme` and `PUT /api/images?filename=...` accept `boot_password`. Omit it to preserve the password, supply a non-empty string to set it, or `""` to remove it. Responses contain `boot_password_required` and an opaque `boot_password_revision`, never the password or hash. The revision changes on every set or removal. Changing either status field directly has no effect.
 
 Boot clients submit URL-encoded POST bodies to `/boot-auth` on the admin HTTPS port. Passwords and menu-session tokens must not appear in URLs. This endpoint grants no admin session or API access.
 
 ## Replicas
 
-Upgrade every replica before enabling protection on the primary. Replicas copy the protection flags, but password hashes are not exposed through the read API or synchronised. Protected menus and images therefore remain blocked on replicas; boot those clients from the primary. Replica password verification needs a separate design before using this feature across sites.
+Upgrade every replica before enabling protection on the primary. Give each replica an admin-scope API token, a trusted HTTPS connection to the primary, and its own admin HTTPS certificate trusted by its boot clients. The replica copies verifiers through the restricted sync endpoint and checks each against the corresponding image or menu policy before saving it. A branch can unlock its last synced protection while the primary is unreachable. If it observes a newer protected policy without a matching verifier, that boot remains blocked until a successful sync. Password removal also waits for a successful sync. See [multi-site deployments](multi-site.md) for setup and failure behaviour.
