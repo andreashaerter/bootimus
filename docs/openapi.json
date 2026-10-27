@@ -86,6 +86,10 @@
     {
       "name": "Boot",
       "description": "Endpoints served to PXE clients on the boot port; no authentication."
+    },
+    {
+      "name": "Boot passwords",
+      "description": "Menu and image authentication, separate from admin access."
     }
   ],
   "paths": {
@@ -3491,7 +3495,7 @@
         "tags": [
           "Images"
         ],
-        "summary": "Partial update of an image.",
+        "summary": "Partial update of an image. Omit boot_password to preserve it; an empty string removes it. Setting a password requires HTTPS.",
         "operationId": "putApiImages",
         "parameters": [
           {
@@ -3505,7 +3509,7 @@
           }
         ],
         "requestBody": {
-          "description": "{name, description, enabled, public, group_id, order, boot_method, distro, boot_params, auto_install_file, kernel_override, initrd_override}",
+          "description": "{name, description, enabled, public, group_id, order, boot_method, distro, boot_params, auto_install_file, kernel_override, initrd_override, boot_password?}",
           "required": true,
           "content": {
             "application/json": {
@@ -5497,10 +5501,10 @@
         "tags": [
           "Settings"
         ],
-        "summary": "Update the boot menu theme.",
+        "summary": "Update the boot menu theme. Omit boot_password to preserve it; an empty string removes it. Setting a password requires HTTPS.",
         "operationId": "putApiTheme",
         "requestBody": {
-          "description": "{title, menu_timeout, default_menu_item}",
+          "description": "{title, menu_timeout, default_menu_item, boot_password?}",
           "required": true,
           "content": {
             "application/json": {
@@ -6344,6 +6348,41 @@
         "x-bootimus-public": true,
         "x-bootimus-readonly": true,
         "x-bootimus-order": 190
+      }
+    },
+    "/boot-auth": {
+      "post": {
+        "tags": [
+          "Boot passwords"
+        ],
+        "summary": "iPXE boot-password authentication on the admin HTTPS port. Returns an iPXE script; does not grant admin access. Credentials and scoped menu sessions are accepted only in the form body.",
+        "operationId": "postBootAuth",
+        "requestBody": {
+          "description": "{action: menu|image, mac, image?, password?, session?}",
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "x-bootimus-public": true,
+        "x-bootimus-readonly": true,
+        "x-bootimus-order": 199
       }
     },
     "/boot/{cache_dir}/{path}": {
