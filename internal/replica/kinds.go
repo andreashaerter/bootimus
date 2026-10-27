@@ -172,6 +172,8 @@ func copyImageMetadata(dst *models.Image, src models.Image, groupID *uint) {
 	dst.Size = src.Size
 	dst.Enabled = src.Enabled
 	dst.Public = src.Public
+	dst.BootPasswordRequired = src.BootPasswordRequired
+	dst.BootPasswordHash = ""
 	dst.GroupID = groupID
 	dst.Group = nil
 	dst.Order = src.Order
@@ -525,10 +527,11 @@ func (s *Syncer) syncTheme(ctx context.Context, run *syncRun) (KindResult, error
 		return KindResult{}, err
 	}
 	res := KindResult{Count: 1}
-	if local.Title == remote.Title && local.MenuTimeout == remote.MenuTimeout && local.DefaultMenuItem == remote.DefaultMenuItem {
+	if local.Title == remote.Title && local.MenuTimeout == remote.MenuTimeout && local.DefaultMenuItem == remote.DefaultMenuItem && local.BootPasswordRequired == remote.BootPasswordRequired && local.BootPasswordHash == "" {
 		return res, nil
 	}
 	local.Title, local.MenuTimeout, local.DefaultMenuItem = remote.Title, remote.MenuTimeout, remote.DefaultMenuItem
+	local.BootPasswordRequired, local.BootPasswordHash = remote.BootPasswordRequired, ""
 	if err := s.deps.Store.UpdateMenuTheme(local); err != nil {
 		return res, err
 	}
