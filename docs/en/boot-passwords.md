@@ -8,7 +8,7 @@ Enable admin HTTPS and use an iPXE build with HTTPS, POST parameters and masked 
 
 Use a stable CA for routine certificate renewal, or pin the deployment's self-signed certificate. For CA or pinned-certificate rotation, distribute loaders trusting both old and new certificates before changing the server certificate, then remove the old trust. Do not disable TLS verification or weaken server cipher settings. Password requests go directly to the admin HTTPS listener; TLS termination at a reverse proxy is not supported for this endpoint.
 
-Custom loaders are unsigned. Keep `secureboot-official` unchanged until a signed, compatible loader and its certificate trust have been tested. If a loader cannot authenticate, a protected boot fails; it never falls back to an unprotected image.
+Custom loaders are unsigned. Secure Boot requires a restricted build, deployment signing and a trusted subsequent boot chain. Keep `secureboot-official` unchanged: its signed iPXE v2.0.0 corrupts `+` in POST fields and is unsuitable for these password checks. If a loader cannot authenticate, a protected boot fails; it never falls back to an unprotected image.
 
 ## Set or remove a password
 
