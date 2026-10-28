@@ -1,6 +1,6 @@
 # Custom iPXE with HTTPS
 
-The bundled bootloaders stay unchanged. The opt-in builder uses iPXE revision `39a440d082a65a5b8e11e734cd6caf0991b70771`, with HTTPS, POST parameters and masked password forms enabled for BIOS and UEFI.
+The bundled bootloaders stay unchanged. The opt-in builder uses iPXE revision `39a440d082a65a5b8e11e734cd6caf0991b70771`, with HTTPS, POST parameters and masked password forms enabled for BIOS and UEFI. This is an optional modernisation path for embedded certificate trust and newer iPXE fixes, not a prerequisite for password protection with a compatible official signed loader.
 
 UEFI uses `ipxe-legacy` for both network and USB boot. It retains firmware drivers instead of taking over USB controllers. Native USB NIC drivers are excluded. Test your NIC, keyboard and the next bootloader before deploying it; physical validation of the reported keyboard regression is still pending.
 
@@ -39,6 +39,6 @@ sbverify --cert /path/to/signing.pem /tmp/bootimus-secure/bootimus-signed.efi
 
 Deploy signed copies under the filenames in `manifest.json` and regenerate `SHA256SUMS` after signing. Signing a standalone EFI file does not update the copy inside `bootimus.usb`; that USB image remains unsigned. Do not sign the ordinary, unrestricted build as a substitute. Test the subsequent shim, bootloader and kernel with Secure Boot enforced, including rejection of unsigned executables. See [iPXE's Secure Boot guide](https://ipxe.org/secboot).
 
-Keep `secureboot-official` unchanged. Custom signing does not confer Microsoft trust. The official signed iPXE v2.0.0 boots with Secure Boot enabled, but its POST encoding corrupts `+` in passwords; it is not suitable for these password checks. The pinned newer revision preserves it. Physical keyboard compatibility remains unverified.
+Keep `secureboot-official` unchanged. Custom signing does not confer Microsoft trust. The official signed iPXE v2.0.0 sends literal `+` characters unescaped in form submissions. Bootimus's password feature rejects `+` and ASCII spaces to avoid ambiguous matches, and rejects `;` because iPXE leaves it unescaped and Go's form parser rejects it. The unchanged signed loader can therefore be used with trusted HTTPS. The pinned newer revision fixes plus encoding, but Bootimus keeps the restriction while supporting older loaders. Physical UEFI keyboard compatibility remains unverified.
 
 HTTPS certificate trust and Secure Boot signing trust are separate. The embedded script still discovers Bootimus over DHCP and fetches its bootstrap over TFTP/HTTP, so this setup assumes a trusted provisioning network. It does not authenticate that bootstrap or protect image downloads. A loader that cannot complete password authentication must stop at the protected menu or image, not fall back to an unprotected boot.
