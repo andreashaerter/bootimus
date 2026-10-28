@@ -124,7 +124,7 @@ var APISections = []APISection{
 	}},
 	{Tag: "Images", Endpoints: []APIEndpoint{
 		{Method: "GET", Path: "/api/images", Summary: "List all images, or one when filename is given.", Params: []APIParam{{Name: "filename", In: "query", Description: "ISO filename of a single image"}}, ReadOnly: true},
-		{Method: "PUT", Path: "/api/images", Summary: "Partial update of an image. Omit boot_password to preserve it; an empty string removes it. Setting a password requires HTTPS.", Params: []APIParam{qFilename("ISO filename")}, Body: "{name, description, enabled, public, group_id, order, boot_method, distro, boot_params, auto_install_file, kernel_override, initrd_override, boot_password?}"},
+		{Method: "PUT", Path: "/api/images", Summary: "Partial update of an image. Omit boot_password to preserve it; an empty string removes it. Setting a password requires HTTPS. Passwords must be at most 72 bytes and cannot contain +, ; or ASCII spaces.", Params: []APIParam{qFilename("ISO filename")}, Body: "{name, description, enabled, public, group_id, order, boot_method, distro, boot_params, auto_install_file, kernel_override, initrd_override, boot_password?}"},
 		{Method: "DELETE", Path: "/api/images", Summary: "Delete an image.", Params: []APIParam{qFilename("ISO filename"), {Name: "delete_file", In: "query", Description: "true to also remove the ISO from disk"}}},
 		{Method: "POST", Path: "/api/images/upload", Summary: "Upload an ISO or unified kernel image.", Body: "file, public, description", Multipart: true},
 		{Method: "POST", Path: "/api/images/download", Summary: "Download an ISO from a URL asynchronously, verifying it against a SHA-256 when one is given or published alongside.", Body: "{url, filename, description, sha256, checksum_url, catalogue_id, catalogue_release}"},
@@ -256,7 +256,7 @@ var APISections = []APISection{
 	}},
 	{Tag: "Settings", Endpoints: []APIEndpoint{
 		{Method: "GET", Path: "/api/theme", Summary: "Boot menu theme and defaults.", ReadOnly: true},
-		{Method: "PUT", Path: "/api/theme", Summary: "Update the boot menu theme. Omit boot_password to preserve it; an empty string removes it. Setting a password requires HTTPS.", Body: "{title, menu_timeout, default_menu_item, boot_password?}"},
+		{Method: "PUT", Path: "/api/theme", Summary: "Update the boot menu theme. Omit boot_password to preserve it; an empty string removes it. Setting a password requires HTTPS. Passwords must be at most 72 bytes and cannot contain +, ; or ASCII spaces.", Body: "{title, menu_timeout, default_menu_item, boot_password?}"},
 		{Method: "GET", Path: "/api/backup/export", Summary: "Download a tar.gz backup of the database and data directory."},
 		{Method: "POST", Path: "/api/backup/import", Summary: "Stage a backup archive for restore on the next restart.", Body: "backup=@bootimus-backup.tar.gz", Multipart: true},
 		{Method: "GET", Path: "/api/backup/import", Summary: "Whether a restore is staged."},

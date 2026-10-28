@@ -3495,7 +3495,7 @@
         "tags": [
           "Images"
         ],
-        "summary": "Partial update of an image. Omit boot_password to preserve it; an empty string removes it. Setting a password requires HTTPS.",
+        "summary": "Partial update of an image. Omit boot_password to preserve it; an empty string removes it. Setting a password requires HTTPS. Passwords must be at most 72 bytes and cannot contain +, ; or ASCII spaces.",
         "operationId": "putApiImages",
         "parameters": [
           {
@@ -5525,7 +5525,7 @@
         "tags": [
           "Settings"
         ],
-        "summary": "Update the boot menu theme. Omit boot_password to preserve it; an empty string removes it. Setting a password requires HTTPS.",
+        "summary": "Update the boot menu theme. Omit boot_password to preserve it; an empty string removes it. Setting a password requires HTTPS. Passwords must be at most 72 bytes and cannot contain +, ; or ASCII spaces.",
         "operationId": "putApiTheme",
         "requestBody": {
           "description": "{title, menu_timeout, default_menu_item, boot_password?}",

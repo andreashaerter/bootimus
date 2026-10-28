@@ -4,11 +4,19 @@ Menu protection does not protect image files themselves. Direct downloads, alter
 
 ## Requirements
 
-Enable admin HTTPS and use an iPXE build with HTTPS, POST parameters and masked password forms. The loader must trust the HTTPS certificate and validate the server address. The bundled old loader is not sufficient. Use a compatible `ipxe-legacy` build and test its keyboard support before deployment; physical regression testing is still pending.
+Enable admin HTTPS and use an iPXE build with HTTPS, POST parameters and masked password forms. The loader must trust the HTTPS certificate and validate the server address. The old `default` set lacks these features. The unchanged `secureboot-official` v2.0.0 set supports password checks with the character restriction below; a custom build is not required for that route. Test keyboard support on the intended hardware before deployment.
 
-Use a stable CA for routine certificate renewal, or pin the deployment's self-signed certificate. For CA or pinned-certificate rotation, distribute loaders trusting both old and new certificates before changing the server certificate, then remove the old trust. Do not disable TLS verification or weaken server cipher settings. Password requests go directly to the admin HTTPS listener; TLS termination at a reverse proxy is not supported for this endpoint.
+Use a stable CA for routine certificate renewal. Before changing the CA or a pinned self-signed certificate, provision both old and new trust on clients, then remove the old trust after migration. This requires rebuilding only when trust is embedded in a custom loader; firmware-provisioned TLS trust is updated separately. Do not disable TLS verification or weaken server cipher settings. Password requests go directly to the admin HTTPS listener; TLS termination at a reverse proxy is not supported for this endpoint.
 
-Custom loaders are unsigned. Secure Boot requires a restricted build, deployment signing and a trusted subsequent boot chain. Keep `secureboot-official` unchanged: its signed iPXE v2.0.0 corrupts `+` in POST fields and is unsuitable for these password checks. If a loader cannot authenticate, a protected boot fails; it never falls back to an unprotected image.
+The official signed loader retains its existing Secure Boot chain. HTTPS trust is separate: it can use iPXE's [public-CA trust](https://ipxe.org/crypto), or a private CA provisioned in the client's UEFI `TlsCaCertificate` variable where supported. The certificate must cover the configured server address. Provisioning TLS trust does not require changing the firmware's Secure Boot signing keys. Custom builds remain an alternative for deployments needing embedded trust; those binaries require deployment signing for Secure Boot.
+
+The signed-loader route has been tested in QEMU with stock Microsoft signing trust and a disposable CA added only to `TlsCaCertificate`. Physical UEFI keyboard compatibility and other firmware trust-provisioning methods remain unverified. If a loader cannot authenticate, a protected boot fails; it never falls back to an unprotected image.
+
+## Temporary character restriction
+
+Global and image passwords must not contain `+`, `;` or ASCII spaces. iPXE v2.0.0 fails to escape literal `+` characters in form submissions, so the server reads them as spaces. Rejecting both prevents a mistyped `a+b` from matching `a b`. iPXE also leaves semicolons unescaped, which Go's form parser rejects. Other punctuation remains allowed; test it with the client's keyboard layout. The [upstream plus-encoding fix](https://github.com/ipxe/ipxe/commit/081d235ae2ec99e3ef2b8b7847ee1930896e77cf) does not fix semicolons. Reconsider the restrictions only after compatible loaders are available and tested.
+
+The UI and API reject incompatible password changes without altering existing protection. Authentication rejects these characters too. Reset any password containing them that was set with an earlier development build; stored hashes cannot reveal whether a reset is needed. Leaving the field blank preserves the existing hash, including an incompatible one. Password removal remains available.
 
 ## Set or remove a password
 
