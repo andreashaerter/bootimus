@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -22,6 +23,9 @@ func (handler *Handler) updateBootPassword(request *http.Request, password *stri
 		}
 		if len(*password) > 72 {
 			return fmt.Errorf("boot passwords must be at most 72 bytes")
+		}
+		if strings.ContainsAny(*password, "+; ") {
+			return fmt.Errorf("boot passwords must not contain +, ; or spaces (iPXE v2.0.0 compatibility)")
 		}
 		value, err := bcrypt.GenerateFromPassword([]byte(*password), bcrypt.DefaultCost)
 		if err != nil {

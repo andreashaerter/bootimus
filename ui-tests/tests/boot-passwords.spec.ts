@@ -9,6 +9,7 @@ test('boot password fields explain their scope and preserve an unset password', 
   await expect(page.locator('#theme-boot-password')).toHaveValue('');
   await expect(page.locator('#theme-boot-password-status')).toHaveText('No password set.');
   await expect(page.locator('#theme-form')).toContainText('image downloads are not protected');
+  await expect(page.locator('#theme-form')).toContainText('No +, ; or spaces');
   const requestPromise = page.waitForRequest(request => request.url().endsWith('/api/theme') && request.method() === 'PUT');
   await page.locator('#theme-form button[type="submit"]').click();
   const request = await requestPromise;
@@ -34,7 +35,13 @@ test('HTTPS can set, preserve, rotate and remove the menu password', async ({ pa
   test.skip(!baseURL?.startsWith('https:'), 'This check needs the HTTPS admin listener');
   await loginAsAdmin(page);
   await openTab(page, 'boot-menu');
-  for (const password of ['menu+&=%', undefined, 'changed-menu', '']) {
+  for (const password of ['menu+word', 'menu;word', 'menu word']) {
+    await page.fill('#theme-boot-password', password);
+    await page.locator('#theme-form button[type="submit"]').click();
+    await expect(page.getByText('Boot passwords must not contain +, ; or spaces (iPXE v2.0.0 compatibility)', { exact: true }).last()).toBeVisible();
+    await expect(page.locator('#theme-boot-password-status')).toHaveText('No password set.');
+  }
+  for (const password of ['menu&=%', undefined, 'changed-menu', '']) {
     if (password === '') await page.check('#theme-remove-boot-password');
     else if (password !== undefined) await page.fill('#theme-boot-password', password);
     const responsePromise = page.waitForResponse(response => response.url().endsWith('/api/theme') && response.request().method() === 'PUT');
@@ -61,7 +68,16 @@ test('HTTPS image password changes survive reopening properties', async ({ page,
   const upload = page.waitForResponse(response => response.url().includes('/api/images/upload') && response.request().method() === 'POST');
   await page.locator('#upload-form button[type="submit"]').click();
   expect((await upload).ok()).toBeTruthy();
-  for (const password of ['image+&=%', undefined, 'changed-image', '']) {
+  await page.locator('#images-table tr[onclick]').getByText(filename, { exact: true }).click();
+  await expect(page.locator('#image-properties-modal')).toContainText('No +, ; or spaces');
+  for (const password of ['image+word', 'image;word', 'image word']) {
+    await page.fill('#image-props-boot-password', password);
+    await page.getByRole('button', { name: 'Save Properties', exact: true }).click();
+    await expect(page.getByText('Boot passwords must not contain +, ; or spaces (iPXE v2.0.0 compatibility)', { exact: true }).last()).toBeVisible();
+    await expect(page.locator('#image-props-boot-password-status')).toHaveText('No password set.');
+  }
+  await page.locator('#image-properties-modal').getByRole('button', { name: 'Cancel', exact: true }).click();
+  for (const password of ['image&=%', undefined, 'changed-image', '']) {
     await page.locator('#images-table tr[onclick]').getByText(filename, { exact: true }).click();
     await expect(page.locator('#image-properties-modal')).toBeVisible();
     await expect(page.locator('#image-props-boot-password')).toHaveAttribute('type', 'password');

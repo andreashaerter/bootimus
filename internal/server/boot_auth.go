@@ -126,7 +126,7 @@ func (server *Server) checkBootPassword(writer http.ResponseWriter, request *htt
 		return false
 	}
 	password := request.PostForm.Get("password")
-	if password == "" || len(password) > 72 || bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil {
+	if password == "" || len(password) > 72 || strings.ContainsAny(password, "+; ") || bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil {
 		http.Error(writer, "Boot authentication failed", http.StatusForbidden)
 		return false
 	}
@@ -192,7 +192,7 @@ param --params bootimus password ${bootimus_password} || goto rejected
 clear bootimus_password
 clear username
 clear password
-chain %s##params=bootimus || goto rejected
+chain --autofree %s##params=bootimus || goto rejected
 isset ${localboot} && exit ||
 goto start
 :rejected
@@ -217,7 +217,7 @@ param --params bootimus image %d || goto failed
 param --params bootimus session ${bootimus_session} || goto failed
 clear username
 clear password
-chain %s##params=bootimus || goto failed
+chain --autofree %s##params=bootimus || goto failed
 isset ${localboot} && exit ||
 goto start
 `, mac, imageID, builder.bootAuthURL)
@@ -238,7 +238,7 @@ param --params bootimus password ${bootimus_password} || goto rejected
 clear bootimus_password
 clear username
 clear password
-chain %s##params=bootimus || goto rejected
+chain --autofree %s##params=bootimus || goto rejected
 exit
 :rejected
 echo Authentication failed or unavailable. Return to the menu and try again.

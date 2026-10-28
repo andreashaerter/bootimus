@@ -60,20 +60,20 @@ func TestBootPasswordUpdatesAndRedaction(test *testing.T) {
 				}
 				return current.BootPasswordRevision
 			}
-			response := update(`{"boot_password":"secret+&=%"}`, "http")
+			response := update(`{"boot_password":"secret&=%"}`, "http")
 			if response.Code != http.StatusBadRequest {
 				test.Fatal("password accepted without HTTPS")
 			}
-			response = update(`{"boot_password":"secret+&=%"}`, "https")
+			response = update(`{"boot_password":"secret&=%"}`, "https")
 			if response.Code != http.StatusOK {
 				test.Fatalf("set password: %d", response.Code)
 			}
 			hash, required := read()
 			revision := readRevision()
-			if !required || revision == "" || bcrypt.CompareHashAndPassword([]byte(hash), []byte("secret+&=%")) != nil {
+			if !required || revision == "" || bcrypt.CompareHashAndPassword([]byte(hash), []byte("secret&=%")) != nil {
 				test.Fatal("password was not hashed and stored")
 			}
-			for _, forbidden := range []string{"secret+&=%", hash, "boot_password_hash"} {
+			for _, forbidden := range []string{"secret&=%", hash, "boot_password_hash"} {
 				if strings.Contains(response.Body.String(), forbidden) {
 					test.Fatal("API response exposes password material")
 				}
@@ -92,6 +92,19 @@ func TestBootPasswordUpdatesAndRedaction(test *testing.T) {
 			}
 			if retained, _ := read(); retained != hash {
 				test.Fatal("failed edit changed stored password")
+			}
+			for _, password := range []string{"secret+word", "secret;word", "secret word", " leading", "trailing ", "+", " "} {
+				body, err := json.Marshal(map[string]string{"boot_password": password})
+				if err != nil {
+					test.Fatal(err)
+				}
+				response := update(string(body), "https")
+				if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "must not contain +, ; or spaces") {
+					test.Fatalf("incompatible password accepted: %d %s", response.Code, response.Body.String())
+				}
+				if retained, required := read(); retained != hash || !required || readRevision() != revision {
+					test.Fatal("rejected password changed protection")
+				}
 			}
 			if response = update(`{"boot_password":"replacement"}`, "https"); response.Code != http.StatusOK {
 				test.Fatal("password rotation failed")

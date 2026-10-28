@@ -20,6 +20,50 @@ import (
 
 const bootTestMAC = "52:54:00:12:34:56"
 
+func TestBootPasswordScriptsFreeCompletedResponses(test *testing.T) {
+	server, _, image := newBootAuthServer(test, true)
+	builder := testMenuBuilder(nil)
+	builder.bootAuthURL = server.bootAuthenticationURL()
+	scripts := map[string]string{
+		"menu":       server.bootPasswordMenu(bootTestMAC),
+		"image gate": builder.buildImagePasswordGate(image.ID),
+		"image form": server.imagePasswordForm(bootTestMAC, image.ID),
+	}
+	for name, script := range scripts {
+		test.Run(name, func(test *testing.T) {
+			if !strings.Contains(script, "chain --autofree "+server.bootAuthenticationURL()+"##params=bootimus") {
+				test.Fatal("completed authentication scripts must not remain in the image list")
+			}
+		})
+	}
+}
+
+func TestBootPasswordRejectsLegacyAmbiguity(test *testing.T) {
+	for _, scenario := range []struct {
+		name   string
+		stored string
+		body   string
+	}{
+		{"literal plus", "a b", "password=a+b"},
+		{"encoded space", "a b", "password=a%20b"},
+		{"encoded plus", "a+b", "password=a%2Bb"},
+		{"encoded semicolon", "a;b", "password=a%3Bb"},
+	} {
+		test.Run(scenario.name, func(test *testing.T) {
+			server := &Server{}
+			request := httptest.NewRequest(http.MethodPost, "https://bootimus/boot-auth", strings.NewReader(scenario.body))
+			request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			if err := request.ParseForm(); err != nil {
+				test.Fatal(err)
+			}
+			response := httptest.NewRecorder()
+			if server.checkBootPassword(response, request, bootTestHash(test, scenario.stored)) || response.Code != http.StatusForbidden {
+				test.Fatal("legacy incompatible password accepted; it must be reset")
+			}
+		})
+	}
+}
+
 func bootTestHash(test *testing.T, password string) string {
 	test.Helper()
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
@@ -40,7 +84,7 @@ func newBootAuthServer(test *testing.T, global bool) (*Server, storage.Storage, 
 	if err := store.CreateClient(client); err != nil {
 		test.Fatal(err)
 	}
-	image := &models.Image{Name: "Protected image", Filename: "protected.iso", Enabled: true, Public: true, BootMethod: "kernel", BootPasswordRequired: true, BootPasswordHash: bootTestHash(test, "image+&=%")}
+	image := &models.Image{Name: "Protected image", Filename: "protected.iso", Enabled: true, Public: true, BootMethod: "kernel", BootPasswordRequired: true, BootPasswordHash: bootTestHash(test, "image&=%")}
 	if err := store.CreateImage(image); err != nil {
 		test.Fatal(err)
 	}
@@ -49,7 +93,7 @@ func newBootAuthServer(test *testing.T, global bool) (*Server, storage.Storage, 
 		if err != nil {
 			test.Fatal(err)
 		}
-		theme.BootPasswordRequired, theme.BootPasswordHash = true, bootTestHash(test, "menu+&=%")
+		theme.BootPasswordRequired, theme.BootPasswordHash = true, bootTestHash(test, "menu&=%")
 		if err := store.UpdateMenuTheme(theme); err != nil {
 			test.Fatal(err)
 		}
@@ -68,7 +112,7 @@ func bootAuthRequest(server *Server, fields url.Values) *httptest.ResponseRecord
 
 func unlockTestMenu(test *testing.T, server *Server) string {
 	test.Helper()
-	response := bootAuthRequest(server, url.Values{"action": {"menu"}, "mac": {bootTestMAC}, "password": {"menu+&=%"}})
+	response := bootAuthRequest(server, url.Values{"action": {"menu"}, "mac": {bootTestMAC}, "password": {"menu&=%"}})
 	if response.Code != http.StatusOK {
 		test.Fatalf("menu authentication: %d", response.Code)
 	}
@@ -79,7 +123,7 @@ func unlockTestMenu(test *testing.T, server *Server) string {
 	if !strings.Contains(response.Body.String(), "item lock Lock network-boot menu") || !strings.Contains(response.Body.String(), ":lock\nclear bootimus_password\nclear bootimus_session\nexit") {
 		test.Fatal("authenticated menu has no way to lock and authenticate again")
 	}
-	if strings.Contains(response.Body.String(), "/boot/protected/") || strings.Contains(response.Body.String(), "menu+&=%") {
+	if strings.Contains(response.Body.String(), "/boot/protected/") || strings.Contains(response.Body.String(), "menu&=%") {
 		test.Fatal("menu exposed the protected image commands or password")
 	}
 	return match[1]
@@ -101,7 +145,7 @@ func TestBootPasswordsRequireSeparateChecks(test *testing.T) {
 			}
 			fields := url.Values{"action": {"image"}, "mac": {bootTestMAC}, "image": {strconvImage(image)}}
 			if global {
-				fields.Set("password", "image+&=%")
+				fields.Set("password", "image&=%")
 				if response := bootAuthRequest(server, fields); response.Code != http.StatusForbidden {
 					test.Fatal("image password bypassed the global password")
 				}
@@ -120,12 +164,12 @@ func TestBootPasswordsRequireSeparateChecks(test *testing.T) {
 			if err != nil || client.NextBootImage != image.Filename {
 				test.Fatal("prompt or failure consumed the pending next boot")
 			}
-			fields.Set("password", "image+&=%")
+			fields.Set("password", "image&=%")
 			response = bootAuthRequest(server, fields)
 			if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "kernel http://192.0.2.10:8080/boot/protected/vmlinuz") {
 				test.Fatalf("correct image password failed: %d", response.Code)
 			}
-			if strings.Contains(response.Body.String(), "form ") || strings.Contains(response.Body.String(), "menu Bootimus") || strings.Contains(response.Body.String(), "image+&=%") {
+			if strings.Contains(response.Body.String(), "form ") || strings.Contains(response.Body.String(), "menu Bootimus") || strings.Contains(response.Body.String(), "image&=%") {
 				test.Fatal("unlocked image script must not carry passwords or a reusable unlocked menu")
 			}
 			client, err = store.GetClient(bootTestMAC)
@@ -177,6 +221,7 @@ func TestBootAuthenticationTransportAndInput(test *testing.T) {
 		{"GET", "GET", "https://192.0.2.10/boot-auth", "", "", 405},
 		{"query credentials", "POST", "https://192.0.2.10/boot-auth?password=menu", "application/x-www-form-urlencoded", "action=menu", 400},
 		{"JSON", "POST", "https://192.0.2.10/boot-auth", "application/json", `{}`, 400},
+		{"unescaped semicolon", "POST", "https://192.0.2.10/boot-auth", "application/x-www-form-urlencoded", "action=menu&password=a;b", 400},
 		{"oversize", "POST", "https://192.0.2.10/boot-auth", "application/x-www-form-urlencoded", "password=" + strings.Repeat("a", 4096), 400},
 		{"MAC injection", "POST", "https://192.0.2.10/boot-auth", "application/x-www-form-urlencoded", "mac=%0Aboot&action=menu", 400},
 		{"unknown action", "POST", "https://192.0.2.10/boot-auth", "application/x-www-form-urlencoded", "action=other", 400},
@@ -274,7 +319,7 @@ func TestBootAuthenticationRejectsUnavailableImage(test *testing.T) {
 	if err := store.UpdateImage(image.Filename, image); err != nil {
 		test.Fatal(err)
 	}
-	fields := url.Values{"action": {"image"}, "mac": {bootTestMAC}, "image": {strconvImage(image)}, "password": {"image+&=%"}}
+	fields := url.Values{"action": {"image"}, "mac": {bootTestMAC}, "image": {strconvImage(image)}, "password": {"image&=%"}}
 	if response := bootAuthRequest(server, fields); response.Code != http.StatusForbidden {
 		test.Fatal("unassigned image unlocked")
 	}
@@ -307,7 +352,7 @@ func TestBootProtectionWithoutReplicaHashes(test *testing.T) {
 	if err := store.UpdateImage(image.Filename, image); err != nil {
 		test.Fatal(err)
 	}
-	fields := url.Values{"action": {"image"}, "mac": {bootTestMAC}, "image": {strconvImage(image)}, "password": {"image+&=%"}}
+	fields := url.Values{"action": {"image"}, "mac": {bootTestMAC}, "image": {strconvImage(image)}, "password": {"image&=%"}}
 	if response := bootAuthRequest(server, fields); response.Code != http.StatusServiceUnavailable {
 		test.Fatal("an image without its verification hash must remain blocked")
 	}
@@ -353,7 +398,7 @@ func TestBootPasswordDeploymentProfile(test *testing.T) {
 	if response := bootAuthRequest(server, fields); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "form Image password") {
 		test.Fatal("profile image must request its password")
 	}
-	fields.Set("password", "image+&=%")
+	fields.Set("password", "image&=%")
 	if response := bootAuthRequest(server, fields); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "\nkernel ") {
 		test.Fatal("correct password did not unlock the profile image")
 	}
@@ -395,7 +440,7 @@ func TestBootPasswordRotationRejectsMenuSession(test *testing.T) {
 	if err := store.UpdateMenuTheme(theme); err != nil {
 		test.Fatal(err)
 	}
-	fields := url.Values{"action": {"image"}, "mac": {bootTestMAC}, "image": {strconvImage(image)}, "password": {"image+&=%"}, "session": {session}}
+	fields := url.Values{"action": {"image"}, "mac": {bootTestMAC}, "image": {strconvImage(image)}, "password": {"image&=%"}, "session": {session}}
 	if response := bootAuthRequest(server, fields); response.Code != http.StatusForbidden {
 		test.Fatal("password rotation did not invalidate the menu session")
 	}

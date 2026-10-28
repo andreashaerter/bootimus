@@ -3954,6 +3954,14 @@ async function loadTheme() {
     }
 }
 
+function validateBootPassword(password) {
+    if (/[+; ]/.test(password)) {
+        showAlert('Boot passwords must not contain +, ; or spaces (iPXE v2.0.0 compatibility)', 'error');
+        return false;
+    }
+    return true;
+}
+
 async function saveTheme(e) {
     e.preventDefault();
     const theme = {
@@ -3963,7 +3971,10 @@ async function saveTheme(e) {
     };
     const bootPassword = document.getElementById('theme-boot-password').value;
     if (document.getElementById('theme-remove-boot-password').checked) theme.boot_password = '';
-    else if (bootPassword) theme.boot_password = bootPassword;
+    else if (bootPassword) {
+        if (!validateBootPassword(bootPassword)) return;
+        theme.boot_password = bootPassword;
+    }
     try {
         const res = await authFetch(`${API_BASE}/theme`, {
             method: 'PUT',
@@ -6887,7 +6898,10 @@ async function saveImageProperties(opts) {
 
     const bootPassword = document.getElementById('image-props-boot-password').value;
     if (document.getElementById('image-props-remove-boot-password').checked) updates.boot_password = '';
-    else if (bootPassword) updates.boot_password = bootPassword;
+    else if (bootPassword) {
+        if (!validateBootPassword(bootPassword)) return false;
+        updates.boot_password = bootPassword;
+    }
 
     const bootFilesRow = document.getElementById('image-props-bootfiles-row');
     if (bootFilesRow && bootFilesRow.style.display !== 'none') {

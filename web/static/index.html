@@ -972,6 +972,7 @@
                         <label for="theme-boot-password">Boot menu password</label>
                         <input type="password" id="theme-boot-password" autocomplete="new-password">
                         <small id="theme-boot-password-status"></small>
+                        <small>No +, ; or spaces (iPXE v2.0.0 compatibility).</small>
                         <small>Leave blank to keep the current password. Requires admin HTTPS and a compatible bootloader that trusts its certificate. Local boot stays available; image downloads are not protected.</small>
                         <label class="checkbox-group"><input type="checkbox" id="theme-remove-boot-password"> Remove the boot menu password</label>
                     </div>
@@ -2475,6 +2476,7 @@
                     <label for="image-props-boot-password">Image password</label>
                     <input type="password" id="image-props-boot-password" autocomplete="new-password">
                     <small id="image-props-boot-password-status"></small>
+                    <small>No +, ; or spaces (iPXE v2.0.0 compatibility).</small>
                     <small>Leave blank to keep the current password. Checked separately from the menu password, including automatic boots. Direct image downloads remain accessible.</small>
                     <label class="checkbox-group"><input type="checkbox" id="image-props-remove-boot-password"> Remove the image password</label>
                 </div>
