@@ -451,10 +451,13 @@ ip=dhcp
 | **Ubuntu Desktop** |  Ja |  Nein | `/casper/vmlinuz` + fetch-Optimierung |
 | **Ubuntu Server** |  Ja |  Ja | `/install/vmlinuz` + Netboot |
 | **Pop!_OS** |  Ja |  Nein | `/casper/vmlinuz` |
-| **TrueNAS SCALE** |  Ja |  Nein | `/vmlinuz` + `/initrd.img` (Root) |
 | **Proxmox VE** |  Ja |  Nein | `/boot/linux26` + `/boot/initrd.img` |
 | **openSUSE** |  Ja |  N/A | `/boot/x86_64/loader/linux` |
 | **NixOS** |  N/A |  N/A | Sanboot |
+
+### TrueNAS SCALE: manuelle Boot-Parameter
+
+TrueNAS SCALE 25.10.2.1 benötigt derzeit manuelle Boot-Parameter; das automatische Debian-Profil reicht nicht aus. Die [englische Anleitung](../en/images.md#truenas-scale-manual-boot-parameters) beschreibt den getesteten Weg. In QEMU wurde mit UEFI, deaktiviertem Secure Boot und 8 GiB RAM das Installationsmenü erreicht. Eine Installation, BIOS-Boot und physische Hardware wurden nicht geprüft.
 
 ### Erkennungs-Patterns
 

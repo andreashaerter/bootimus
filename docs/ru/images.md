@@ -451,10 +451,13 @@ ip=dhcp
 | **Ubuntu Desktop** | Да | Нет | `/casper/vmlinuz` + оптимизация fetch |
 | **Ubuntu Server** | Да | Да | `/install/vmlinuz` + netboot |
 | **Pop!_OS** | Да | Нет | `/casper/vmlinuz` |
-| **TrueNAS SCALE** | Да | Нет | `/vmlinuz` + `/initrd.img` (корень) |
 | **Proxmox VE** | Да | Нет | `/boot/linux26` + `/boot/initrd.img` |
 | **openSUSE** | Да | N/A | `/boot/x86_64/loader/linux` |
 | **NixOS** | N/A | N/A | Sanboot |
+
+### TrueNAS SCALE: ручные параметры загрузки
+
+TrueNAS SCALE 25.10.2.1 пока требует ручных параметров загрузки: автоматического профиля Debian недостаточно. Проверенный способ описан в [английском руководстве](../en/images.md#truenas-scale-manual-boot-parameters). В QEMU с UEFI, отключённым Secure Boot и 8 ГиБ ОЗУ удалось открыть меню установщика. Установка, загрузка BIOS и физическое оборудование не проверялись.
 
 ### Шаблоны определения
 

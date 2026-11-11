@@ -451,10 +451,13 @@ ip=dhcp
 | **Ubuntu Desktop** |  是 |  否 | `/casper/vmlinuz` + fetch 优化 |
 | **Ubuntu Server** |  是 |  是 | `/install/vmlinuz` + netboot |
 | **Pop!_OS** |  是 |  否 | `/casper/vmlinuz` |
-| **TrueNAS SCALE** |  是 |  否 | `/vmlinuz` + `/initrd.img`(根目录) |
 | **Proxmox VE** |  是 |  否 | `/boot/linux26` + `/boot/initrd.img` |
 | **openSUSE** |  是 |  N/A | `/boot/x86_64/loader/linux` |
 | **NixOS** |  N/A |  N/A | Sanboot |
+
+### TrueNAS SCALE：手动启动参数
+
+TrueNAS SCALE 25.10.2.1 目前需要手动设置启动参数，自动 Debian 配置不足以完成网络启动。[英文指南](../en/images.md#truenas-scale-manual-boot-parameters)提供了已验证的方法。在 QEMU 中使用 UEFI、关闭 Secure Boot、配置 8 GiB 内存后，已成功进入安装菜单。尚未验证实际安装、BIOS 启动或物理硬件。
 
 ### 检测模式
 

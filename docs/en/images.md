@@ -467,10 +467,25 @@ ip=dhcp
 | **Ubuntu Desktop** |  Yes |  No | `/casper/vmlinuz` + fetch optimisation |
 | **Ubuntu Server** |  Yes |  Yes | `/install/vmlinuz` + netboot |
 | **Pop!_OS** |  Yes |  No | `/casper/vmlinuz` |
-| **TrueNAS SCALE** |  Yes |  No | `/vmlinuz` + `/initrd.img` (root) |
 | **Proxmox VE** |  Yes |  No | `/boot/linux26` + `/boot/initrd.img` |
 | **openSUSE** |  Yes |  N/A | `/boot/x86_64/loader/linux` |
 | **NixOS** |  N/A |  N/A | Sanboot |
+
+### TrueNAS SCALE: manual boot parameters
+
+TrueNAS SCALE 25.10.2.1 needs manual boot parameters. The automatic Debian profile currently omits the live filesystem location, causing “Unable to find a medium containing a live file system” ([#20](https://github.com/garybowers/bootimus/issues/20)).
+
+1. Upload the ISO, open its **Properties** tab and select **Extract**. Wait for extraction to finish.
+2. Select the **Kernel/Initrd** boot method.
+3. Set **Boot Parameters** to the following, then select **Save Properties**:
+
+```text
+initrd=initrd boot=live ip=dhcp fetch={{BASE_URL}}/isos/{{FILENAME}}
+```
+
+Keep the complete ISO available: the installer needs `/cdrom/TrueNAS-SCALE.update` as well as `/live/filesystem.squashfs`. This downloads the full ISO into RAM, so allow memory for both the ISO and the running installer.
+
+Verified with Bootimus `702cbf6` and the official 25.10.2.1 ISO in QEMU: UEFI, Secure Boot off, 8 GiB RAM, reaching the installer menu. No target disk was attached. Installation, BIOS boot and physical hardware remain unverified.
 
 ### Detection Patterns
 

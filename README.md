@@ -197,7 +197,9 @@ globally active set.
 - Arch Linux, CachyOS, EndeavourOS, Manjaro, Garuda, Artix, BlackArch, Parabola, SteamOS
 
 ### Debian/Ubuntu-based
-- Ubuntu (all flavours), Debian, Linux Mint, Pop!_OS, Kali, Parrot, Zorin, elementary OS, MX Linux, antiX, Devuan, PureOS, Deepin, LMDE, TrueNAS SCALE, Proxmox
+- Ubuntu (all flavours), Debian, Linux Mint, Pop!_OS, Kali, Parrot, Zorin, elementary OS, MX Linux, antiX, Devuan, PureOS, Deepin, LMDE, Proxmox
+
+TrueNAS SCALE currently needs [manual boot parameters](docs/en/images.md#truenas-scale-manual-boot-parameters). Booting its installer has been tested in QEMU; installation remains unverified.
 
 ### Red Hat-based
 - Fedora, CentOS, Rocky Linux, AlmaLinux, Oracle Linux, Nobara, Mageia
