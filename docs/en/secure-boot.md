@@ -51,8 +51,8 @@ The official iPXE binaries carry no embedded Bootimus script; they rely on iPXE 
 If iPXE loses network connectivity after the firmware downloads it, try the
 optional `secureboot-official-snp` set. Its signed SNP-only loaders use the
 UEFI network driver on the boot interface instead of probing native NIC drivers.
-This is a candidate for the XCP-ng link failure in [#255](https://github.com/garybowers/bootimus/issues/255);
-confirmation on the affected hypervisor is still needed.
+It has been [tested on XCP-ng 8.3 with Secure Boot off and on](https://github.com/garybowers/bootimus/pull/257#issuecomment-6863686852),
+including complete Ubuntu installations.
 
 Select it globally on **Bootloaders**, or assign it to a client or group. Built-in
 proxyDHCP honours those assignments. With external DHCP, select the set globally
